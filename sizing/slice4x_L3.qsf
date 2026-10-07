@@ -1,0 +1,16 @@
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CEBA4F23C8
+set_global_assignment -name TOP_LEVEL_ENTITY gte_slice
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 1
+set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files_slice4x_L3
+set_global_assignment -name VHDL_FILE gte_slice.vhd
+set_global_assignment -name SDC_FILE map_lane4x.sdc
+set_parameter -name G_L 3
+set_parameter -name G_DIV_REG 0
+set_instance_assignment -name VIRTUAL_PIN ON -to sin
+set_instance_assignment -name VIRTUAL_PIN ON -to sen
+set_instance_assignment -name VIRTUAL_PIN ON -to cen
+set_instance_assignment -name VIRTUAL_PIN ON -to cstb
+set_instance_assignment -name VIRTUAL_PIN ON -to dout
+set_instance_assignment -name VIRTUAL_PIN ON -to dout_div
