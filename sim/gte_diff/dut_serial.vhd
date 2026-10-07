@@ -1,5 +1,4 @@
--- DUT flavour "serial": the replacement core. clk4x / clk4xIndex are left
--- unconnected until the core takes them.
+-- DUT flavour "serial": gte_serial.
 architecture serial of gte_dut is
 begin
    igte : entity work.gte_serial

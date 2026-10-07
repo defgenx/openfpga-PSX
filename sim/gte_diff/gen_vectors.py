@@ -14,6 +14,11 @@ Vector file: one item per line, hex fields "TT AA DDDDDDDD".
   14 00 NNNNNNNN  race pause: armed on the edge the next op is issued
   15 00 000000SS  suite label: 0 directed 1 edge 2 reset 3 cpu 4 uniform 5 game 6 smoke
   16 00 NNNNNNNN  async pause: armed now, fires at the first idle point, no waiting
+  17 AA DDDDDDDD  write of AA and read of AA on the same clk1x edge
+  18 AA DDDDDDDD  write of AA and read of AA+1 on the same clk1x edge
+  19 00 NNNNNNNN  pause of N clk1x (N >= 2) with a one-clk1x reset pulse while ce is low
+
+This list is canonical; tb_diff.vhd implements it.
 
 Suites: directed, edge, reset, cpu, random (uniform + game halves), smoke.
 """
@@ -85,6 +90,12 @@ class Gen:
 
     def race(self, n):
         self.line(0x14, 0, n)
+
+    def wr_rd(self, reg, val, same=True):
+        self.line(0x17 if same else 0x18, reg, val)
+
+    def pause_reset(self, n):
+        self.line(0x19, 0, n)
 
     def apause(self, n):
         self.line(0x16, 0, n)
@@ -392,8 +403,20 @@ class Gen:
                     ops += 1
                 self.cmd(self.rand_cmd())
                 ops += 1
-            elif x < 0.85:                     # single random-register reads
+            elif x < 0.80:                     # single random-register reads
                 self.read(r.choice(WRITABLE + [29, 31]))
+                ops += 1
+            elif x < 0.83:                     # write and read strobes on the same edge
+                self.wr_rd(r.choice(range(64)), r.getrandbits(32), same=r.random() < 0.7)
+                ops += 1
+            elif x < 0.84:                     # writes to read-only 29/31, LZCS extremes read back via 31
+                reg = r.choice((29, 31, 30, 30, 30))
+                self.write(reg, r.choice((0, 0xFFFFFFFF, 0x80000000, 0x7FFFFFFF, 1, 0x00010000, 0xFFFE0000))
+                           if reg == 30 else r.getrandbits(32))
+                self.read(31 if reg == 30 else reg)
+                ops += 2
+            elif x < 0.85:
+                self.pause_reset(r.choice((2, 3, 5, 9)))
                 ops += 1
             elif x < 0.88:
                 self.reset()

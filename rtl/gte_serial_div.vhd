@@ -112,7 +112,7 @@ begin
    begin
       if rising_edge(clk2x) then
          assert not (ce = '1' and trigger = '1' and (trigger_1 = '1' or trigger_2 = '1'))
-            report "gte_serial_div: triggers less than 3 cycles apart" severity error;
+            report "gte_serial_div: triggers less than 3 cycles apart" severity failure;
       end if;
    end process;
    -- synthesis translate_on

@@ -10,19 +10,7 @@ use work.pGTE.all;
 
 -- Differential testbench: golden gte vs gte_dut, identical stimulus.
 --
--- Vector file, one line per item, hex fields "TT AA DDDDDDDD":
---   01 00 CCCCCCCC  COP2 command word
---   04 AA DDDDDDDD  MTC2/CTC2 write of register AA
---   05 AA 00000000  MFC2/CFC2 read of register AA
---   02 00 0000000M  mode, bit0 = CPU-timing handshake, bit1 = dump after each command
---   10 00 NNNNNNNN  gap, N idle clk1x cycles
---   11 00 00000000  dump: read the 64 registers and compare
---   12 00 00000000  reset pulse, one clk1x cycle (applied only while idle)
---   13 00 NNNNNNNN  pause at an idle point: ce low for N clk1x, waits until it ended
---   14 00 NNNNNNNN  race pause: armed on the edge the next op is issued
---   15 00 000000SS  suite label (coverage bucket), see SUITE_NAME
---   16 00 NNNNNNNN  async pause: armed now, fires at the first SS_idle, no wait
--- Lines starting with '#' and empty lines are ignored.
+-- Vector file format (line types 01-19): canonical list in gen_vectors.py's docstring.
 entity tb_diff is
    generic
    (
@@ -48,13 +36,10 @@ architecture arch of tb_diff is
    -- clocks: 33.8688 MHz, edge-aligned
    signal clk1x         : std_logic := '1';
    signal clk2x         : std_logic := '1';
-   signal clk4x         : std_logic := '1';
 
    signal clk1xToggle   : std_logic := '0';
    signal clk1xToggle2x : std_logic := '0';
-   signal clk1xToggle4x : std_logic := '0';
    signal clk2xIndex    : std_logic := '0';
-   signal clk4xIndex    : unsigned(1 downto 0) := "00";
 
    signal ce            : std_logic := '1';
    signal reset         : std_logic := '1';
@@ -203,7 +188,6 @@ begin
    ---------------------------------------------------------------- clocks
    clk1x <= not clk1x after 14764 ps;
    clk2x <= not clk2x after 7382 ps;
-   clk4x <= not clk4x after 3691 ps;
 
    -- same derivation as psx_top / sim/gte tb for clk2xIndex
    process (clk1x)
@@ -220,29 +204,6 @@ begin
          clk2xIndex    <= '0';
          if (clk1xToggle2x = clk1xToggle) then
             clk2xIndex <= '1';
-         end if;
-      end if;
-   end process;
-
-   -- clk4xIndex counts 0..3 on successive clk4x edges; the value sampled on the
-   -- clk4x edge that sees clk2xIndex = '1' is "11"; on clk2x edges clk4xIndex = clk2xIndex & '1'.
-   process (clk4x)
-   begin
-      if rising_edge(clk4x) then
-         clk1xToggle4x <= clk1xToggle;
-         clk4xIndex    <= clk4xIndex + 1;
-         if (clk1xToggle4x /= clk1xToggle) then
-            clk4xIndex <= "11";
-         end if;
-      end if;
-   end process;
-
-   process (clk2x)
-   begin
-      if rising_edge(clk2x) and cmp_en then
-         if clk4xIndex /= (clk2xIndex & '1') then
-            idx_err <= idx_err + 1;
-            if idx_err < 5 then say("INDEX MISMATCH clk4xIndex=" & to_string(clk4xIndex) & " clk2xIndex=" & std_logic'image(clk2xIndex) & " t=" & to_string(now, ns)); end if;
          end if;
       end if;
    end process;
@@ -284,8 +245,6 @@ begin
       clk1x                => clk1x,
       clk2x                => clk2x,
       clk2xIndex           => clk2xIndex,
-      clk4x                => clk4x,
-      clk4xIndex           => clk4xIndex,
       ce                   => ce,
       reset                => reset,
       WIDESCREEN           => "00",
@@ -716,6 +675,41 @@ begin
          end if;
       end procedure;
 
+      -- write and read strobes on the same clk1x edge (a stalled MFC2 re-issues on busy/cmdEna only, cpu.vhd:1163)
+      procedure do_wr_rd(a : std_logic_vector(7 downto 0); d : std_logic_vector(31 downto 0); ra : unsigned(5 downto 0)) is
+      begin
+         wait_legal(1);
+         gte_writeAddr <= unsigned(a(5 downto 0));
+         gte_writeData <= unsigned(d);
+         gte_writeEna  <= '1';
+         gte_readAddr  <= ra;
+         gte_readEna   <= '1';
+         tick;
+      end procedure;
+
+      -- reset pulse while ce is low (reset has priority over ce in both GTEs)
+      procedure do_pause_reset(len : integer) is
+         variable n : integer := 0;
+      begin
+         wait_idle;
+         arm_pause(len);
+         tick;
+         while pause_done_cnt /= arm_var loop
+            tick;
+            n := n + 1;
+            if n > TIMEOUT_EDGES then note_timeout("pause"); exit; end if;
+         end loop;
+         if ce = '0' then
+            reset <= '1';
+            tick;
+            reset <= '0';
+         end if;
+         while ce = '0' loop
+            tick;
+         end loop;
+         tick;
+      end procedure;
+
       procedure do_reset is
       begin
          -- Reset is applied only while idle: the golden leaves partially applied
@@ -814,6 +808,9 @@ begin
                   when 16#16# =>
                      arm_pause(maximum(1, to_integer(unsigned(p_data(30 downto 0)))));
                      tick;
+                  when 16#17# => do_wr_rd(p_addr, p_data, unsigned(p_addr(5 downto 0)));
+                  when 16#18# => do_wr_rd(p_addr, p_data, unsigned(p_addr(5 downto 0)) + 1);
+                  when 16#19# => do_pause_reset(maximum(2, to_integer(unsigned(p_data(30 downto 0)))));
                   when others =>
                      say("ERROR unknown vector type at line " & integer'image(lineno));
                      tb_err <= tb_err + 1;

@@ -9,10 +9,6 @@ use work.gte_serial_pkg.all;
 use work.gte_serial_ucode.all;
 
 entity gte_serial is
-   generic
-   (
-      G_L                  : integer := 1   -- 1: golden timing, 2: product registered (one more cycle per offset)
-   );
    port
    (
       clk1x                : in  std_logic;
@@ -172,9 +168,6 @@ architecture arch of gte_serial is
    signal opA   : t_opa  := (others => (others => '0'));
    signal opB   : t_opb  := (others => (others => '0'));
    signal opS   : t_ops  := (others => (others => '0'));
-   signal pC    : t_ctls := (others => CTL0);
-   signal pS    : t_ops  := (others => (others => '0'));
-   signal pP    : t_prod := (others => (others => '0'));
    signal eC    : t_ctls;
    signal eS    : t_ops;
    signal eP    : t_prod;
@@ -486,7 +479,7 @@ begin
             if (sel0 = '1') then
                vq0 <= valid(ra0);
                if (acc_run = '1') then
-                  dst0 <= to_integer(unsigned(pf0(RD_DST + 2 downto RD_DST)));
+                  dst0 <= to_integer(unsigned(pf0(RD_DST + 1 downto RD_DST)));
                else
                   dst0 <= to_integer(unsigned(rom_q(RD0_LSB + RD_DST + 1 downto RD0_LSB + RD_DST)));
                end if;
@@ -512,7 +505,7 @@ begin
             if (sel1 = '1') then
                vq1 <= valid(ra1);
                if (acc_run = '1') then
-                  dst1 <= to_integer(unsigned(pf1(RD_DST + 2 downto RD_DST)));
+                  dst1 <= to_integer(unsigned(pf1(RD_DST + 1 downto RD_DST)));
                else
                   dst1 <= to_integer(unsigned(rom_q(RD1_LSB + RD_DST + 1 downto RD1_LSB + RD_DST)));
                end if;
@@ -554,35 +547,12 @@ begin
    end process;
 
    ----------------------------------------------------------------
-   -- lanes: issue, execute (G_L = 2: product register in between)
+   -- lanes: issue, then execute (product and accumulate in one cycle)
    ----------------------------------------------------------------
-   g_l1 : if G_L = 1 generate
-      eC <= iC;
-      eS <= opS;
-      eP(0) <= opA(0) * opB(0);
-      eP(1) <= opA(1) * opB(1);
-   end generate;
-
-   g_l2 : if G_L = 2 generate
-      eC <= pC;
-      eS <= pS;
-      eP <= pP;
-      process (clk2x)
-      begin
-         if rising_edge(clk2x) then
-            if (reset = '1') then
-               pC(0).v <= '0';
-               pC(1).v <= '0';
-            elsif (ce = '1') then
-               for l in 0 to 1 loop
-                  pC(l) <= iC(l);
-                  pS(l) <= opS(l);
-                  pP(l) <= opA(l) * opB(l);
-               end loop;
-            end if;
-         end if;
-      end process;
-   end generate;
+   eC <= iC;
+   eS <= opS;
+   eP(0) <= opA(0) * opB(0);
+   eP(1) <= opA(1) * opB(1);
 
    -- execute stage, combinational: X, addend and combine
    exec_comb : process (eC, eP, eS, acc, macLast, acc0, mac0Last)
@@ -668,7 +638,7 @@ begin
             -- synthesis translate_off
             if (eC(0).v = '1' and eC(1).v = '1' and eC(0).m0 = eC(1).m0) then
                assert (eC(0).m0 = '0' and eC(0).row /= eC(1).row)
-                  report "gte_serial: both lanes execute the same accumulator" severity error;
+                  report "gte_serial: both lanes execute the same accumulator" severity failure;
             end if;
             -- synthesis translate_on
 

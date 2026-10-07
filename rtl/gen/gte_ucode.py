@@ -554,6 +554,7 @@ def schedule(name, gacts, L, max_lookback=40):
         return lst[0]
 
     edges = defaultdict(list)    # pred -> [(succ, delta)]: cyc[succ] >= cyc[pred] + delta
+    raw = defaultdict(set)       # reader -> golden writers it depends on (for the depth report)
 
     def edge(p, s_, d):
         if p == s_:
@@ -571,6 +572,8 @@ def schedule(name, gacts, L, max_lookback=40):
         ws = swriters.get(sreg, [])
         if v is not None:
             edge(v, i, soff(v, sreg, "w") - ro)
+            if v != i:
+                raw[i].add(v)
             pos = ws.index(v)
             nxt = ws[pos + 1] if pos + 1 < len(ws) else None
         else:
@@ -614,8 +617,19 @@ def schedule(name, gacts, L, max_lookback=40):
     if sum(1 for cr, _, _ in reads if cr == -1) > 2:
         raise Fail("%s: prefetch overflow" % name)
     length = max([a.cyc for a in acts] + [cr for cr, _, _ in reads]) + 1
+    # dependency stages: longest chain of true dependencies that are not a row's own accumulator chain
+    depth = {}
+    for i in sorted(range(len(acts)), key=lambda i: gacts[i].k):
+        d = 0
+        for v in raw[i]:
+            same_chain = (acts[i].kind == acts[v].kind and acts[i].kind in ("mac", "mac0") and gacts[i].ures
+                          and (acts[i].kind == "mac0" or gacts[i].row == gacts[v].row))
+            d = max(d, depth.get(v, 0) + (0 if same_chain else 1))
+        depth[i] = d
+    nmul = sum(1 for a in acts if a.kind in ("mac", "mac0") and not a.f["xs"])
+    nsh = sum(1 for a in acts if a.kind in ("mac", "mac0") and a.f["xs"])
     return dict(name=name, acts=acts, reads=reads, lanes=lanes, length=length, last_w=last_w, busy=busy,
-                slots_used=sum(1 for s in slots if s))
+                slots_used=sum(1 for s in slots if s), nmul=nmul, nsh=nsh, depth=max(depth.values()) + 1)
 
 
 def place(name, acts, order, preds, floor, busy, max_lookback):
@@ -834,13 +848,13 @@ def describe(o, slots):
 
 
 def report(progs, depth, L):
-    lines = ["| Program | golden edges | program words | last write | slack | lane ops | lane use | staging slots |",
-             "|---|---|---|---|---|---|---|---|"]
+    lines = ["| Program | golden edges | words | last write | slack | products (real / 2^k) | dependency stages | lane use | staging slots |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for name in sorted(progs):
         p = progs[name]
         nops = sum(len(v) for v in p["lanes"].values())
-        lines.append("| %s | %d | %d | %d | %d | %d | %d%% | %d |" % (
-            name, p["busy"], p["length"], p["last_w"], p["busy"] - p["last_w"], nops,
+        lines.append("| %s | %d | %d | %d | %d | %d / %d | %d | %d%% | %d |" % (
+            name, p["busy"], p["length"], p["last_w"], p["busy"] - p["last_w"], p["nmul"], p["nsh"], p["depth"],
             round(100 * nops / (2 * p["length"])), p["slots_used"]))
     lines.append("")
     lines.append("ROM: %d words x %d bits (G_L = %d)." % (depth, UW, L))
@@ -872,7 +886,7 @@ def listing(p):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--L", type=int, default=1)
+    ap.add_argument("--L", type=int, default=1, help="lane depth; the RTL implements 1, 2 is for schedule analysis only")
     ap.add_argument("--out", default=None)
     ap.add_argument("--report", default=None)
     ap.add_argument("--listing", default=None)

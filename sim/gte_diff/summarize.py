@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Aggregate tb_diff run logs: per-run RESULT lines, summed coverage, exit 1 on any FAIL.
 
-usage: summarize.py [--quiet] RUNDIR...   (each RUNDIR holds run.log and status)
+A run also fails on any simulator "** Error" or "** Failure" line (RTL assertions included).
+With --require-coverage, every coverage counter summed over all suites must be non-zero
+(a single suite may legitimately leave some at zero, e.g. game-like never clamps).
+
+usage: summarize.py [--quiet] [--require-coverage] RUNDIR...   (each RUNDIR holds run.log and status)
 """
 import collections
 import os
@@ -13,11 +17,13 @@ ASR = re.compile(r"^ASSERTS mul=(\d+) divshift=(\d+) divrange=(\d+) checked_mul=
 PAU = re.compile(r"^PAUSES fired=(\d+) while_busy=(\d+)")
 COV = re.compile(r"^COV (\S+) (\S+) (\d+)$")
 DETAIL = ("MISMATCH", "BUSY DIFF", "ASSERT ", "TIMEOUT", "ERROR", "INDEX")
+SIMERR = re.compile(r"^\*\* (Error|Failure)")
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--quiet"]
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
     quiet = "--quiet" in sys.argv
+    need_cov = "--require-coverage" in sys.argv
     tot = collections.Counter()
     cov = collections.defaultdict(collections.Counter)
     fail = False
@@ -31,7 +37,10 @@ def main():
             continue
         res = None
         extra = []
+        simerr = []
         for ln in lines:
+            if SIMERR.match(ln):
+                simerr.append(ln)
             m = RES.match(ln)
             if m:
                 res = m
@@ -59,9 +68,10 @@ def main():
         tot["busy_diffs"] += bd
         tot["assert_fails"] += af
         tot["commands"] += cmds
-        bad = res.group(5) != "PASS"
+        bad = res.group(5) != "PASS" or bool(simerr)
         fail |= bad
-        print("%-22s %s" % (name, res.group(0)[7:]))
+        print("%-22s %s%s" % (name, res.group(0)[7:], " (simulator errors: %d)" % len(simerr) if simerr else ""))
+        extra = simerr[:5] + extra
         if bad and not quiet:
             for ln in extra[:20]:
                 print("    " + ln)
@@ -75,6 +85,15 @@ def main():
             zeros = sorted(k for k, v in c.items() if v == 0)
             print("  %-9s commands=%d zero=%s" % (suite, sum(v for k, v in c.items() if k.startswith("op_")),
                                                    ", ".join(zeros) if zeros else "none"))
+        total = collections.Counter()
+        for suite in cov:
+            for k, v in cov[suite].items():
+                total[k] += v
+        zeros = sorted(k for k, v in total.items() if v == 0)
+        print("  all suites zero=%s%s" % (", ".join(zeros) if zeros else "none",
+                                          " (required: FAIL)" if need_cov and zeros else ""))
+        if need_cov and zeros:
+            fail = True
         if os.environ.get("COV_FULL"):
             for suite in sorted(cov):
                 for k, v in cov[suite].items():

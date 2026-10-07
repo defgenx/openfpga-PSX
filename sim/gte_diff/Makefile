@@ -64,10 +64,13 @@ endef
 $(foreach fl,golden serial,$(foreach su,$(SUITES),$(foreach sd,$(SEEDS),$(eval $(call RUNJOB,$(fl),$(su),$(sd))))))
 
 golden: $(RESULTS_golden)
-	@python3 $(HERE)summarize.py $(dir $(RESULTS_golden))
+	@python3 $(HERE)summarize.py $(COVREQ) $(dir $(RESULTS_golden))
+
+# coverage is required only when the run has the suites that can reach every counter
+COVREQ = $(if $(and $(filter edge,$(SUITES)),$(filter random,$(SUITES))),--require-coverage)
 
 diff: $(RESULTS_serial)
-	@python3 $(HERE)summarize.py $(dir $(RESULTS_serial))
+	@python3 $(HERE)summarize.py $(COVREQ) $(dir $(RESULTS_serial))
 
 selftest: $(BUILD)/golden/stamp
 	@python3 $(HERE)selftest.py $(BUILD)/golden $(RUNROOT)/selftest

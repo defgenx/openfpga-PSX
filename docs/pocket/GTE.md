@@ -14,7 +14,7 @@ and take exactly the golden's busy cycles, proven by `sim/gte_diff` (see [Verifi
   `SS_DataRead` is tied to 0 and `debug_firstGTE` to '0'. `SS_idle` keeps the golden's logic
   (`gte.vhd:1525-1532`), since psx_top ANDs it into `SS_idle`/`Pause_Idle`.
 - **Only state at busy-fall is architectural.** The CPU never writes the GTE while it is busy and
-  never reads it while busy (`cpu.vhd:1503-1545`: MTC2/CTC2/COP2 stall on `gte_busy`, MFC2/CFC2/SWC2
+  never reads it while busy (`cpu.vhd:1503-1545` and `:1688-1697`: MTC2/CTC2/COP2 stall on `gte_busy`, MFC2/CFC2/SWC2
   stall on `gte_busy`, `gte_cmdEna` and `gte_writeEna`). So `gte_serial` may compute in any order
   as long as every register holds the golden's value by the edge where the golden's FSM returns to
   IDLE. Intermediate values inside a command are not compared.
@@ -57,7 +57,7 @@ measured slack: [Datapath slice](#datapath-slice).
   cannot be swept in a one-clk1x reset, so each RAM word has a valid bit: 64 FFs, cleared by reset,
   set by a write. A read of an invalid word returns 0.
 - **Three copies.** One copy per read port, all written identically by the CPU (inferred simple
-  dual-port M10K, 64×32 each). The CPU read copy has a read enable (`readEna and ce`), so its
+  dual-port M10K, 64×32 each). The CPU read copy has a read enable (`ce and not reset and readEna`), so its
   output register holds between reads like the golden's `gte_readData`. The two engine copies are
   read by the sequencer during a command. `gte_readData` is the CPU copy's output (masked by its
   captured valid bit) or a captured FF value, selected by a bit captured with the read.
@@ -110,7 +110,7 @@ Two identical **lanes**, each `res = combine(X, a)`:
 
 | Cycle | Stage | Action |
 |---|---|---|
-| c | issue | `opA`, `opB` and the 45-bit `sval` registered from their sources (read as of the end of cycle c−1). `sval` is S shifted by k for X, or S / S<<12 for the addend. The controls are registered and decoded: X select, addend select, the two negations |
+| c | issue | `opA`, `opB` and the 45-bit `opS` registered from their sources (read as of the end of cycle c−1). `opS` is S shifted by k for X, or S / S<<12 for the addend. The controls are registered and decoded: X select, addend select, the two negations |
 | c+1 | execute | product; `res = (X ^ nx) + (a ^ na) + (nx or na)`, one 45-bit adder → `res_q`, the row's accumulator, its `macLast` (old accumulator), the MACn register; MAC0 → `acc0`, `mac0Last`, MAC0 |
 | c+2 | writeback | from `res_q`: IRn (saturation), FLAG bits |
 
@@ -132,11 +132,11 @@ The MAC unit state per row: accumulator (45), `macLast` (45). MAC0: `acc0` (35),
 |---|---|---|
 | 1 | lane A 18×19 | 18×18 (half used) |
 | 2 | lane B 18×19 | 18×18 (half used) |
-| 3 | divider, shared by stages 4, 5 and 6: `:166` 17×11, `:175` 11×18, `:182` 16×20 unsigned | 27×27 |
+| 3 | divider, shared by stages 4, 5 and 6: `:166` 17×11, `:175` 11×18, `:182` 19×20 unsigned | 27×27 |
 
 3 blocks against the gate's 4. MAC0 runs on the lanes, so it has no multiplier of its own.
 Quartus 21.1 does not pack two inferred multipliers into one block, so each lane takes a block of
-its own. A first build with one multiplier per divider stage took 5 blocks. For reference, the
+its own, and a divider with one multiplier per stage would take three. For reference, the
 golden divider alone takes 5 DSP and each `gte_mac123` 3 in the stripped build.
 
 ### Divider (`rtl/gte_serial_div.vhd`)
@@ -144,13 +144,15 @@ golden divider alone takes 5 DSP and each `gte_mac123` 3 in the stripped build.
 `gte_UNRDivide` with two narrowings, one multiplier shared by stages 4–6, plus a `ce` input.
 Sharing requires divides to start at least 3 cycles apart. The golden's RTPT starts them 3 steps
 apart, the generator enforces it, and a simulation assertion checks it. The narrowings:
-- The 32×20 multiply (`gte_UNRDivide.vhd:182`) becomes `lhs_5 · calc_val_r` (16×20 unsigned). Its
-  product is shifted by `shiftcount_5`, keeping the rounding order: shift first, then `+ 0x8000`,
-  then `>> 16`, then the same resize to 32 bits and clamp. This is exact because `calc_lhs = lhs_5 ·
-  2^shiftcount_5` never loses a bit (`lhs_5 < 2^16`, shift ≤ 15).
+- The 32×20 multiply (`gte_UNRDivide.vhd:182`) becomes `(lhs_5 << (shiftcount_5 mod 4)) ·
+  calc_val_r` (19×20 unsigned), and its product is shifted by `4·(shiftcount_5 div 4)`. The rounding
+  order is kept: shift, then `+ 0x8000`, then `>> 16`, then the same resize to 32 bits and clamp.
+  This is exact because the two shifts compose to `shiftcount_5`, and `calc_lhs = lhs_5 ·
+  2^shiftcount_5` never loses a bit (`lhs_5 < 2^16`, shift ≤ 15). Splitting the shift leaves a
+  4-way mux after the multiply, where a 16-way shifter would be.
 - `calc_val_d` becomes 18-bit signed.
 
-`make divtest` sweeps all 65,536 `rhs` values with 13 `lhs` values each: 0, 0xFFFF, the
+`make divtest` sweeps all 65,536 `rhs` values with up to 13 `lhs` values each (out-of-range ones dropped): 0, 0xFFFF, the
 `rhs·2 ≤ lhs` edge, the `> 0x1FFFF` clamp edge and random values. It runs two passes, one with
 triggers 3 cycles apart and the inputs held, the other with random extra gaps and garbage inputs
 in between: 1,245,186 divides, 0 mismatches. `calc_val_d` and `calc_val_r` depend only on `rhs`,
@@ -162,8 +164,8 @@ so the sweep is a proof, not a sample. Measured over it:
 | `calc_val_r` | | 131,072 (0x20000, 18 bits unsigned) |
 | `lhs_5 · 2^shiftcount_5` | | 2,147,450,880 (< 2^31) |
 
-The golden-side range assertion never fires. `calc_val_r ≤ 2^17` would let block 3 run in 18×19
-mode; the gate does not need it, so the 16×20 multiply is kept.
+The golden-side range assertion never fires. `calc_val_r ≤ 2^17` would allow a narrower multiply;
+the gate does not need it.
 
 Latency: trigger to result is 7 clk2x, the same as the golden. Divide error sets FLAG 17 one edge
 after the result.
@@ -185,14 +187,19 @@ takes no busy (`gte.vhd:576-607`). The word's `halt` bit stops issuing. Ops in f
 **Busy** is a counter from a per-opcode table of the golden's CALC-state edges. It is independent of
 the program:
 
-| Op | edges | Op | edges | Op | edges | Op | edges |
-|---|---|---|---|---|---|---|---|
-| RTPS 01 | 26 | MVMVA 12 | 11 | NCCS 1B | 30 | DPCL 29 | 11 |
-| NCLIP 06 | 12 | NCDS 13 | 34 | CC 1C | 17 | DPCT 2A | 29 |
-| OP 0C | 8 | CDP 14 | 21 | NCS 1E | 23 | AVSZ3 2D | 6 |
-| DPCS 10 | 11 | NCDT 16 | 84 | NCT 20 | 55 | AVSZ4 2E | 8 |
-| INTPL 11 | 11 | SQR 28 | 6 | RTPT 30 | 42 | GPF 3D | 5 |
-| | | | | NCCT 3F | 74 | GPL 3E | 6 |
+| Op | edges | hw | Op | edges | hw | Op | edges | hw |
+|---|---|---|---|---|---|---|---|---|
+| RTPS 01 | 26 | 15 | NCDT 16 | 84 | 44 | SQR 28 | 6 | 5 |
+| NCLIP 06 | 12 | 8 | NCCS 1B | 30 | 17 | DPCL 29 | 11 | 8 |
+| OP 0C | 8 | 6 | CC 1C | 17 | 11 | DPCT 2A | 29 | 17 |
+| DPCS 10 | 11 | 8 | NCS 1E | 23 | 14 | AVSZ3 2D | 6 | 5 |
+| INTPL 11 | 11 | 8 | NCT 20 | 55 | 30 | AVSZ4 2E | 8 | 6 |
+| MVMVA 12 | 11 | 8 | RTPT 30 | 42 | 23 | GPF 3D | 5 | 5 |
+| NCDS 13 | 34 | 19 | NCCT 3F | 74 | 39 | GPL 3E | 6 | 5 |
+| CDP 14 | 21 | 13 | | | | | | |
+
+"edges" are clk2x edges in a CALC state, the cycle count `gte_serial` must reproduce. "hw" is the
+real console's count in CPU cycles, as listed by psx-spx, for reference only.
 
 The batch commands are `2·(R+1) + (N+1)`, from their restart step R and IDLE step N
 (`gte.vhd:762-773`, `:930-941`, `:1040-1051`, `:1132-1142`). The golden's IDLE-state busy
@@ -245,12 +252,13 @@ Per word: two read ports, two lane ops, the side effects and `halt`. Bit positio
 MAC0 `wb` bit 0 = `useIR` (with `IRshift`), bit 1 = `checkOvf`.
 
 **Sources.** In the tables below, `stg` lo/hi is the low/high half of a staging slot, code
-`1 + 2·slot + half`. Codes 9–16 (A/B) and 5–8 (S) are reserved for slots 4–7 and read as zero.
+`1 + 2·slot + half`. Codes 9–16 (A/B) and 5–8 (S) would address slots 4–7, which do not exist
+(`NSTG` = 4); they read as zero.
 
 | A (18-bit signed) | | B (19-bit signed) | | S (32-bit) | |
 |---|---|---|---|---|---|
 | 0 | zero | 0 | zero | 0 | zero |
-| 1–16 | stg lo/hi, sext | 1–16 | stg lo/hi, sext | 1–8 | stg s0–s7 |
+| 1–8 | stg lo/hi, sext | 1–8 | stg lo/hi, sext | 1–4 | stg s0–s3 |
 | 17–20 | IR1, IR2, IR3, IR0 | 17–20 | IR1, IR2, IR3, IR0 | 9–11 | MAC1, MAC2, MAC3 |
 | 21–23 | SX0, SX1, SX2 | 21–23 | RGBC R, G, B (zext) | | |
 | 24–27 | SZ0–SZ3 (zext) | 24–26 | vsnap 0–2 | | |
@@ -289,36 +297,39 @@ The generator is a list scheduler over a **version model** of the golden:
   after that writer's serial write and before the next version's serial write. Writes keep the
   golden's order, every program's last write lands no later than the golden's IDLE edge, and no
   command reads a MAC unit's state left over from a previous command.
-- Resources per cycle: two lane ops, one op per row, two RAM reads, one of each side effect, eight
-  staging slots.
+- Resources per cycle: two lane ops (MAC0 on lane A), one op per row, two RAM reads, one of each
+  side effect, four staging slots, and divides at least 3 cycles apart.
 
-Per-opcode results, from `python3 rtl/gen/gte_ucode.py` (G_L = 1). "Last write" is the edge of the
-program's last architectural write, FLAG included; "slack" is the golden's IDLE edge minus it.
+Per-opcode results, from `python3 rtl/gen/gte_ucode.py`. "Last write" is the edge of the program's
+last architectural write, FLAG included; "slack" is the golden's IDLE edge minus it. Products count
+lane ops through the multiplier (real) and through the shifter (power of two). Dependency stages
+are the longest chain of true dependencies, not counting a row's own accumulation chain. The FIFO
+pushes chain the vertices of NCDT/NCCT/NCT/DPCT.
 
-| Program | golden edges | words | last write | slack | lane ops | lane use | staging slots |
-|---|---|---|---|---|---|---|---|
-| AVSZ3 | 6 | 6 | 6 | 0 | 3 | 25% | 1 |
-| AVSZ4 | 8 | 7 | 7 | 1 | 4 | 29% | 1 |
-| CC | 17 | 14 | 14 | 3 | 18 | 64% | 2 |
-| CDP | 21 | 19 | 19 | 2 | 24 | 63% | 2 |
-| DPCL | 11 | 10 | 10 | 1 | 12 | 60% | 2 |
-| DPCS | 11 | 8 | 8 | 3 | 9 | 56% | 2 |
-| DPCT | 29 | 24 | 24 | 5 | 27 | 56% | 2 |
-| GPF | 5 | 4 | 4 | 1 | 3 | 38% | 0 |
-| GPL | 6 | 5 | 5 | 1 | 6 | 60% | 0 |
-| INTPL | 11 | 8 | 8 | 3 | 9 | 56% | 2 |
-| MVMVA (12 programs, worst) | 11 | 8 | 10 | 1 | 12 | 75% | 3 |
-| NCCS | 30 | 20 | 20 | 10 | 27 | 68% | 4 |
-| NCCT | 74 | 52 | 52 | 22 | 81 | 78% | 4 |
-| NCDS | 34 | 24 | 24 | 10 | 33 | 69% | 4 |
-| NCDT | 84 | 64 | 64 | 20 | 99 | 77% | 4 |
-| NCLIP | 12 | 6 | 8 | 4 | 6 | 50% | 0 |
-| NCS | 23 | 15 | 15 | 8 | 21 | 70% | 4 |
-| NCT | 55 | 38 | 38 | 17 | 63 | 83% | 4 |
-| OP | 8 | 4 | 6 | 2 | 6 | 75% | 2 |
-| RTPS | 26 | 21 | 22 | 4 | 12 | 29% | 4 |
-| RTPT | 42 | 35 | 36 | 6 | 34 | 49% | 4 |
-| SQR | 6 | 2 | 4 | 2 | 3 | 75% | 0 |
+| Program | golden edges | words | last write | slack | products (real / 2^k) | dependency stages | lane use | staging slots |
+|---|---|---|---|---|---|---|---|---|
+| AVSZ3 | 6 | 6 | 6 | 0 | 3 / 0 | 2 | 25% | 1 |
+| AVSZ4 | 8 | 7 | 7 | 1 | 4 / 0 | 2 | 29% | 1 |
+| CC | 17 | 14 | 14 | 3 | 12 / 6 | 4 | 64% | 2 |
+| CDP | 21 | 19 | 19 | 2 | 15 / 9 | 5 | 63% | 2 |
+| DPCL | 11 | 10 | 10 | 1 | 6 / 6 | 4 | 60% | 2 |
+| DPCS | 11 | 8 | 8 | 3 | 6 / 3 | 3 | 56% | 2 |
+| DPCT | 29 | 24 | 24 | 5 | 18 / 9 | 9 | 56% | 2 |
+| GPF | 5 | 4 | 4 | 1 | 3 / 0 | 2 | 38% | 0 |
+| GPL | 6 | 5 | 5 | 1 | 3 / 3 | 2 | 60% | 0 |
+| INTPL | 11 | 8 | 8 | 3 | 6 / 3 | 3 | 56% | 2 |
+| MVMVA (12 programs) | 11 | 6–8 | 8–10 | 1–3 | 9 / 3 | 1–2 | 75%–100% | 2–4 |
+| NCCS | 30 | 20 | 20 | 10 | 21 / 6 | 5 | 68% | 4 |
+| NCCT | 74 | 52 | 52 | 22 | 63 / 18 | 7 | 78% | 4 |
+| NCDS | 34 | 24 | 24 | 10 | 24 / 9 | 6 | 69% | 4 |
+| NCDT | 84 | 64 | 64 | 20 | 72 / 27 | 8 | 77% | 4 |
+| NCLIP | 12 | 6 | 8 | 4 | 6 / 0 | 1 | 50% | 0 |
+| NCS | 23 | 15 | 15 | 8 | 18 / 3 | 3 | 70% | 4 |
+| NCT | 55 | 38 | 38 | 17 | 54 / 9 | 5 | 83% | 4 |
+| OP | 8 | 4 | 6 | 2 | 6 / 0 | 1 | 75% | 2 |
+| RTPS | 26 | 21 | 22 | 4 | 12 / 0 | 4 | 29% | 4 |
+| RTPT | 42 | 35 | 36 | 6 | 34 / 0 | 6 | 49% | 4 |
+| SQR | 6 | 2 | 4 | 2 | 3 / 0 | 1 | 75% | 0 |
 
 The ROM holds 469 words × 97 bits (5 M10K). AVSZ3 has no slack: its ZSF3 operand needs the
 acceptance-edge prefetch to land in time. With G_L = 2, DPCT, CDP, DPCL and AVSZ3 miss.
@@ -358,13 +369,27 @@ registered (G_L = 2), DPCT, CDP, DPCL and AVSZ3 miss their IDLE edge.
 - `make diff`: directed, edge, reset, cpu-timing (pauses and race pauses included) and 1,000,000
   random commands (uniform and game-like). Every coverage counter must be non-zero.
 
-Results on the gate build (`make -j8 diff SEEDS="21 22 23 24 25 26 27 28" COUNT=125000`, 5 min on
-8 cores): 1,103,821 commands, 0 register/FLAG mismatches, 0 `gte_busy` differences at clk1x
-edges, 0 golden-side assertion failures. That is 24.4M multiply requests and 210,530 divides
-checked, and 9,441 pauses, 3,625 of them on the race edge with the GTE busy. Every coverage
+Baseline, golden against golden (`make -j8 golden SEEDS="1 2 3 4 5 6 7 8" COUNT=125000`): 1,103,344
+commands, 0 differences, 256 s on 8 jobs (about 4,300 commands/s, 540 per job).
+
+Results on the gate build (`make -j8 diff SEEDS="21 22 23 24 25 26 27 28" COUNT=125000`, about 5 min
+on 8 jobs): 1,103,508 commands, 0 register/FLAG mismatches, 0 `gte_busy` differences at clk1x
+edges, 0 golden-side assertion failures and 0 simulator errors. That is 24.4M multiply requests
+and 210,476 divides checked, and 10,294 pauses, 3,636 of them on the race edge with the GTE busy. Every coverage
 counter is non-zero summed over the suites. The game-like distribution alone never hits a
 divide error or an SZ3/OTZ clamp, by design; the edge and uniform suites do. `make selftest`
 reports exactly each injected fault, and each golden-side assertion fires on its injection.
+
+`summarize.py` fails a run on any simulator error line, which covers the RTL's own assertions:
+both lanes on one accumulator, and divides less than 3 cycles apart. When the edge and random
+suites both run, it also fails on any coverage counter that is zero summed over all suites. The
+CPU-timing stream also puts write and read strobes on the same clk1x edge (a stalled MFC2
+re-issues on `busy`/`cmdEna` only, `cpu.vhd:1163-1165`), resets while `ce` is low, writes the
+read-only 29/31, and writes LZCS extremes read back through 31.
+
+Not constructible: an edge case with a `macLast` term near the 44-bit limit. In every command
+`macLast` is a step-0 result (color << 16, IR × 0x1000) or a ×0x10 product, below 2^36, so the unwrapped feed
+(`gte.vhd:756`) never carries a value that a 44-bit wrap would change.
 
 ## Gate metric
 
@@ -392,8 +417,11 @@ then `quartus_sta -t report_gte.tcl <rev>` for the worst paths.
 | clk2x setup slack, slow 85 °C | **+2.025 ns** | +0.219 ns | > 0 |
 | clk2x setup slack, slow 0 °C | +1.599 ns | −0.124 ns | |
 | clk1x setup slack, slow 85 °C | +9.195 ns | +12.503 ns | > 0 |
-| hold slack, worst of four corners | +0.125 ns (fast 0 °C) | +0.131 ns | > 0 |
-| Fmax clk2x, slow 85 °C | 78.5 MHz | 68.8 MHz | |
+| hold slack clk2x / clk1x, slow 85 °C | +0.393 / +0.495 ns | +0.322 / +0.532 ns | > 0 |
+| hold slack clk2x / clk1x, slow 0 °C | +0.341 / +0.420 ns | +0.287 / +0.502 ns | > 0 |
+| hold slack clk2x / clk1x, fast 85 °C | +0.174 / +0.177 ns | +0.148 / +0.170 ns | > 0 |
+| hold slack clk2x / clk1x, fast 0 °C | +0.149 / +0.125 ns | +0.131 / +0.131 ns | > 0 |
+| Fmax clk2x / clk1x, slow 85 °C | 78.5 / 311.9 MHz | 68.8 / 267.6 MHz | |
 
 The worst clk2x paths are the divider's shared multiply into its round and compare, and a
 lane's product into the 45-bit accumulate. Both execute stages need one carry chain: a sum written

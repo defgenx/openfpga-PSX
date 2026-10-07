@@ -1,4 +1,4 @@
--- DUT flavour "golden": the frozen reference; clk4x / clk4xIndex are unused.
+-- DUT flavour "golden": the frozen reference gte.
 architecture golden of gte_dut is
 begin
    igte : entity work.gte

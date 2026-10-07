@@ -2,15 +2,13 @@ library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.numeric_std.all;
 
--- Port list of gte plus the clk4x pair used by the replacement core.
+-- Port list of gte; the Makefile analyses one of two architectures (golden, serial).
 entity gte_dut is
    port
    (
       clk1x                : in  std_logic;
       clk2x                : in  std_logic;
       clk2xIndex           : in  std_logic;
-      clk4x                : in  std_logic;
-      clk4xIndex           : in  unsigned(1 downto 0);
       ce                   : in  std_logic;
       reset                : in  std_logic;
 

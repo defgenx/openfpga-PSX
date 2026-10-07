@@ -34,7 +34,7 @@ inside the current architecture. "Rewritten" = serialized datapaths at a higher 
 | Block | Stripped | Trimmed | Rewritten | What gets cut |
 |---|---|---|---|---|
 | GPU (raster + video out) | 6,060 | 4,900 | 4,000 | 6→2 dividers, tag-valid mux, savestate, overlays/guns |
-| GTE | 4,200 | 3,500 | 2,700 | savestate, narrow MAC multipliers; rewrite = 1 MAC @ 4× clk1x |
+| GTE | 4,200 | 3,500 | 2,700 | savestate, narrow MAC multipliers; rewrite = 1 MAC @ 4× clk1x (built: 2 lanes @ clk2x, 2,491 fitted, [GTE.md](GTE.md)) |
 | SPU | 3,840 | 2,400 | 2,000 | reverb engine, savestate, single-phase ADSR; rewrite = time-sliced mults |
 | CD controller + XA | 3,410 | 2,700 | 2,500 | savestate, rare commands, 8→2 sector ring |
 | CPU | 2,900 | 1,900 | 1,500 | savestate, turbo data cache, COP0 debug; rewrite = multi-cycle |
@@ -99,6 +99,8 @@ so SRAM latency doesn't matter.
 Rewrite the **GTE as a serialized single-MAC unit** first. It's self-contained, has exact cycle
 counts to match, and the projection assumes it drops 4,200 → 2,700. If it doesn't land under
 ~3,000 ALMs and close at 4× clk1x on C8, stop. The rest of the plan needs bigger savings than that.
+Measured result: 2,490.8 ALMs and 3 DSP with two MAC lanes at clk2x. A clk4x MAC does not close on
+C8, and two lanes at clk2x give the same issue rate ([GTE.md](GTE.md)).
 
 ## Reproduce
 
