@@ -1,0 +1,8 @@
+# simulation work and run directories
+run/
+run_*/
+build/
+wk/
+work/
+smoke/work/
+__pycache__/
