@@ -71,7 +71,7 @@ package gte_serial_pkg is
    constant WB_FC    : integer := 3;
    constant WB_MVBUG : integer := 4;
 
-   -- A sources (18-bit signed); 1..16 = staging slot s half h: 1 + 2*s + h, sign-extended
+   -- A sources (18-bit signed); 1..2*NSTG = staging slot s half h: 1 + 2*s + h, sign-extended
    constant A_ZERO     : integer := 0;
    constant A_IR1      : integer := 17;
    constant A_IR2      : integer := 18;
@@ -86,7 +86,7 @@ package gte_serial_pkg is
    constant A_SNAP1_0  : integer := 36;  -- snap IR1 slot 0, slot 1
    constant A_SNAP2_0  : integer := 38;  -- snap IR2 slot 0, slot 1
 
-   -- B sources (19-bit signed); 1..16 = staging halves as for A
+   -- B sources (19-bit signed); 1..2*NSTG = staging halves as for A
    constant B_ZERO   : integer := 0;
    constant B_IR1    : integer := 17;
    constant B_IR2    : integer := 18;
@@ -99,7 +99,7 @@ package gte_serial_pkg is
    constant B_C1000  : integer := 31;
    constant B_C10000 : integer := 32;
 
-   -- S sources (32-bit); 1..8 = staging slot 0..7
+   -- S sources (32-bit); 1..NSTG = staging slot 0..NSTG-1
    constant S_ZERO : integer := 0;
    constant S_MAC1 : integer := 9;   -- MAC2, MAC3 follow
 

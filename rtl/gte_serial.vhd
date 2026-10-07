@@ -264,7 +264,7 @@ architecture arch of gte_serial is
       return c;
    end function;
 
-   -- staging slot half for source codes 1..16
+   -- staging slot half for source codes 1..2*NSTG
    impure function stg_half(code : integer) return signed is
       variable s : integer;
    begin
@@ -281,31 +281,31 @@ architecture arch of gte_serial is
    begin
       case code is
          when 1 to 2*NSTG => return resize(stg_half(code), 18);
-         when 17 => return resize(REG_IR1, 18);
-         when 18 => return resize(REG_IR2, 18);
-         when 19 => return resize(REG_IR3, 18);
-         when 20 => return resize(REG_IR0, 18);
-         when 21 => return resize(REG_SX0, 18);
-         when 22 => return resize(REG_SX1, 18);
-         when 23 => return resize(REG_SX2, 18);
-         when 24 => return signed(resize(REG_SZ0, 18));
-         when 25 => return signed(resize(REG_SZ1, 18));
-         when 26 => return signed(resize(REG_SZ2, 18));
-         when 27 => return signed(resize(REG_SZ3, 18));
-         when 28 => return signed(resize(REG_RGBC( 7 downto  0), 18));
-         when 29 => return signed(resize(REG_RGBC(15 downto  8), 18));
-         when 30 => return signed(resize(REG_RGBC(23 downto 16), 18));
-         when 31 => return signed(resize(REG_RGB0( 7 downto  0), 18));
-         when 32 => return signed(resize(REG_RGB0(15 downto  8), 18));
-         when 33 => return signed(resize(REG_RGB0(23 downto 16), 18));
-         when 34 | 35 =>
+         when A_IR1       => return resize(REG_IR1, 18);
+         when A_IR2       => return resize(REG_IR2, 18);
+         when A_IR3       => return resize(REG_IR3, 18);
+         when A_IR0       => return resize(REG_IR0, 18);
+         when A_SX0       => return resize(REG_SX0, 18);
+         when A_SX0 + 1   => return resize(REG_SX1, 18);
+         when A_SX0 + 2   => return resize(REG_SX2, 18);
+         when A_SZ0       => return signed(resize(REG_SZ0, 18));
+         when A_SZ0 + 1   => return signed(resize(REG_SZ1, 18));
+         when A_SZ0 + 2   => return signed(resize(REG_SZ2, 18));
+         when A_SZ0 + 3   => return signed(resize(REG_SZ3, 18));
+         when A_RGBC_R     => return signed(resize(REG_RGBC( 7 downto  0), 18));
+         when A_RGBC_R + 1 => return signed(resize(REG_RGBC(15 downto  8), 18));
+         when A_RGBC_R + 2 => return signed(resize(REG_RGBC(23 downto 16), 18));
+         when A_RGB0_R     => return signed(resize(REG_RGB0( 7 downto  0), 18));
+         when A_RGB0_R + 1 => return signed(resize(REG_RGB0(15 downto  8), 18));
+         when A_RGB0_R + 2 => return signed(resize(REG_RGB0(23 downto 16), 18));
+         when A_RSH4 | A_RSH4_NEG =>
             r := signed(resize(REG_RGBC(7 downto 0) & "0000", 16));
-            if code = 35 then r := to_signed(0, 16) - r; end if;
+            if code = A_RSH4_NEG then r := to_signed(0, 16) - r; end if;
             return resize(r, 18);
-         when 36 => return resize(snap_ir1(0), 18);
-         when 37 => return resize(snap_ir1(1), 18);
-         when 38 => return resize(snap_ir2(0), 18);
-         when 39 => return resize(snap_ir2(1), 18);
+         when A_SNAP1_0     => return resize(snap_ir1(0), 18);
+         when A_SNAP1_0 + 1 => return resize(snap_ir1(1), 18);
+         when A_SNAP2_0     => return resize(snap_ir2(0), 18);
+         when A_SNAP2_0 + 1 => return resize(snap_ir2(1), 18);
          when others => return to_signed(0, 18);
       end case;
    end function;
@@ -314,22 +314,22 @@ architecture arch of gte_serial is
    begin
       case code is
          when 1 to 2*NSTG => return resize(stg_half(code), 19);
-         when 17 => return resize(REG_IR1, 19);
-         when 18 => return resize(REG_IR2, 19);
-         when 19 => return resize(REG_IR3, 19);
-         when 20 => return resize(REG_IR0, 19);
-         when 21 => return signed(resize(REG_RGBC( 7 downto  0), 19));
-         when 22 => return signed(resize(REG_RGBC(15 downto  8), 19));
-         when 23 => return signed(resize(REG_RGBC(23 downto 16), 19));
-         when 24 => return resize(vsnap0, 19);
-         when 25 => return resize(vsnap1, 19);
-         when 26 => return resize(vsnap2, 19);
-         when 27 => return signed(resize(div_result, 19));
-         when 28 => return resize(REG_SY0, 19);
-         when 29 => return resize(REG_SY1, 19);
-         when 30 => return resize(REG_SY2, 19);
-         when 31 => return to_signed(16#1000#, 19);
-         when 32 => return to_signed(16#10000#, 19);
+         when B_IR1        => return resize(REG_IR1, 19);
+         when B_IR2        => return resize(REG_IR2, 19);
+         when B_IR3        => return resize(REG_IR3, 19);
+         when B_IR0        => return resize(REG_IR0, 19);
+         when B_RGBC_R     => return signed(resize(REG_RGBC( 7 downto  0), 19));
+         when B_RGBC_R + 1 => return signed(resize(REG_RGBC(15 downto  8), 19));
+         when B_RGBC_R + 2 => return signed(resize(REG_RGBC(23 downto 16), 19));
+         when B_VSNAP0     => return resize(vsnap0, 19);
+         when B_VSNAP0 + 1 => return resize(vsnap1, 19);
+         when B_VSNAP0 + 2 => return resize(vsnap2, 19);
+         when B_DIV        => return signed(resize(div_result, 19));
+         when B_SY0        => return resize(REG_SY0, 19);
+         when B_SY0 + 1    => return resize(REG_SY1, 19);
+         when B_SY0 + 2    => return resize(REG_SY2, 19);
+         when B_C1000      => return to_signed(16#1000#, 19);
+         when B_C10000     => return to_signed(16#10000#, 19);
          when others => return to_signed(0, 19);
       end case;
    end function;
@@ -360,9 +360,9 @@ architecture arch of gte_serial is
    begin
       case code is
          when 1 to NSTG => return stg(code - 1);
-         when 9       => return REG_MAC1;
-         when 10      => return REG_MAC2;
-         when 11      => return REG_MAC3;
+         when S_MAC1     => return REG_MAC1;
+         when S_MAC1 + 1 => return REG_MAC2;
+         when S_MAC1 + 2 => return REG_MAC3;
          when others  => return to_signed(0, 32);
       end case;
    end function;

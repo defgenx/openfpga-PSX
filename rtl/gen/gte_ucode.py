@@ -3,10 +3,14 @@
 
 Design and timing model: docs/pocket/GTE.md ("Sequencer", "Schedule").
 Field positions and source codes mirror rtl/gte_serial_pkg.vhd: change both together.
+`--check` fails if the mirror or the committed ROM has drifted.
 
     python3 rtl/gen/gte_ucode.py [--L 1] [--out rtl/gte_serial_ucode.vhd] [--report FILE]
+    python3 rtl/gen/gte_ucode.py --check
 """
 import argparse
+import os
+import re
 import sys
 from collections import defaultdict
 
@@ -33,6 +37,12 @@ B_FF = {"IR1": 17, "IR2": 18, "IR3": 19, "IR0": 20, "RGBC_R": 21, "RGBC_G": 22, 
         "C1000": 31, "C10000": 32, "ZERO": 0}
 S_FF = {"ZERO": 0, "MAC1": 9, "MAC2": 10, "MAC3": 11}
 NSTG = 4
+STG_BITS = 2   # the RTL slices RD_DST and SE_HSLOT as 2-bit staging slot numbers
+assert NSTG <= 1 << STG_BITS
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROM_PATH = os.path.join(ROOT, "rtl", "gte_serial_ucode.vhd")
+PKG_PATH = os.path.join(ROOT, "rtl", "gte_serial_pkg.vhd")
 
 # ---------------------------------------------------------------- operand symbols
 # ("ram16", base, off, half) | ("ram32", base, off) | ("ff", name, read_time or None) | ("c", value)
@@ -101,7 +111,7 @@ G2S = {"REG_IR1": "IR1", "REG_IR2": "IR2", "REG_IR3": "IR3", "REG_IR0": "IR0",
        "SXY": "SXY", "SZF": "SZF", "RGBF": "RGBF", "OTZ": "OTZ", "div": "div",
        "snap0": "snap0", "snap1": "snap1", "vsnap": "vsnap"}
 INTERNAL = {"macres1", "macres2", "macres3", "acc1", "acc2", "acc3", "mac3sh",
-            "maclast1", "maclast2", "maclast3", "acc0", "mac0last", "div"}
+            "maclast1", "maclast2", "maclast3", "acc0", "mac0last", "div", "snap0", "snap1", "vsnap"}
 
 # ---------------------------------------------------------------- golden actions
 
@@ -444,6 +454,7 @@ def serial_of(g, L):
             if b[0] == "c":
                 assert b[1] in (0x1000, 0x10000), (g.k, b)
                 f["bsel"] = ff("C1000" if b[1] == 0x1000 else "C10000")
+        assert f["asel"][0] != "ram32" and f["bsel"][0] != "ram32", (g.k, a, b)   # A/B take 16-bit halves only
         if g.add is None:
             f["add"] = "ACC" if g.ures else "ZERO"
         elif g.add == "MACLAST":
@@ -730,7 +741,10 @@ def encode(sch):
     pf = []
     for cr, key, s in sorted(sch["reads"]):
         base, off = key
-        fld = (1 << RD_EN) | (BASES[base] << RD_BASE) | (off << RD_OFF) | (s << RD_DST)
+        fld = put(0, RD_EN, 1, 1)
+        fld = put(fld, RD_BASE, 2, BASES[base])
+        fld = put(fld, RD_OFF, 6, off)
+        fld = put(fld, RD_DST, STG_BITS, s)
         if cr == -1:
             pf.append(fld)
             continue
@@ -764,14 +778,14 @@ def encode(sch):
             continue
         bit = {"rgb": SE_RGB, "otz": SE_OTZ, "sz": SE_SZ, "sxy": SE_SXY}.get(a.kind)
         if bit is not None:
-            words[a.cyc] |= 1 << bit
+            words[a.cyc] = put(words[a.cyc], bit, 1, 1)
         if a.kind == "sz":
-            words[a.cyc] |= a.slots[ram_key(H)] << SE_HSLOT
+            words[a.cyc] = put(words[a.cyc], SE_HSLOT, STG_BITS, a.slots[ram_key(H)])
         if a.kind == "snap":
-            words[a.cyc] |= (a.g.slot + 1) << SE_SNAP
+            words[a.cyc] = put(words[a.cyc], SE_SNAP, 2, a.g.slot + 1)
         if a.kind == "vsnap":
-            words[a.cyc] |= 1 << SE_VSNAP
-    words[-1] |= 1 << W_HALT
+            words[a.cyc] = put(words[a.cyc], SE_VSNAP, 1, 1)
+    words[-1] = put(words[-1], W_HALT, 1, 1)
     while len(pf) < 2:
         pf.append(0)
     return words, pf
@@ -884,26 +898,121 @@ def listing(p):
     return "\n".join(out)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--L", type=int, default=1, help="lane depth; the RTL implements 1, 2 is for schedule analysis only")
-    ap.add_argument("--out", default=None)
-    ap.add_argument("--report", default=None)
-    ap.add_argument("--listing", default=None)
-    args = ap.parse_args()
+def build(L):
+    """Schedule every program and return the generated ROM text; exits 1 on a scheduling failure."""
     progs, bad = {}, []
     for name, g in programs().items():
         try:
-            progs[name] = schedule(name, g, args.L)
+            progs[name] = schedule(name, g, L)
         except Fail as e:
             bad.append(str(e))
     for b in bad:
         print("FAIL:", b, file=sys.stderr)
     if bad:
         sys.exit(1)
+    return progs
+
+
+def pkg_constants(path):
+    with open(path) as fh:
+        return {m.group(1): int(m.group(2))
+                for m in re.finditer(r"^\s*constant\s+(\w+)\s*:\s*integer\s*:=\s*(\d+)\s*;", fh.read(), re.M | re.I)}
+
+
+def check():
+    """Compare the committed ROM with a fresh build and the pkg constants with this file's mirror."""
+    errs = []
+    pkg = pkg_constants(PKG_PATH)
+    seen = set()
+
+    def expect(name, val):
+        seen.add(name)
+        if name not in pkg:
+            errs.append("pkg lacks %s (generator: %d)" % (name, val))
+        elif pkg[name] != val:
+            errs.append("%s: pkg %d, generator %d" % (name, pkg[name], val))
+
+    for n, v in (("UW", UW), ("NSTG", NSTG), ("RD_EN", RD_EN), ("RD_BASE", RD_BASE), ("RD_OFF", RD_OFF),
+                 ("RD_DST", RD_DST), ("RD_W", RD_W), ("RD0_LSB", RD_LSB[0]), ("RD1_LSB", RD_LSB[1]),
+                 ("LA_LSB", L_LSB[0]), ("LB_LSB", L_LSB[1]), ("L_W", L_LSB[1] - L_LSB[0]),
+                 ("L_V", L_V), ("L_M0", L_M0), ("L_ROW", L_ROW), ("L_ASEL", L_ASEL), ("L_BSEL", L_BSEL),
+                 ("L_XS", L_XS), ("L_SSEL", L_SSEL), ("L_K", L_K), ("L_ADD", L_ADD), ("L_SUB", L_SUB),
+                 ("L_SWAP", L_SWAP), ("L_WB", L_WB), ("SE_RGB", SE_RGB), ("SE_OTZ", SE_OTZ), ("SE_SZ", SE_SZ),
+                 ("SE_HSLOT", SE_HSLOT), ("SE_SXY", SE_SXY), ("SE_SNAP", SE_SNAP), ("SE_VSNAP", SE_VSNAP),
+                 ("W_HALT", W_HALT)):
+        expect(n, v)
+    for n, v in BASES.items():
+        expect("BASE_" + n, v)
+    for n, v in K.items():
+        expect("K_" + str(n), v)
+    for n, v in ADD.items():
+        expect("ADD_" + n, v)
+    for n, v in WB.items():
+        expect("WB_" + n, v)
+    # Sources: every table entry is a pkg constant or follows a pkg base constant (the RTL decodes BASE + k).
+    fam = {"A_": (A_FF, {"SX0": 3, "SZ0": 4, "RGBC_R": 3, "RGB0_R": 3, "SNAP1_0": 2, "SNAP2_0": 2}),
+           "B_": (B_FF, {"RGBC_R": 3, "VSNAP0": 3, "SY0": 3}),
+           "S_": (S_FF, {"MAC1": 3})}
+    for pre, (tab, fams) in fam.items():
+        derived = {}
+        for root, cnt in fams.items():
+            stem = re.sub(r"\d+$", "", root) if root[-1].isdigit() and not root.startswith(("SNAP", "RGB0", "RGBC")) else root
+            for k in range(1, cnt):
+                if root.startswith("SNAP"):
+                    nm = root[:-1] + str(k)
+                elif root.endswith("_R"):
+                    nm = root[:-1] + "GB"[k - 1]
+                elif root == "MAC1":
+                    nm = "MAC%d" % (1 + k)
+                else:
+                    nm = stem + str(int(root[len(stem):]) + k)
+                derived[nm] = (root, k)
+        for nm, code in tab.items():
+            if nm in derived:
+                root, k = derived[nm]
+                if root not in tab or tab[root] + k != code:
+                    errs.append("%s%s: code %d is not %s + %d" % (pre, nm, code, pre + root, k))
+            else:
+                expect(pre + nm, code)
+        for root in fams:
+            if root not in tab:
+                errs.append("%s%s: family root missing from generator table" % (pre, root))
+    for n in sorted(set(pkg) - seen):
+        errs.append("pkg constant %s is not mirrored or checked by the generator" % n)
+
+    text, _ = vhdl(build(1), 1)
+    try:
+        with open(ROM_PATH, newline="") as fh:
+            old = fh.read()
+    except OSError as e:
+        old = None
+        errs.append("cannot read %s: %s" % (ROM_PATH, e))
+    if old is not None and old != text:
+        errs.append("%s is stale: regenerate with `python3 rtl/gen/gte_ucode.py`" % os.path.relpath(ROM_PATH, ROOT))
+    for e in errs:
+        print("UCODE CHECK FAIL:", e, file=sys.stderr)
+    if errs:
+        sys.exit(1)
+    print("UCODE CHECK PASS")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--L", type=int, default=1, help="lane depth; the RTL implements 1, 2 is for schedule analysis only")
+    ap.add_argument("--out", default=None, help="default: rtl/gte_serial_ucode.vhd with --L 1, nothing otherwise")
+    ap.add_argument("--report", default=None)
+    ap.add_argument("--listing", default=None)
+    ap.add_argument("--check", action="store_true", help="verify the pkg mirror and the committed ROM, write nothing")
+    args = ap.parse_args()
+    if args.check:
+        check()
+        return
+    if args.out is None and args.L == 1:
+        args.out = ROM_PATH
+    progs = build(args.L)
     text, depth = vhdl(progs, args.L)
     if args.out:
-        with open(args.out, "w") as fh:
+        with open(args.out, "w", newline="") as fh:
             fh.write(text)
     rep = report(progs, depth, args.L)
     print(rep)
