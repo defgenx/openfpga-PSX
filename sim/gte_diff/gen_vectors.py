@@ -12,7 +12,7 @@ Vector file: one item per line, hex fields "TT AA DDDDDDDD".
   12 00 00000000  reset pulse of one clk1x (applied while idle)
   13 00 NNNNNNNN  pause at an idle point, ce low for N clk1x, waits until it ended
   14 00 NNNNNNNN  race pause: armed on the edge the next op is issued
-  15 00 000000SS  suite label: 0 directed 1 edge 2 reset 3 cpu 4 uniform 5 game 6 smoke
+  15 00 000000SS  suite label: 0 directed 1 edge 2 reset 3 cpu 4 uniform 5 game 6 smoke 7 boundary
   16 00 NNNNNNNN  async pause: armed now, fires at the first idle point, no waiting
   17 AA DDDDDDDD  write of AA and read of AA on the same clk1x edge
   18 AA DDDDDDDD  write of AA and read of AA+1 on the same clk1x edge
@@ -20,11 +20,12 @@ Vector file: one item per line, hex fields "TT AA DDDDDDDD".
 
 This list is canonical; tb_diff.vhd implements it.
 
-Suites: directed, edge, reset, cpu, random (uniform + game halves), smoke.
+Suites: directed, edge, reset, cpu, random (uniform + game halves), smoke, boundary.
 """
 import argparse
 import random
 import sys
+from math import isqrt
 
 WRITABLE = [r for r in range(64) if r not in (29, 31)]
 VALID_OPC = [0x01, 0x06, 0x0C, 0x10, 0x11, 0x12, 0x13, 0x14, 0x16, 0x1B, 0x1C,
@@ -355,6 +356,218 @@ class Gen:
             self.emit_state(self.game_vary())
             self.cmd(self.cmd_word(r.choice(VALID_OPC)))
 
+    # ---------------------------------------------------------------- boundary suite
+    # Every saturation point is driven to limit-1, limit and limit+1 on both sides. Each case rewrites
+    # every input register, so no case depends on an earlier one; registers that are not inputs of the
+    # command get random values.
+    BND_NOISE = (7, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25, 26, 27, 30, 63)
+    BND_REGS = [r for r in WRITABLE if r != 28]
+
+    def bnd_case(self, word, regs):
+        r = self.r
+        for reg in self.BND_REGS:
+            if reg == 6:
+                v = (regs.get(6, 0) & 0xFFFFFF) | (r.getrandbits(8) << 24)
+            elif reg in regs:
+                v = regs[reg]
+            elif reg in self.BND_NOISE:
+                v = r.getrandbits(32)
+            else:
+                v = 0
+            self.write(reg, v)
+        self.cmd(word)
+
+    @staticmethod
+    def set_half(regs, reg, hi, val):
+        old = regs.get(reg, 0)
+        if hi:
+            regs[reg] = (old & 0xFFFF) | ((val & 0xFFFF) << 16)
+        else:
+            regs[reg] = (old & 0xFFFF0000) | (val & 0xFFFF)
+
+    def set_mat(self, regs, base, i, j, val):
+        e = 3 * i + j
+        self.set_half(regs, base + e // 2, e & 1, val)
+
+    def set_vec(self, regs, v, k, val):
+        if k == 2:
+            regs[2 * v + 1] = val & 0xFFFF
+        else:
+            self.set_half(regs, 2 * v, k, val)
+
+    def fac_exact(self, t):
+        """(a, b) with a*b == t, both int16."""
+        r = self.r
+        if t == 0:
+            return (r.randint(-32768, 32767), 0) if r.getrandbits(1) else (0, r.randint(-32768, 32767))
+        cand = []
+        for d in range(1, isqrt(abs(t)) + 1):
+            if abs(t) % d == 0:
+                for a in (d, abs(t) // d):
+                    for a2 in (a, -a):
+                        b = t // a2
+                        if -32768 <= a2 <= 32767 and -32768 <= b <= 32767 and a2 * b == t:
+                            cand.append((a2, b))
+        return r.choice(cand)
+
+    def fac_range(self, lo, hi):
+        """(a, b), int16, with lo <= a*b <= hi."""
+        cand = []
+        for a in range(1, 32768):
+            b = -(-lo // a)
+            if -32768 <= b <= 32767 and a * b <= hi:
+                cand.append((a, b))
+        return self.r.choice(cand)
+
+    def prod(self, t, sf):
+        """(a, b) with (a*b) >> (12 if sf else 0) == t."""
+        if sf:
+            return self.fac_range(t << 12, (t << 12) + 4095)
+        return self.fac_exact(t)
+
+    def split(self, s, k):
+        r = self.r
+        parts = []
+        for i in range(k - 1):
+            left = k - 1 - i
+            parts.append(r.randint(max(0, s - 0xFFFF * left), min(0xFFFF, s)))
+            s -= parts[-1]
+        parts.append(s)
+        r.shuffle(parts)
+        return parts
+
+    IR_T = [-32770, -32769, -32768, -32767, -2, -1, 0, 1, 2, 32766, 32767, 32768, 32769, 32770]
+    RGB_T = [-17, -16, -1, 0, 1, 15, 16, 4079, 4080, 4095, 4096, 4097, 4111, 4112]
+    OFS_T = [-0x4010000, -0x4000001, -0x4000000, -0x3FFFFFF, -0x3FF0000,
+             0x3FEFFFF, 0x3FFFFFF, 0x4000000, 0x4000001, 0x400FFFF, 0x4010000]
+
+    def bnd_gpf(self):
+        # GPF: MACn = IRn*IR0 >> sf. IR1-3 clamp and flags (lm 0/1), colour clamp and flags 21..19
+        for ch in range(3):
+            for t in self.IR_T + self.RGB_T:
+                for sf in (0, 1):
+                    for lm in (0, 1):
+                        a, b = self.prod(t, sf)
+                        self.bnd_case(self.cmd_word(0x3D, sf=sf, lm=lm), {8: a, 9 + ch: b})
+
+    def bnd_mvmva_ir(self):
+        # MVMVA with no translation (cv 3) and with the FC path (cv 2): one product placed in each column
+        for cv in (3, 2):
+            for ch in range(3):
+                for t in self.IR_T[1:-1]:
+                    for sf in (0, 1):
+                        lm = self.r.getrandbits(1)
+                        col = self.r.randrange(3)
+                        mx = self.r.randrange(3)
+                        v = self.r.randrange(3)
+                        a, b = self.prod(t, sf)
+                        regs = {}
+                        self.set_mat(regs, (32, 40, 48)[mx], ch, col, a)
+                        self.set_vec(regs, v, col, b)
+                        self.bnd_case(self.cmd_word(0x12, sf=sf, lm=lm, mx=mx, v=v, cv=cv), regs)
+
+    def bnd_mac123(self):
+        # MVMVA with TR/BK: TR*0x1000 sits at -2^43 or 2^43-4096, a product in one column moves it across the limit
+        for ch in range(3):
+            for base, sums in ((0x7FFFFFFF, (4094, 4095, 4096)), (0x80000000, (-1, 0, 1))):
+                for s in sums:
+                    for col in range(3):
+                        for sf in (0, 1):
+                            cv = self.r.randrange(2)
+                            mx = self.r.randrange(3)
+                            v = self.r.randrange(3)
+                            a, b = self.fac_exact(s)
+                            regs = {(37, 45)[cv] + ch: base}
+                            self.set_mat(regs, (32, 40, 48)[mx], ch, col, a)
+                            self.set_vec(regs, v, col, b)
+                            self.bnd_case(self.cmd_word(0x12, sf=sf, lm=self.r.getrandbits(1), mx=mx, v=v, cv=cv), regs)
+
+    def bnd_rtps(self):
+        r = self.r
+        rnd_v = lambda: {0: r.getrandbits(32), 1: r.getrandbits(16)}
+        # IR0 = MAC0 >> 12 clamp 0..0x1000 (flag 12); MAC0 = DQB with DQA 0
+        for t in (-4097, -4096, -4095, -1, 0, 1, 4095, 4096, 0xFFFFFF, 0x1000000, 0x1000FFF, 0x1001000, 0x1001001,
+                  -0x7FFFFFFF, 0x7FFFFFFF):
+            regs = rnd_v()
+            regs.update({58: r.randint(1, 0xFFFF), 60: t})
+            self.bnd_case(self.cmd_word(0x01), regs)
+        # MAC0 32-bit overflow (flags 16/15): the divide overflows (SZ3 = 0), so q = 0x1FFFF and MAC0 = DQB + DQA*q
+        for t in (0x7FFFFFFE, 0x7FFFFFFF, 0x80000000, 0x80000001, -0x80000002, -0x80000001, -0x80000000, -0x7FFFFFFF):
+            for _ in range(2):
+                dqa = r.randint(1, 16000) * (1 if t > 0 else -1)
+                regs = rnd_v()
+                regs.update({58: r.randint(1, 0xFFFF), 59: dqa, 60: (t - dqa * 0x1FFFF) & 0xFFFFFFFF})
+                self.bnd_case(self.cmd_word(0x01), regs)
+        # SZ3 clamp (flag 18) and IR3 flag, whose range check always uses the lower limit -32768: MAC3 = TRZ << 12
+        for t in (-32770, -32769, -32768, -32767, -2, -1, 0, 1, 32766, 32767, 32768, 32769,
+                  65534, 65535, 65536, 65537):
+            for sf in (0, 1):
+                for lm in (0, 1):
+                    regs = rnd_v()
+                    regs.update({58: r.randint(0, 0xFFFF), 39: t})
+                    self.bnd_case(self.cmd_word(0x01, sf=sf, lm=lm), regs)
+        # divide overflow (flag 17) when H >= 2*SZ3
+        for s in (0, 1, 2, 3, 0x100, 0x1234, 0x4000, 0x7FFE, 0x7FFF, 0x8000, 0xFFFF):
+            for h in (2 * s - 1, 2 * s, 2 * s + 1, s, 0, 0xFFFF):
+                if 0 <= h <= 0xFFFF:
+                    regs = rnd_v()
+                    regs.update({58: h, 39: s})
+                    self.bnd_case(self.cmd_word(0x01), regs)
+        # SX2/SY2 clamp to -1024..1023 (flags 14/13): MAC0 = OFX / OFY, SX = MAC0 >> 16
+        for i, x in enumerate(self.OFS_T):
+            for k in range(len(self.OFS_T)):
+                y = self.OFS_T[(i + 3 * k) % len(self.OFS_T)]
+                regs = rnd_v()
+                regs.update({56: x, 57: y, 58: r.randint(0, 0xFFFF)})
+                self.bnd_case(self.cmd_word(0x01), regs)
+
+    def bnd_otz(self):
+        r = self.r
+        sums = [0, 1, 2, 0xFFFE, 0xFFFF, 0x10000, 0x10001]
+        for opc, n, zreg in ((0x2D, 3, 61), (0x2E, 4, 62)):
+            first = 20 - n
+
+            def go(z, s):
+                regs = {zreg: z}
+                for reg, part in zip(range(first, 20), self.split(s, n)):
+                    regs[reg] = part
+                if n == 3:
+                    regs[16] = r.getrandbits(16)
+                self.bnd_case(self.cmd_word(opc), regs)
+
+            for s in sums:
+                go(0x1000, s)
+            for s in (0, 1, 2, 3):
+                go(-0x1000, s)
+            for t in (0xFFFF000, 0xFFFFFFF, 0x10000000):
+                for _ in range(2):
+                    z = r.randint(1366, 4095)
+                    go(z, t // z)
+                    go(z, -(-t // z))
+            go(-1, 1)
+            go(-r.randint(2, 4095), 1)
+
+    def bnd_flag(self):
+        # CPU write of FLAG (CTC2 63) read back before any command: bits 31..12 are stored, bit 31 is derived
+        vals = [1 << b for b in range(32)] + [0xFFFFFFFF ^ (1 << b) for b in range(32)]
+        vals += [0, 0xFFFFFFFF, 0x80000000, 0x7FFFFFFF, 0x7F87E000, 0x7F86E000, 0x00001000, 0x00FF0000,
+                 0x7F800000, 0x0007E000, 0x00780000]
+        for v in vals:
+            self.write(63, v)
+            self.read(63)
+        self.write(63, 0)
+        self.dump()
+
+    def suite_boundary(self):
+        self.label(7)
+        self.mode(0x2)
+        self.bnd_flag()
+        self.bnd_gpf()
+        self.bnd_mvmva_ir()
+        self.bnd_mac123()
+        self.bnd_rtps()
+        self.bnd_otz()
+
     # CPU-timing streams
     def cpu_gap(self):
         r = self.r
@@ -474,7 +687,7 @@ class Gen:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--suite", required=True, choices=["directed", "edge", "reset", "cpu", "random", "smoke"])
+    ap.add_argument("--suite", required=True, choices=["directed", "edge", "reset", "cpu", "random", "smoke", "boundary"])
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--count", type=int, default=1000000, help="random suite: number of commands")
     ap.add_argument("--shard", default="0/1", help="random suite: i/n, count is split over n shards")
@@ -500,6 +713,9 @@ def main():
         g.cpu_stream(a.cpu_count, a.race_weight)
     elif a.suite == "random":
         g.suite_random(count)
+    elif a.suite == "boundary":
+        g.suite_boundary()
+        sys.stderr.write("boundary cmds=%d\n" % g.n_cmd)
     elif a.suite == "smoke":
         n = g.suite_smoke()
         sys.stderr.write("smoke seq_cmds=%d total_cmds=%d\n" % (n + 0, g.n_cmd))

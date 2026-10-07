@@ -114,6 +114,7 @@ architecture arch of tb_diff is
          when 4 => return "uniform";
          when 5 => return "game";
          when 6 => return "smoke";
+         when 7 => return "boundary";
          when others => return "other";
       end case;
    end function;
