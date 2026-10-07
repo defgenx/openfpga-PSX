@@ -2,13 +2,16 @@
 #
 #   make golden                golden vs golden, smoke test of the harness
 #   make selftest              fault injection: each injected fault must be reported exactly
-#   make diff                  golden vs gte_serial
+#   make diff                  golden vs gte_serial (default SEEDS/COUNT: about 33k commands)
+#   make -j8 gate              the Phase 1 gate run: ucode-check, then diff over GATE_SEEDS x GATE_COUNT
+#                              with per-suite command minimums and full coverage required
+#   make ucode-check           committed microcode ROM and pkg constants agree with rtl/gen/gte_ucode.py
 #   make -j8 diff SEEDS="1 2 3 4" COUNT=250000     shards in parallel (COUNT per seed)
 #   make clean
 #
 # SEEDS   one job per (suite, seed); each job runs in its own directory under run/
 # COUNT   random-suite commands per seed (half uniform, half game-like)
-# SUITES  directed edge reset cpu random
+# SUITES  directed edge reset cpu random boundary
 # KEEP=1  keep the generated vector files
 
 HERE := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
@@ -20,7 +23,7 @@ SERIAL_SRCS ?= ../../rtl/gte_serial.vhd
 
 SEEDS  ?= 1
 COUNT  ?= 20000
-SUITES ?= directed edge reset cpu random
+SUITES ?= directed edge reset cpu random boundary
 GENARGS ?=
 NVCGEN ?=
 KEEP   ?=
@@ -36,7 +39,13 @@ GOLD_SRCS   := $(RTL)/pGTE.vhd $(RTL)/gte_mac0.vhd $(RTL)/gte_mac123.vhd $(RTL)/
 SERIAL_ABS  := $(foreach f,$(SERIAL_SRCS),$(abspath $(if $(filter /%,$(f)),$(f),$(HERE)$(f))))
 TB_SRCS     := $(HERE)gte_dut.vhd $(HERE)tb_diff.vhd
 
-.PHONY: golden diff selftest clean FORCE
+# gate run: 8 x 125k random commands; minimums are the commands each suite ran over these seeds
+GATE_SEEDS := 21 22 23 24 25 26 27 28
+GATE_COUNT := 125000
+GATE_MINS  := --min directed=4096 --min edge=32000 --min reset=3500 --min cpu=60000 \
+              --min random=1000000 --min boundary=7312
+
+.PHONY: golden diff gate ucode-check selftest clean FORCE
 .DEFAULT_GOAL := golden
 
 $(BUILD)/golden/stamp: $(GOLD_SRCS) $(TB_SRCS) $(HERE)dut_golden.vhd
@@ -70,7 +79,14 @@ golden: $(RESULTS_golden)
 COVREQ = $(if $(and $(filter edge,$(SUITES)),$(filter random,$(SUITES))),--require-coverage)
 
 diff: $(RESULTS_serial)
-	@python3 $(HERE)summarize.py $(COVREQ) $(dir $(RESULTS_serial))
+	@python3 $(HERE)summarize.py $(COVREQ) $(SUMARGS) $(dir $(RESULTS_serial))
+
+gate: ucode-check
+	@$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) diff SEEDS="$(GATE_SEEDS)" COUNT=$(GATE_COUNT) \
+		SUITES="directed edge reset cpu random boundary" SUMARGS="$(GATE_MINS)"
+
+ucode-check:
+	@python3 $(RTL)/gen/gte_ucode.py --check
 
 selftest: $(BUILD)/golden/stamp
 	@python3 $(HERE)selftest.py $(BUILD)/golden $(RUNROOT)/selftest

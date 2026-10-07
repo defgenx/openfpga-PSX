@@ -2,10 +2,15 @@
 """Aggregate tb_diff run logs: per-run RESULT lines, summed coverage, exit 1 on any FAIL.
 
 A run also fails on any simulator "** Error" or "** Failure" line (RTL assertions included).
-With --require-coverage, every coverage counter summed over all suites must be non-zero
-(a single suite may legitimately leave some at zero, e.g. game-like never clamps).
+The total fails when there are no runs or no commands, or when the golden-side multiply or
+divide checks never sampled (checked_mul or checked_div summed to zero).
+With --require-coverage, coverage lines must be present and every counter summed over all
+suites must be non-zero (a single suite may legitimately leave some at zero, e.g. game-like
+never clamps).
+--min SUITE=N fails unless the runs named SUITE_s<seed> together ran at least N commands.
 
-usage: summarize.py [--quiet] [--require-coverage] RUNDIR...   (each RUNDIR holds run.log and status)
+usage: summarize.py [--quiet] [--require-coverage] [--min SUITE=N]... RUNDIR...
+       (each RUNDIR holds run.log and status)
 """
 import collections
 import os
@@ -21,10 +26,20 @@ SIMERR = re.compile(r"^\*\* (Error|Failure)")
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
+    mins = {}
+    args = []
+    while argv:
+        a = argv.pop(0)
+        if a == "--min":
+            suite, n = argv.pop(0).split("=")
+            mins[suite] = int(n)
+        elif not a.startswith("--"):
+            args.append(a)
     quiet = "--quiet" in sys.argv
     need_cov = "--require-coverage" in sys.argv
     tot = collections.Counter()
+    per_suite = collections.Counter()
     cov = collections.defaultdict(collections.Counter)
     fail = False
     for d in args:
@@ -68,6 +83,7 @@ def main():
         tot["busy_diffs"] += bd
         tot["assert_fails"] += af
         tot["commands"] += cmds
+        per_suite[re.sub(r"_s\d+$", "", name)] += cmds
         bad = res.group(5) != "PASS" or bool(simerr)
         fail |= bad
         print("%-22s %s%s" % (name, res.group(0)[7:], " (simulator errors: %d)" % len(simerr) if simerr else ""))
@@ -75,6 +91,32 @@ def main():
         if bad and not quiet:
             for ln in extra[:20]:
                 print("    " + ln)
+    checks = []
+    if not args:
+        checks.append("no runs")
+    elif tot["commands"] == 0:
+        checks.append("no commands ran")
+    else:
+        if tot["chk_mul"] == 0:
+            checks.append("golden multiply checks never sampled")
+        if tot["chk_div"] == 0:
+            checks.append("golden divide checks never sampled")
+    for suite, n in sorted(mins.items()):
+        if per_suite[suite] < n:
+            checks.append("suite %s ran %d commands, minimum %d" % (suite, per_suite[suite], n))
+    if need_cov and not cov:
+        checks.append("coverage required but no COV lines")
+    elif need_cov:
+        summed = collections.Counter()
+        for c in cov.values():
+            summed.update(c)
+        zeros = sorted(k for k, v in summed.items() if v == 0)
+        if zeros:
+            checks.append("coverage counters zero over all suites: " + ", ".join(zeros))
+    for c in checks:
+        print("CHECK FAIL: " + c)
+    if checks:
+        fail = True
     print("TOTAL mismatches=%d busy_diffs=%d assert_fails=%d commands=%d (mul checks=%d, div checks=%d, pauses=%d, while busy=%d) %s" % (
         tot["mismatches"], tot["busy_diffs"], tot["assert_fails"], tot["commands"], tot["chk_mul"], tot["chk_div"],
         tot["pauses"], tot["pauses_busy"], "FAIL" if fail else "PASS"))
@@ -92,8 +134,6 @@ def main():
         zeros = sorted(k for k, v in total.items() if v == 0)
         print("  all suites zero=%s%s" % (", ".join(zeros) if zeros else "none",
                                           " (required: FAIL)" if need_cov and zeros else ""))
-        if need_cov and zeros:
-            fail = True
         if os.environ.get("COV_FULL"):
             for suite in sorted(cov):
                 for k, v in cov[suite].items():
