@@ -31,7 +31,8 @@ golden model: the two run side by side in nvc on the same command streams (`sim/
 Design, schedule and measurements: [GTE.md](GTE.md).
 
 **Gate:** bit-exact on every register and FLAG, and `gte_busy` identical at every clk1x edge, on
-directed, edge, reset, CPU-timing (pauses included) and 1,000,000 random commands · ≤ 3,000 ALMs,
+directed, edge, reset, CPU-timing (pauses included), saturation-boundary and 1,000,000 random
+commands (`make -j8 gate`) · ≤ 3,000 ALMs,
 measured as the fitter's per-entity "ALMs needed" for the GTE instance · ≤ 4 DSP · setup slack
 positive at slow 85 °C (≥ +0.7 ns on a clk4x domain, if there is one) and hold slack positive in
 all four corners, on 5CEBA4F23C8. Projection: 4,200 → 2,700 ALMs.

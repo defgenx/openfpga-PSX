@@ -1,5 +1,6 @@
 -- gte_UNRDivide pipeline with two narrowings (stage-6 multiply is lhs * calc_val_r with the shift
--- applied to the product; calc_val_d is 18-bit signed) and one multiplier shared by stages 4-6.
+-- applied to the product; calc_val_d is 18-bit signed, var_d20(17 downto 0)) and one multiplier
+-- shared by stages 4-6.
 -- Triggers must be at least 3 cycles apart. Reasoning: docs/pocket/GTE.md ("Divider").
 -- ce gates every register; with ce = '1' it matches gte_UNRDivide cycle for cycle.
 
@@ -75,27 +76,19 @@ architecture arch of gte_serial_div is
    signal divError_4    : std_logic := '0';
    signal lhs_4         : unsigned(15 downto 0);
    signal shiftcount_4  : integer range 0 to 15;
-   signal divisor_4     : signed(16 downto 0);
 
    signal calc_val_x    : signed(10 downto 0);
-   signal calc_val_xn   : signed(10 downto 0);
 
    -- stage 5
    signal trigger_5     : std_logic := '0';
    signal divError_5    : std_logic := '0';
    signal lhs_5         : unsigned(15 downto 0);
    signal shiftcount_5  : integer range 0 to 15;
-   signal calc_val_x_5  : signed(10 downto 0);
-
-   signal calc_val_d    : signed(17 downto 0);
 
    -- stage 6
    signal trigger_6     : std_logic := '0';
    signal divError_6    : std_logic := '0';
-
-   signal lhs_6         : unsigned(15 downto 0);
    signal shiftcount_6  : integer range 0 to 15;
-   signal calc_val_r    : unsigned(19 downto 0);
 
    -- the multiplier shared by stages 4, 5 and 6 (one DSP block); operands registered one stage
    -- early, from trigger_3/4/5, so no mux sits between them and the DSP
@@ -175,11 +168,9 @@ begin
          divError_4     <= divError_3;
          lhs_4          <= lhs_3;
          shiftcount_4   <= shiftcount_3;
-         divisor_4      <= divisor;
 
          if (trigger_3 = '1') then
             calc_val_x  <= signed(resize(tableValue, 11) + 16#101#);
-            calc_val_xn <= -signed((resize(tableValue, 11) + 16#101#));
             mul_a       <= resize(divisor, 27);
             mul_b       <= resize(-signed((resize(tableValue, 11) + 16#101#)), 27);
          end if;
@@ -189,12 +180,10 @@ begin
          divError_5     <= divError_4;
          lhs_5          <= lhs_4;
          shiftcount_5   <= shiftcount_4;
-         calc_val_x_5   <= calc_val_x;
 
          var_calc_d := resize(prod + 16#80#, 28);
          var_d20    := x"20000" + var_calc_d(27 downto 8);
          if (trigger_4 = '1') then
-            calc_val_d <= var_d20(17 downto 0);
             mul_a      <= resize(calc_val_x, 27);
             mul_b      <= resize(var_d20(17 downto 0), 27);
          end if;
@@ -205,8 +194,6 @@ begin
 
          var_calc_r := resize(prod + 16#80#, 28);
          if (trigger_5 = '1') then
-            calc_val_r   <= unsigned(var_calc_r(27 downto 8));
-            lhs_6        <= lhs_5;
             shiftcount_6 <= shiftcount_5;
             mul_a        <= signed(resize(shift_left(resize(lhs_5, 19), shiftcount_5 mod 4), 27));  -- low 2 shift bits before the multiply
             mul_b        <= signed(resize(unsigned(var_calc_r(27 downto 8)), 27));

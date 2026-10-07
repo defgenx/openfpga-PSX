@@ -18,6 +18,12 @@ and take exactly the golden's busy cycles, proven by `sim/gte_diff` (see [Verifi
   stall on `gte_busy`, `gte_cmdEna` and `gte_writeEna`). So `gte_serial` may compute in any order
   as long as every register holds the golden's value by the edge where the golden's FSM returns to
   IDLE. Intermediate values inside a command are not compared.
+- **`gte_writeEna` and `gte_cmdEna` are never high on the same clk1x edge.** MTC2/CTC2 and COP2
+  strobes come from the one instruction in execute (`cpu.vhd:2453-2460`), and an LWC2 whose load
+  completes late holds the pipeline until its GTE write is issued (`:2137-2147`, `:2485`). The RAM
+  copies rely on it: on the edge a command is accepted, the prefetch reads them with old-data
+  semantics, where the golden would see a same-edge write at calcStep 0. The harness's same-edge
+  vectors (`17`/`18`) pair a write with a read, never with a command.
 - **`ce = '0'` freezes everything**: port sampling, `gte_readData`, the sequencer, the busy
   counter, the datapath, the divider and every architectural write. `SS_idle` is registered from
   the previous clk1x edge, so psx_top can drop `ce` one clk1x after a command was accepted, with the
@@ -150,7 +156,7 @@ apart, the generator enforces it, and a simulation assertion checks it. The narr
   This is exact because the two shifts compose to `shiftcount_5`, and `calc_lhs = lhs_5 ·
   2^shiftcount_5` never loses a bit (`lhs_5 < 2^16`, shift ≤ 15). Splitting the shift leaves a
   4-way mux after the multiply, where a 16-way shifter would be.
-- `calc_val_d` becomes 18-bit signed.
+- `calc_val_d` becomes 18-bit signed: `var_d20(17 downto 0)`, fed straight to the shared multiplier.
 
 `make divtest` sweeps all 65,536 `rhs` values with up to 13 `lhs` values each (out-of-range ones dropped): 0, 0xFFFF, the
 `rhs·2 ≤ lhs` edge, the `> 0x1FFFF` clamp edge and random values. It runs two passes, one with
@@ -340,17 +346,20 @@ acceptance-edge prefetch to land in time. With G_L = 2, DPCT, CDP, DPCL and AVSZ
 `sizing/gte_slice.vhd` is one lane plus the divider's last stage, on 5CEBA4F23C8. The lane is a
 RAM read, the operand mux, an 18×19 multiply, the shifter, the 45-bit accumulate with an addend mux,
 overflow and IR saturation. The slice was placed and routed with `sizing/gte.sdc`. `G_L` counts the
-stages from the operand mux to the accumulator.
+stages from the operand mux to the accumulator. Each variant is a revision of `sizing/gte_slice.qpf`,
+run from `sizing/` as in [Measurements](#measurements) with `gte_slice` in place of `gte_size`:
+`quartus_sh --flow compile gte_slice -c <rev>`, then `quartus_sta -t report.tcl <rev>`, which writes
+the worst setup path per clock to `output_files_<rev>/worst_<clock>.txt`.
 
-| Variant | Clock | Setup slack, slow 85 °C | Worst path |
-|---|---|---|---|
-| lane, L = 2 | clk4x | −3.196 ns | M10K → operand mux → DSP → product |
-| lane, L = 3 | clk4x | −1.967 ns | addend select → 45-bit carry chain → accumulator |
-| lane, L = 3, pre-decoded addend | clk4x | −1.491 ns | `macLast` → 45-bit add → accumulator loop |
-| lane, L = 1 (mux, multiply, accumulate in one cycle) | clk2x | −2.818 ns | operand mux → DSP → 45-bit add |
-| lane, L = 2 | clk2x | +1.582 ns | |
-| divider last stage, 1 extra register | clk4x | −1.961 ns | shift by 0–15 → +0x8000 → compare |
-| divider last stage, 2 extra registers | clk4x | −0.135 ns | shift → round adder |
+| Variant | Revision | Clock | Setup slack, slow 85 °C | Worst path |
+|---|---|---|---|---|
+| lane, L = 2 | `slice4x_L2` | clk4x | −3.196 ns | M10K → operand mux → DSP → product |
+| lane, L = 3 | `slice4x_L3` | clk4x | −1.967 ns | addend select → 45-bit carry chain → accumulator |
+| lane, L = 3, pre-decoded addend | `slice4x_L3_acc` | clk4x | −1.491 ns | `macLast` → 45-bit add → accumulator loop |
+| lane, L = 1 (mux, multiply, accumulate in one cycle) | `slice2x_L1` | clk2x | −2.818 ns | operand mux → DSP → 45-bit add |
+| lane, L = 2 | `slice2x_L2` | clk2x | +1.582 ns | |
+| divider last stage, 1 extra register | `slicediv4x` | clk4x | −1.961 ns | shift by 0–15 → +0x8000 → compare |
+| divider last stage, 2 extra registers | `slicediv4x_r2` | clk4x | −0.135 ns | shift → round adder |
 
 Hold is positive in all four corners (worst +0.044 ns, fast 0 °C). The 45-bit accumulate loop
 (accumulator → addend mux → add → accumulator) does not close at 135 MHz on a C8 part, so the
@@ -366,26 +375,42 @@ registered (G_L = 2), DPCT, CDP, DPCL and AVSZ3 miss their IDLE edge.
 - `make golden`: golden against golden (smoke test).
 - `make selftest`: proves the comparator catches injected faults.
 - `make divtest`: the divider proof above.
-- `make diff`: directed, edge, reset, cpu-timing (pauses and race pauses included) and 1,000,000
-  random commands (uniform and game-like). Every coverage counter must be non-zero.
+- `make ucode-check`: the committed ROM is what `gte_ucode.py` generates, and every
+  `gte_serial_pkg.vhd` constant matches the generator's copy.
+- `make diff`: directed, edge, reset, cpu-timing (pauses and race pauses included), boundary and
+  random (uniform and game-like) suites, by default one seed and 20,000 random commands
+  (about 33k commands in all). Every coverage counter must be non-zero.
+- `make -j8 gate`: the gate run, `ucode-check` then `diff` over seeds 21–28 with 125,000 random
+  commands each (1,000,000), failing if any suite runs fewer commands than the gate run below.
 
 Baseline, golden against golden (`make -j8 golden SEEDS="1 2 3 4 5 6 7 8" COUNT=125000`): 1,103,344
 commands, 0 differences, 256 s on 8 jobs (about 4,300 commands/s, 540 per job).
 
-Results on the gate build (`make -j8 diff SEEDS="21 22 23 24 25 26 27 28" COUNT=125000`, about 5 min
-on 8 jobs): 1,103,508 commands, 0 register/FLAG mismatches, 0 `gte_busy` differences at clk1x
-edges, 0 golden-side assertion failures and 0 simulator errors. That is 24.4M multiply requests
-and 210,476 divides checked, and 10,294 pauses, 3,636 of them on the race edge with the GTE busy. Every coverage
+Results on the gate build (`make -j8 gate`, 298 s on 8 jobs): 1,110,820 commands, 0
+register/FLAG mismatches, 0 `gte_busy` differences at clk1x edges, 0 golden-side assertion
+failures and 0 simulator errors. That is 24.5M multiply requests and 212,684 divides checked,
+and 10,294 pauses, 3,636 of them on the race edge with the GTE busy. Every coverage
 counter is non-zero summed over the suites. The game-like distribution alone never hits a
 divide error or an SZ3/OTZ clamp, by design; the edge and uniform suites do. `make selftest`
 reports exactly each injected fault, and each golden-side assertion fires on its injection.
 
 `summarize.py` fails a run on any simulator error line, which covers the RTL's own assertions:
-both lanes on one accumulator, and divides less than 3 cycles apart. When the edge and random
-suites both run, it also fails on any coverage counter that is zero summed over all suites. The
+both lanes on one accumulator, and divides less than 3 cycles apart. It fails the total when
+nothing ran (no runs, or no commands) and when the golden-side multiply or divide checks never
+sampled. When the edge and random suites both run, it also fails if coverage lines are missing or
+any counter is zero summed over all suites; `--min SUITE=N` sets a per-suite command floor. The
 CPU-timing stream also puts write and read strobes on the same clk1x edge (a stalled MFC2
 re-issues on `busy`/`cmdEna` only, `cpu.vhd:1163-1165`), resets while `ce` is low, writes the
 read-only 29/31, and writes LZCS extremes read back through 31.
+
+The boundary suite (914 commands per seed, every boundary on every seed) drives each saturation
+point to limit−1, limit and limit+1 on both sides: IR1–3 with lm 0 and 1 and RGB through GPF,
+MVMVA IR (cv 2 and 3) and MAC1–3 at ±2^43, and through RTPS IR0, MAC0 at ±2^31, SZ3, the divide
+error and SX2/SY2. AVSZ3/AVSZ4 cover OTZ. It also writes FLAG (each single bit and its complement,
+0, all ones) and reads it back before any command, since every command clears FLAG. Every
+off-by-one compare mutant of those limits in `gte_serial.vhd`, and FLAG write mutants of the
+bit-31 summary, fail it. The three that pass are equivalent: the IR value-path compares at
+0, −32768 and 0x7FFF choose a branch that yields the same value.
 
 Not constructible: an edge case with a `macLast` term near the 44-bit limit. In every command
 `macLast` is a step-0 result (color << 16, IR × 0x1000) or a ×0x10 product, below 2^36, so the unwrapped feed
@@ -404,7 +429,15 @@ alone, not the wrapper. `gte` is measured the same way in its own project. The m
 every port registered on clk1x, virtual pins, `sizing/gte.sdc`. Quartus 21.1 Lite in
 `raetro/quartus:21.1`, `NUM_PARALLEL_PROCESSORS 1`:
 `docker run --rm --platform linux/amd64 -v "$PWD":/build -w /build/sizing raetro/quartus:21.1 quartus_sh --flow compile gte_size -c <rev>`,
-then `quartus_sta -t report_gte.tcl <rev>` for the worst paths.
+then `quartus_sta -t report_gte.tcl <rev>` for the worst paths per clock and
+`quartus_sta -t path_gte.tcl <rev>` for the full detail of the worst clk2x path in each slow corner.
+
+These are default-settings, single-seed numbers: Balanced optimization, no physical synthesis,
+fitter seed 1, clocks on ports with no PLL. The full build uses AGGRESSIVE PERFORMANCE with
+physical-synthesis register duplication and retiming (`PSX.qsf:31-52`) and PLL clocks
+(`derive_pll_clocks`, `PSX.sdc:1-2`). Register duplication can add ALMs and PLL jitter costs
+slack, so both are re-measured inside the full build. The ROADMAP's ≥ +0.7 ns on a clk4x domain is
+about 10% of its period; applied to clk2x that is +1.48 ns, which +2.025 ns (13.7%) also meets.
 
 | | `gte_serial` | `gte` (golden) | Gate |
 |---|---|---|---|
