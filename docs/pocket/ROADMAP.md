@@ -20,8 +20,10 @@ starts on a failed gate.
 
 ## Phases
 
-Each phase is one clash Workflow item (project `PSX_MiSTer`), created when the previous gate
-passes. Phase 3 needs only a Pocket, so it can run in parallel with phases 1–2.
+All phases run in one clash Workflow item (`pocket-gte-gate`, project `PSX_MiSTer`), in order:
+a phase starts only when the previous gate passes. Phase 3 needs only a Pocket, so it runs in
+parallel with phases 1–2. A gate criterion that can only be measured on a Pocket is recorded as
+**pending hardware**, never as passed, and does not hold back the phases that build on it.
 
 ### Phase 1 — GTE gate (`pocket-gte-gate`)
 
