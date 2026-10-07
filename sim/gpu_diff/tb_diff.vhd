@@ -145,6 +145,7 @@ architecture arch of tb_diff is
    type t_i4 is array (0 to 3) of integer;
    signal su_n_g, su_sum_g, su_max_g : t_i4 := (others => 0);
    signal su_n_d, su_sum_d, su_max_d : t_i4 := (others => 0);
+   signal sc_checked, sc_viol, sc_excess, sc_pure_max : integer := 0;
 
    shared variable sg   : t_spanqueue;
    shared variable sd   : t_spanqueue;
@@ -431,6 +432,66 @@ begin
             if cyc - td > md(ci) then md(ci) := cyc - td; end if;
             su_n_d <= nd; su_sum_d <= sumd; su_max_d <= md;
          end if;
+      end if;
+   end process;
+
+   -- setup criterion (docs/pocket/GPU.md "Timing"), per triangle: DUT setup <= max(golden setup, reference).
+   -- Setup = ISSUE to first PREPARELINE; line handling is cycle-identical, so DUT setup = golden setup
+   -- + (DUT first drawn span - golden first drawn span). Triangles with no drawn span are not checked.
+   process (clk2x)
+      alias g_prep is << signal .tb_diff.golden.ggolden.igpu.igpu_poly.dbg_prep : std_logic >>;
+      type t_ring is array (0 to 63) of integer;
+      variable kg, kd, ke      : integer := 0;          -- triangles issued per side, next to check
+      variable t_iss_g, t_prep_g, t_span_g, t_iss_d, t_span_d, cls : t_ring := (others => -1);
+      variable prev_prep, armed_prep : boolean := false;
+      variable ref, gsu, dsu, chk, viol, exc, pmax : integer := 0;
+      constant REF_TRI  : t_i4 := (46, 334, 226, 496);  -- DuckStation s_setup_time, triangle
+      constant REF_QUAD : t_i4 := (41, 185, 131, 266);  -- quad command cost split over its two triangles
+      variable ci, k : integer;
+   begin
+      if rising_edge(clk2x) then
+         ci := 0;
+         if cur_op >= 16#20# and cur_op <= 16#3F# then
+            if (cur_op / 16) mod 2 = 1 then ci := ci + 1; end if;
+            if (cur_op / 4) mod 2 = 1 then ci := ci + 2; end if;
+            if (cur_op / 8) mod 2 = 1 then ci := ci + 4; end if;
+         end if;
+         if g_issue = '1' then
+            k := kg mod 64; t_iss_g(k) := cyc; t_prep_g(k) := -1; t_span_g(k) := -1; cls(k) := ci; kg := kg + 1;
+            armed_prep := true;
+         end if;
+         if armed_prep and g_prep = '1' and not prev_prep then
+            t_prep_g((kg - 1) mod 64) := cyc; armed_prep := false;
+         end if;
+         prev_prep := g_prep = '1';
+         if g_span.valid = '1' and kg > 0 and t_span_g((kg - 1) mod 64) < 0 then t_span_g((kg - 1) mod 64) := cyc; end if;
+         if d_issue = '1' then
+            k := kd mod 64; t_iss_d(k) := cyc; t_span_d(k) := -1; kd := kd + 1;
+         end if;
+         if d_span.valid = '1' and kd > 0 and t_span_d((kd - 1) mod 64) < 0 then t_span_d((kd - 1) mod 64) := cyc; end if;
+         -- triangle ke is settled on a side once it has a span or that side has issued the next one
+         while ke < kg and ke < kd loop
+            k := ke mod 64;
+            exit when not ((t_span_g(k) >= 0 or kg > ke + 1) and (t_span_d(k) >= 0 or kd > ke + 1));
+            if t_span_g(k) >= 0 and t_span_d(k) >= 0 and t_prep_g(k) >= 0 then
+               gsu  := t_prep_g(k) - t_iss_g(k);
+               dsu := gsu + (t_span_d(k) - t_iss_d(k)) - (t_span_g(k) - t_iss_g(k));
+               if cls(k) >= 4 then ref := REF_QUAD(cls(k) - 4); else ref := REF_TRI(cls(k)); end if;
+               if gsu > ref then ref := gsu; end if;
+               chk := chk + 1;
+               if dsu > pmax then pmax := dsu; end if;
+               if dsu > ref then
+                  viol := viol + 1;
+                  if dsu - ref > exc then exc := dsu - ref; end if;
+                  if viol <= G_MAX_REPORT then
+                     say("SETUPVIOL tri=" & integer'image(ke) & " class=" & integer'image(cls(k)) &
+                         " gold=" & integer'image(gsu) & " dut=" & integer'image(dsu) & " limit=" & integer'image(ref));
+                  end if;
+               end if;
+            end if;
+            ke := ke + 1;
+         end loop;
+         sc_checked <= chk; sc_viol <= viol; sc_excess <= exc; sc_pure_max <= pmax;
       end if;
    end process;
 
@@ -882,6 +943,8 @@ begin
              " gold_max=" & integer'image(su_max_g(c)) & " dut_n=" & integer'image(su_n_d(c)) & " dut_sum=" & integer'image(su_sum_d(c)) &
              " dut_max=" & integer'image(su_max_d(c)));
       end loop;
+      say("SETUPCHK checked=" & integer'image(sc_checked) & " violations=" & integer'image(sc_viol) &
+          " worst_excess=" & integer'image(sc_excess) & " dut_max=" & integer'image(sc_pure_max));
       say("ERRFLAGS gold=" & to_string(err_g) & " dut=" & to_string(err_d) & " (FIFO MASK GPU POLY RECT LINE)");
       for c in 0 to NCLASS - 1 loop
          say("TIMING " & class_name(c) & " n=" & integer'image(t_n(c)) & " gold=" & integer'image(t_gold(c)) &
@@ -901,7 +964,7 @@ begin
       end loop;
 
       fail := (mm_wr + mm_span + vram_mm + mm_rd + stim_err > 0) or sg.count /= 0 or sd.count /= 0 or err_g(5) = '1' or
-              (G_TIMING_STRICT and (timing_diffs + stat_diffs > 0)) or
+              (G_TIMING_STRICT and (timing_diffs + stat_diffs > 0)) or sc_viol > 0 or
               qg.count /= 0 or qd.count /= 0;
       say("RESULT commands=" & integer'image(n_cmds) & " prims=" & integer'image(prim_v) & " words=" & integer'image(n_words) &
           " wr_mismatches=" & integer'image(mm_wr + qg.count + qd.count) & " span_mismatches=" & integer'image(mm_span + sg.count + sd.count) & " vram_mismatches=" & integer'image(vram_mm) &

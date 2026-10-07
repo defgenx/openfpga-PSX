@@ -23,6 +23,7 @@ STREAM = re.compile(r"^STREAM .*?writes_gold=(\d+)")
 TIMING = re.compile(r"^TIMING (\S+) n=(\d+) gold=(\d+) dut=(\d+) maxdelta=(\d+) diffs=(\d+)")
 SETUP = re.compile(r"^SETUP (\S+) gold_n=(\d+) gold_sum=(\d+) gold_max=(\d+) dut_n=(\d+) dut_sum=(\d+) dut_max=(\d+)")
 COV = re.compile(r"^COV (\S+) (\S+) (\d+)$")
+SETUPCHK = re.compile(r"^SETUPCHK checked=(\d+) violations=(\d+) worst_excess=(\d+) dut_max=(\d+)")
 DETAIL = ("MISMATCH", "TIMING DIFF", "TIMEOUT", "ERROR")
 SIMERR = re.compile(r"^\*\* (Error|Failure|Fatal)")
 REQ_CLASS = ["poly_wrote", "poly_nowrite", "line_wrote", "rect_wrote", "fill_wrote", "copy_wrote", "upload_wrote"]
@@ -61,6 +62,7 @@ def main():
     timing = collections.defaultdict(lambda: [0, 0, 0, 0, 0])
     setup = collections.defaultdict(lambda: [0] * 6)
     setup_max = collections.defaultdict(lambda: [0, 0])
+    sc = [0, 0, 0]                                   # setup criterion: checked, violations, worst excess
     cov = collections.Counter()
     fail = False
     for d in args:
@@ -95,6 +97,9 @@ def main():
                     s[i] += v[i]
                 setup_max[m.group(1)][0] = max(setup_max[m.group(1)][0], v[2])
                 setup_max[m.group(1)][1] = max(setup_max[m.group(1)][1], v[5])
+            m = SETUPCHK.match(ln)
+            if m:
+                sc[0] += int(m.group(1)); sc[1] += int(m.group(2)); sc[2] = max(sc[2], int(m.group(3)))
             m = COV.match(ln)
             if m:
                 cov[m.group(2)] += int(m.group(3))
@@ -156,6 +161,9 @@ def main():
         for c, s in setup.items():
             print("  %-17s gold n=%-6d avg=%-7.1f max=%-5d | dut n=%-6d avg=%-7.1f max=%d" % (
                 c, s[0], s[1] / s[0] if s[0] else 0.0, setup_max[c][0], s[3], s[4] / s[3] if s[3] else 0.0, setup_max[c][1]))
+    if not quiet and sc[0]:
+        print("SETUP CRITERION (per triangle: DUT <= max(golden, reference), docs/pocket/GPU.md) checked=%d "
+              "violations=%d worst_excess=%d" % tuple(sc))
     if not quiet and cov:
         zeros = sorted(k for k, v in cov.items() if v == 0 and (k.startswith("op_") or k in REQ_CLASS))
         print("COVERAGE zero counters: %s" % (", ".join(zeros) if zeros else "none"))
