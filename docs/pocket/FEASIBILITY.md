@@ -19,8 +19,10 @@ bandwidth on one 16-bit SDRAM is still unproven.
 |---|---|---|---|---|
 | Full core, all options live | 31,215 | 29,178 | 2,144,448 | 98 |
 | Options tied off (`psx_min_wrap.vhd`) | **26,135** | 25,697 | 1,910,912 | 83 |
+| Same, **placed and routed** on 5CSEBA6 (DE10-Nano) | **26,672** | — | 1,910,912 (289 M10K) | 83 |
 | Pocket device | 18,480 | — | ~3.08 Mbit (308 M10K) | 66 |
 
+The fitted result is 2% above the synthesis estimate, so the estimates below are not pessimistic.
 Tying options to constants only removes ~5K ALMs. Turbo data cache, savestates and the SPU
 on-chip reverb RAM are not pruned that way; they need RTL changes.
 
