@@ -39,10 +39,10 @@ GOLD_SRCS   := $(RTL)/pGTE.vhd $(RTL)/gte_mac0.vhd $(RTL)/gte_mac123.vhd $(RTL)/
 SERIAL_ABS  := $(foreach f,$(SERIAL_SRCS),$(abspath $(if $(filter /%,$(f)),$(f),$(HERE)$(f))))
 TB_SRCS     := $(HERE)gte_dut.vhd $(HERE)tb_diff.vhd
 
-# gate run: 8 x 125k random commands; minimums are the commands each suite ran over these seeds
+# gate run: 8 x 125k random commands; minimums are exactly the commands each suite runs over these seeds
 GATE_SEEDS := 21 22 23 24 25 26 27 28
 GATE_COUNT := 125000
-GATE_MINS  := --min directed=4096 --min edge=32000 --min reset=3500 --min cpu=60000 \
+GATE_MINS  := --min directed=4096 --min edge=32000 --min reset=3587 --min cpu=63825 \
               --min random=1000000 --min boundary=7312
 
 .PHONY: golden diff gate ucode-check selftest clean FORCE

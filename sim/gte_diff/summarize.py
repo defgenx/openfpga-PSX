@@ -25,19 +25,32 @@ DETAIL = ("MISMATCH", "BUSY DIFF", "ASSERT ", "TIMEOUT", "ERROR", "INDEX")
 SIMERR = re.compile(r"^\*\* (Error|Failure)")
 
 
+def usage(msg):
+    sys.stderr.write("summarize.py: %s\nusage: %s" % (msg, __doc__.split("usage: ")[1]))
+    sys.exit(2)
+
+
 def main():
     argv = sys.argv[1:]
     mins = {}
     args = []
+    quiet = need_cov = False
     while argv:
         a = argv.pop(0)
         if a == "--min":
-            suite, n = argv.pop(0).split("=")
-            mins[suite] = int(n)
-        elif not a.startswith("--"):
+            m = re.fullmatch(r"(\w+)=(\d+)", argv.pop(0) if argv else "")
+            if not m:
+                usage("--min takes SUITE=N")
+            mins[m.group(1)] = int(m.group(2))
+        elif a == "--quiet":
+            quiet = True
+        elif a == "--require-coverage":
+            need_cov = True
+        elif a.startswith("-"):
+            # an unknown option must not silently turn a check off
+            usage("unknown option " + a)
+        else:
             args.append(a)
-    quiet = "--quiet" in sys.argv
-    need_cov = "--require-coverage" in sys.argv
     tot = collections.Counter()
     per_suite = collections.Counter()
     cov = collections.defaultdict(collections.Counter)
