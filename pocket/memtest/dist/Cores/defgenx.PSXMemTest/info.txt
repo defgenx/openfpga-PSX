@@ -1,0 +1,8 @@
+PSX Memory Test - Analogue Pocket (openFPGA)
+
+Phase 3 of the PSX-on-Pocket roadmap. No PSX logic: it exercises the Pocket's SDRAM, the two PSRAM
+chips (ganged as one 32-bit RAM) and the SRAM, verifies every access, and prints the measured MB/s,
+ns per access and error counts on screen. Setup, screen layout and gate criteria: docs/pocket/MEMTEST.md
+in the PSX_MiSTer repository.
+
+Copy this folder's Cores/, Platforms/ and Assets/ to the root of the Pocket SD card.

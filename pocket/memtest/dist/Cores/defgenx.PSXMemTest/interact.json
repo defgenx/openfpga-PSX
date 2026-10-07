@@ -1,0 +1,72 @@
+{
+  "interact": {
+    "magic": "APF_VER_1",
+    "variables": [
+      {
+        "name": "Restart tests",
+        "id": 1,
+        "type": "action",
+        "enabled": true,
+        "address": "0x80000000",
+        "value": 1
+      },
+      {
+        "name": "PSRAM sync burst",
+        "id": 2,
+        "type": "list",
+        "enabled": true,
+        "persist": false,
+        "address": "0x80000004",
+        "defaultval": 0,
+        "options": [
+          { "value": 0, "name": "Off (async only)" },
+          { "value": 1, "name": "On (after async)" }
+        ]
+      },
+      {
+        "name": "Sync latency",
+        "id": 3,
+        "type": "list",
+        "enabled": true,
+        "persist": false,
+        "address": "0x80000008",
+        "defaultval": 3,
+        "options": [
+          { "value": 2, "name": "2 clocks" },
+          { "value": 3, "name": "3 clocks" },
+          { "value": 4, "name": "4 clocks" },
+          { "value": 5, "name": "5 clocks" },
+          { "value": 6, "name": "6 clocks" }
+        ]
+      },
+      {
+        "name": "Sync sample phase",
+        "id": 4,
+        "type": "list",
+        "enabled": true,
+        "persist": false,
+        "address": "0x8000000C",
+        "defaultval": 2,
+        "options": [
+          { "value": 1, "name": "1 cycle" },
+          { "value": 2, "name": "2 cycles" },
+          { "value": 3, "name": "3 cycles" }
+        ]
+      },
+      {
+        "name": "Loop",
+        "id": 5,
+        "type": "list",
+        "enabled": true,
+        "persist": false,
+        "address": "0x80000010",
+        "defaultval": 0,
+        "options": [
+          { "value": 0, "name": "Run once" },
+          { "value": 1, "name": "Repeat (async only)" }
+        ]
+      }
+    ],
+    "messages": []
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "core": {
+    "magic": "APF_VER_1",
+    "metadata": {
+      "platform_ids": [
+        "psxmemtest"
+      ],
+      "shortname": "PSXMemTest",
+      "description": "PSX on Pocket: SDRAM, PSRAM and SRAM speed test",
+      "author": "defgenx",
+      "url": "https://github.com/defgenx/openfpga-PSX",
+      "version": "0.1.0",
+      "date_release": "2026-10-07"
+    },
+    "framework": {
+      "target_product": "Analogue Pocket",
+      "version_required": "1.1",
+      "sleep_supported": false,
+      "dock": {
+        "supported": true,
+        "analog_output": false
+      },
+      "hardware": {
+        "link_port": false,
+        "cartridge_adapter": -1
+      }
+    },
+    "cores": [
+      {
+        "name": "default",
+        "id": 0,
+        "filename": "memtest.rbf_r"
+      }
+    ]
+  }
+}
