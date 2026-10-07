@@ -34,8 +34,9 @@ Design, schedule and measurements: [GTE.md](GTE.md).
 directed, edge, reset, CPU-timing (pauses included), saturation-boundary and 1,000,000 random
 commands (`make -j8 gate`) · ≤ 3,000 ALMs,
 measured as the fitter's per-entity "ALMs needed" for the GTE instance · ≤ 4 DSP · setup slack
-positive at slow 85 °C (≥ +0.7 ns on a clk4x domain, if there is one) and hold slack positive in
-all four corners, on 5CEBA4F23C8. Projection: 4,200 → 2,700 ALMs.
+≥ 10% of the period on the GTE's fastest clock at slow 85 °C (clk2x: ≥ +1.48 ns; a clk4x domain,
+if one is added: ≥ +0.7 ns), positive on every other clock, and hold slack positive in all four
+corners, on 5CEBA4F23C8. Projection: 4,200 → 2,700 ALMs.
 
 ### Phase 2 — GPU gate
 

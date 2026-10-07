@@ -381,7 +381,7 @@ registered (G_L = 2), DPCT, CDP, DPCL and AVSZ3 miss their IDLE edge.
   random (uniform and game-like) suites, by default one seed and 20,000 random commands
   (about 33k commands in all). Every coverage counter must be non-zero.
 - `make -j8 gate`: the gate run, `ucode-check` then `diff` over seeds 21–28 with 125,000 random
-  commands each (1,000,000), failing if any suite runs fewer commands than the gate run below.
+  commands each (1,000,000), failing if any suite runs fewer commands than it does over those seeds.
 
 Baseline, golden against golden (`make -j8 golden SEEDS="1 2 3 4 5 6 7 8" COUNT=125000`): 1,103,344
 commands, 0 differences, 256 s on 8 jobs (about 4,300 commands/s, 540 per job).
@@ -436,8 +436,9 @@ These are default-settings, single-seed numbers: Balanced optimization, no physi
 fitter seed 1, clocks on ports with no PLL. The full build uses AGGRESSIVE PERFORMANCE with
 physical-synthesis register duplication and retiming (`PSX.qsf:31-52`) and PLL clocks
 (`derive_pll_clocks`, `PSX.sdc:1-2`). Register duplication can add ALMs and PLL jitter costs
-slack, so both are re-measured inside the full build. The ROADMAP's ≥ +0.7 ns on a clk4x domain is
-about 10% of its period; applied to clk2x that is +1.48 ns, which +2.025 ns (13.7%) also meets.
+slack, so both are re-measured inside the full build. The ROADMAP gate asks for setup slack of at
+least 10% of the period on the GTE's fastest clock: on clk2x that is +1.48 ns, which +2.025 ns
+(13.7%) meets.
 
 | | `gte_serial` | `gte` (golden) | Gate |
 |---|---|---|---|
@@ -447,7 +448,7 @@ about 10% of its period; applied to clk2x that is +1.48 ns, which +2.025 ns (13.
 | Registers (whole wrapper) | 1,814 | 3,222 | |
 | DSP blocks | **3** (two 18×18, one 27×27) | 15 | ≤ 4 |
 | RAM blocks | 9 (3 register-file copies, 5 ROM, 1 divider shift taps) | 1 | |
-| clk2x setup slack, slow 85 °C | **+2.025 ns** | +0.219 ns | > 0 |
+| clk2x setup slack, slow 85 °C | **+2.025 ns** | +0.219 ns | ≥ +1.48 ns |
 | clk2x setup slack, slow 0 °C | +1.599 ns | −0.124 ns | |
 | clk1x setup slack, slow 85 °C | +9.195 ns | +12.503 ns | > 0 |
 | hold slack clk2x / clk1x, slow 85 °C | +0.393 / +0.495 ns | +0.322 / +0.532 ns | > 0 |
@@ -462,5 +463,5 @@ as `x + a + 1` builds two chains in series, so the +1 of a negation enters as th
 extra low bit.
 
 **Gate: PASS.** Bit-exact and busy-exact on every suite (see [Verification](#verification)),
-2,490.8 ≤ 3,000 ALMs, 3 ≤ 4 DSP, positive setup at slow 85 °C and positive hold in all four
-corners. No clk4x domain exists, so the +0.7 ns clk4x criterion does not apply.
+2,490.8 ≤ 3,000 ALMs, 3 ≤ 4 DSP, clk2x setup +2.025 ns ≥ +1.48 ns (13.7% of the period) and
+positive clk1x setup at slow 85 °C, and positive hold in all four corners. No clk4x domain exists.
