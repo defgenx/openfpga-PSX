@@ -1,0 +1,17 @@
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CEBA4F23C8
+set_global_assignment -name TOP_LEVEL_ENTITY gpu_div_wrap
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 1
+set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files_gpu_div_edge43
+set_global_assignment -name VHDL_FILE ../rtl/pGPU_pocket.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gpu_pocket_div.vhd
+set_global_assignment -name VHDL_FILE gpu_div_wrap.vhd
+set_global_assignment -name SDC_FILE gpu_div.sdc
+set_parameter -name G_BITS_PER_CYCLE 4
+set_parameter -name G_DIVISOR_BITS 10
+set_parameter -name G_DIVIDEND_BITS 43
+set_instance_assignment -name VIRTUAL_PIN ON -to i_*
+set_instance_assignment -name VIRTUAL_PIN ON -to o_*
+
+set_global_assignment -name LAST_QUARTUS_VERSION "21.1.1 Lite Edition"
