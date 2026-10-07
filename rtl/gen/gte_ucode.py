@@ -32,7 +32,7 @@ B_FF = {"IR1": 17, "IR2": 18, "IR3": 19, "IR0": 20, "RGBC_R": 21, "RGBC_G": 22, 
         "VSNAP0": 24, "VSNAP1": 25, "VSNAP2": 26, "DIV": 27, "SY0": 28, "SY1": 29, "SY2": 30,
         "C1000": 31, "C10000": 32, "ZERO": 0}
 S_FF = {"ZERO": 0, "MAC1": 9, "MAC2": 10, "MAC3": 11}
-NSTG = 8
+NSTG = 4
 
 # ---------------------------------------------------------------- operand symbols
 # ("ram16", base, off, half) | ("ram32", base, off) | ("ff", name, read_time or None) | ("c", value)
@@ -663,6 +663,8 @@ def place(name, acts, order, preds, floor, busy, max_lookback):
                     ok = False
             elif a.kind in sides[cyc]:
                 ok = False
+            elif a.kind == "sz" and any("sz" in sides[cyc + d] for d in (-2, -1, 1, 2)):
+                ok = False          # gte_serial_div shares one multiplier: divides >= 3 cycles apart
             tent = []
             if ok:
                 for key in dict.fromkeys(a.words):
@@ -722,6 +724,7 @@ def encode(sch):
         assert not (words[cr] >> RD_LSB[p]) & 1
         words[cr] |= fld << RD_LSB[p]
     for cyc, ops in sch["lanes"].items():
+        ops = sorted(ops, key=lambda o: o.kind != "mac0")   # MAC0 runs on lane A only
         for ln, a in enumerate(ops):
             f, lsb, w = a.f, L_LSB[ln], 0
             w = put(w, L_V, 1, 1)

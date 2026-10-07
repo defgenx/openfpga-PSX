@@ -110,8 +110,8 @@ Two identical **lanes**, each `res = combine(X, a)`:
 
 | Cycle | Stage | Action |
 |---|---|---|
-| c | issue | `opA`, `opB`, `opS` registered from their sources (sources read as of the end of cycle c−1); controls registered |
-| c+1 | execute | product, shift, addend, combine → `res_q`, the row's accumulator, its `macLast` (old accumulator), the MACn register; MAC0 → `acc0`, `mac0Last`, MAC0 |
+| c | issue | `opA`, `opB` and the 45-bit `sval` registered from their sources (read as of the end of cycle c−1). `sval` is S shifted by k for X, or S / S<<12 for the addend. The controls are registered and decoded: X select, addend select, the two negations |
+| c+1 | execute | product; `res = (X ^ nx) + (a ^ na) + (nx or na)`, one 45-bit adder → `res_q`, the row's accumulator, its `macLast` (old accumulator), the MACn register; MAC0 → `acc0`, `mac0Last`, MAC0 |
 | c+2 | writeback | from `res_q`: IRn (saturation), FLAG bits |
 
 Write times, as "value visible after edge": accumulators and MACn at c+2, IRn and FLAG at c+3.
@@ -130,25 +130,31 @@ The MAC unit state per row: accumulator (45), `macLast` (45). MAC0: `acc0` (35),
 
 | Block | Multipliers | Mode |
 |---|---|---|
-| 1 | lane A 18×19 + lane B 18×19 | two 18×19 |
-| 2 | divider `:166` 17×11 + `:175` 11×18 (narrowed `calc_val_d`) | two 18×19 |
-| 3 | divider `:182` 16×20 unsigned (17×21 signed) | 27×27 |
+| 1 | lane A 18×19 | 18×18 (half used) |
+| 2 | lane B 18×19 | 18×18 (half used) |
+| 3 | divider, shared by stages 4, 5 and 6: `:166` 17×11, `:175` 11×18, `:182` 16×20 unsigned | 27×27 |
 
-3 blocks against the gate's 4. MAC0 runs on the lanes, so it has no multiplier of its own. For
-reference, the golden divider alone takes 5 DSP and each `gte_mac123` 3 in the stripped build.
+3 blocks against the gate's 4. MAC0 runs on the lanes, so it has no multiplier of its own.
+Quartus 21.1 does not pack two inferred multipliers into one block, so each lane takes a block of
+its own. A first build with one multiplier per divider stage took 5 blocks. For reference, the
+golden divider alone takes 5 DSP and each `gte_mac123` 3 in the stripped build.
 
 ### Divider (`rtl/gte_serial_div.vhd`)
 
-`gte_UNRDivide` with two narrowings, plus a `ce` input:
+`gte_UNRDivide` with two narrowings, one multiplier shared by stages 4–6, plus a `ce` input.
+Sharing requires divides to start at least 3 cycles apart. The golden's RTPT starts them 3 steps
+apart, the generator enforces it, and a simulation assertion checks it. The narrowings:
 - The 32×20 multiply (`gte_UNRDivide.vhd:182`) becomes `lhs_5 · calc_val_r` (16×20 unsigned). Its
   product is shifted by `shiftcount_5`, keeping the rounding order: shift first, then `+ 0x8000`,
   then `>> 16`, then the same resize to 32 bits and clamp. This is exact because `calc_lhs = lhs_5 ·
   2^shiftcount_5` never loses a bit (`lhs_5 < 2^16`, shift ≤ 15).
 - `calc_val_d` becomes 18-bit signed.
 
-`make divtest` sweeps all 65,536 `rhs` values with 13 `lhs` values each (0, 0xFFFF, the
-`rhs·2 ≤ lhs` edge, the `> 0x1FFFF` clamp edge, random), in two passes (back to back and with
-random gaps): 1,245,186 divides, 0 mismatches. Measured over the sweep:
+`make divtest` sweeps all 65,536 `rhs` values with 13 `lhs` values each: 0, 0xFFFF, the
+`rhs·2 ≤ lhs` edge, the `> 0x1FFFF` clamp edge and random values. It runs two passes, one with
+triggers 3 cycles apart and the inputs held, the other with random extra gaps and garbage inputs
+in between: 1,245,186 divides, 0 mismatches. `calc_val_d` and `calc_val_r` depend only on `rhs`,
+so the sweep is a proof, not a sample. Measured over it:
 
 | | min | max |
 |---|---|---|
@@ -193,7 +199,7 @@ The batch commands are `2·(R+1) + (N+1)`, from their restart step R and IDLE st
 release on `clk2xIndex = '0'` (`gte.vhd:615-617`) is kept as is.
 
 **RAM reads.** Two engine read ports. Word c's read is addressed at edge c+1, and its masked data
-lands in a **staging** register (8 × 32-bit, `s0`–`s7`) at edge c+2. `base + off` addresses the
+lands in a **staging** register (4 × 32-bit, `s0`–`s3`) at edge c+2. `base + off` addresses the
 RAM: base ABS = 0, MAT = 32/40/48 (`mx`), VEC = 0/2/4 (`v`), TRV = 37/45/53 (`cv`). Each program
 also has up to two **prefetch** reads, addressed at the acceptance edge from a table on the
 command word, which land at edge 1.
@@ -208,7 +214,7 @@ Per word: two read ports, two lane ops, the side effects and `halt`. Bit positio
 | read port p | `en` | 1 | read this cycle |
 | | `base` | 2 | ABS, MAT, VEC, TRV |
 | | `off` | 6 | offset added to base |
-| | `dst` | 3 | staging slot |
+| | `dst` | 3 | staging slot (2 bits used) |
 | lane L | `v` | 1 | op valid |
 | | `m0` | 1 | 1 = MAC0 op, 0 = MAC1–3 op |
 | | `row` | 2 | 1–3 (MAC1–3) |
@@ -221,7 +227,7 @@ Per word: two read ports, two lane ops, the side effects and `halt`. Bit positio
 | | `sub`, `swap` | 2 | as in the golden request |
 | | `wb` | 3 | MAC1–3 writeback mode, or MAC0 {useIR, checkOvf} |
 | side | `rgb`, `otz`, `sz`, `sxy` | 4 | the four side-effect ops |
-| | `hslot` | 3 | staging slot holding H, for `sz` |
+| | `hslot` | 3 | staging slot holding H, for `sz` (2 bits used) |
 | | `snap` | 2 | RTPT snapshot slot 0/1 (none = 0) |
 | | `vsnap` | 1 | MVMVA `v`=3 vector snapshot |
 | | `halt` | 1 | stop issuing |
@@ -239,7 +245,7 @@ Per word: two read ports, two lane ops, the side effects and `halt`. Bit positio
 MAC0 `wb` bit 0 = `useIR` (with `IRshift`), bit 1 = `checkOvf`.
 
 **Sources.** In the tables below, `stg` lo/hi is the low/high half of a staging slot, code
-`1 + 2·slot + half`.
+`1 + 2·slot + half`. Codes 9–16 (A/B) and 5–8 (S) are reserved for slots 4–7 and read as zero.
 
 | A (18-bit signed) | | B (19-bit signed) | | S (32-bit) | |
 |---|---|---|---|---|---|
@@ -286,12 +292,62 @@ The generator is a list scheduler over a **version model** of the golden:
 - Resources per cycle: two lane ops, one op per row, two RAM reads, one of each side effect, eight
   staging slots.
 
-Per-opcode results (program length, last write against the golden's IDLE edge, lane use): *to be
-filled from the generator's report.*
+Per-opcode results, from `python3 rtl/gen/gte_ucode.py` (G_L = 1). "Last write" is the edge of the
+program's last architectural write, FLAG included; "slack" is the golden's IDLE edge minus it.
+
+| Program | golden edges | words | last write | slack | lane ops | lane use | staging slots |
+|---|---|---|---|---|---|---|---|
+| AVSZ3 | 6 | 6 | 6 | 0 | 3 | 25% | 1 |
+| AVSZ4 | 8 | 7 | 7 | 1 | 4 | 29% | 1 |
+| CC | 17 | 14 | 14 | 3 | 18 | 64% | 2 |
+| CDP | 21 | 19 | 19 | 2 | 24 | 63% | 2 |
+| DPCL | 11 | 10 | 10 | 1 | 12 | 60% | 2 |
+| DPCS | 11 | 8 | 8 | 3 | 9 | 56% | 2 |
+| DPCT | 29 | 24 | 24 | 5 | 27 | 56% | 2 |
+| GPF | 5 | 4 | 4 | 1 | 3 | 38% | 0 |
+| GPL | 6 | 5 | 5 | 1 | 6 | 60% | 0 |
+| INTPL | 11 | 8 | 8 | 3 | 9 | 56% | 2 |
+| MVMVA (12 programs, worst) | 11 | 8 | 10 | 1 | 12 | 75% | 3 |
+| NCCS | 30 | 20 | 20 | 10 | 27 | 68% | 4 |
+| NCCT | 74 | 52 | 52 | 22 | 81 | 78% | 4 |
+| NCDS | 34 | 24 | 24 | 10 | 33 | 69% | 4 |
+| NCDT | 84 | 64 | 64 | 20 | 99 | 77% | 4 |
+| NCLIP | 12 | 6 | 8 | 4 | 6 | 50% | 0 |
+| NCS | 23 | 15 | 15 | 8 | 21 | 70% | 4 |
+| NCT | 55 | 38 | 38 | 17 | 63 | 83% | 4 |
+| OP | 8 | 4 | 6 | 2 | 6 | 75% | 2 |
+| RTPS | 26 | 21 | 22 | 4 | 12 | 29% | 4 |
+| RTPT | 42 | 35 | 36 | 6 | 34 | 49% | 4 |
+| SQR | 6 | 2 | 4 | 2 | 3 | 75% | 0 |
+
+The ROM holds 469 words × 97 bits (5 M10K). AVSZ3 has no slack: its ZSF3 operand needs the
+acceptance-edge prefetch to land in time. With G_L = 2, DPCT, CDP, DPCL and AVSZ3 miss.
+`--listing FILE` prints every program cycle by cycle.
 
 ## Datapath slice
 
-*To be filled: setup slack per clock and per pipeline depth from `sizing/gte_slice.vhd`.*
+`sizing/gte_slice.vhd` is one lane plus the divider's last stage, on 5CEBA4F23C8. The lane is a
+RAM read, the operand mux, an 18×19 multiply, the shifter, the 45-bit accumulate with an addend mux,
+overflow and IR saturation. The slice was placed and routed with `sizing/gte.sdc`. `G_L` counts the
+stages from the operand mux to the accumulator.
+
+| Variant | Clock | Setup slack, slow 85 °C | Worst path |
+|---|---|---|---|
+| lane, L = 2 | clk4x | −3.196 ns | M10K → operand mux → DSP → product |
+| lane, L = 3 | clk4x | −1.967 ns | addend select → 45-bit carry chain → accumulator |
+| lane, L = 3, pre-decoded addend | clk4x | −1.491 ns | `macLast` → 45-bit add → accumulator loop |
+| lane, L = 1 (mux, multiply, accumulate in one cycle) | clk2x | −2.818 ns | operand mux → DSP → 45-bit add |
+| lane, L = 2 | clk2x | +1.582 ns | |
+| divider last stage, 1 extra register | clk4x | −1.961 ns | shift by 0–15 → +0x8000 → compare |
+| divider last stage, 2 extra registers | clk4x | −0.135 ns | shift → round adder |
+
+Hold is positive in all four corners (worst +0.044 ns, fast 0 °C). The 45-bit accumulate loop
+(accumulator → addend mux → add → accumulator) does not close at 135 MHz on a C8 part, so the
+clk4x design is out. At clk2x the operand mux must not share a cycle with the multiply and the
+add. `gte_serial` registers the operands at issue: issue = operand mux, execute = multiply +
+accumulate, which sits between the slice's L = 1 and L = 2. In the full design it closes with
+margin (see [Measurements](#measurements)). The schedule needs that timing: with the product
+registered (G_L = 2), DPCT, CDP, DPCL and AVSZ3 miss their IDLE edge.
 
 ## Verification
 
@@ -302,6 +358,14 @@ filled from the generator's report.*
 - `make diff`: directed, edge, reset, cpu-timing (pauses and race pauses included) and 1,000,000
   random commands (uniform and game-like). Every coverage counter must be non-zero.
 
+Results on the gate build (`make -j8 diff SEEDS="21 22 23 24 25 26 27 28" COUNT=125000`, 5 min on
+8 cores): 1,103,821 commands, 0 register/FLAG mismatches, 0 `gte_busy` differences at clk1x
+edges, 0 golden-side assertion failures. That is 24.4M multiply requests and 210,530 divides
+checked, and 9,441 pauses, 3,625 of them on the race edge with the GTE busy. Every coverage
+counter is non-zero summed over the suites. The game-like distribution alone never hits a
+divide error or an SZ3/OTZ clamp, by design; the edge and uniform suites do. `make selftest`
+reports exactly each injected fault, and each golden-side assertion fires on its injection.
+
 ## Gate metric
 
 ALMs = the fitter's "Resource Utilization by Entity" **ALMs needed** for the `gte_serial` instance
@@ -311,4 +375,31 @@ alone, not the wrapper. `gte` is measured the same way in its own project. The m
 
 ## Measurements
 
-*To be filled in step 4.*
+`sizing/gte_size.qpf`, revisions `gte_serial` and `gte_golden`: the GTE in `gte_size_wrap.vhd`,
+every port registered on clk1x, virtual pins, `sizing/gte.sdc`. Quartus 21.1 Lite in
+`raetro/quartus:21.1`, `NUM_PARALLEL_PROCESSORS 1`:
+`docker run --rm --platform linux/amd64 -v "$PWD":/build -w /build/sizing raetro/quartus:21.1 quartus_sh --flow compile gte_size -c <rev>`,
+then `quartus_sta -t report_gte.tcl <rev>` for the worst paths.
+
+| | `gte_serial` | `gte` (golden) | Gate |
+|---|---|---|---|
+| ALMs needed, GTE instance (the gate metric) | **2,490.8** | 3,917.6 | ≤ 3,000 |
+| ALMs used in final placement | 2,593.1 | 4,332.6 | |
+| ALMs, map estimate (whole wrapper) | 2,640 | 3,951 | |
+| Registers (whole wrapper) | 1,814 | 3,222 | |
+| DSP blocks | **3** (two 18×18, one 27×27) | 15 | ≤ 4 |
+| RAM blocks | 9 (3 register-file copies, 5 ROM, 1 divider shift taps) | 1 | |
+| clk2x setup slack, slow 85 °C | **+2.025 ns** | +0.219 ns | > 0 |
+| clk2x setup slack, slow 0 °C | +1.599 ns | −0.124 ns | |
+| clk1x setup slack, slow 85 °C | +9.195 ns | +12.503 ns | > 0 |
+| hold slack, worst of four corners | +0.125 ns (fast 0 °C) | +0.131 ns | > 0 |
+| Fmax clk2x, slow 85 °C | 78.5 MHz | 68.8 MHz | |
+
+The worst clk2x paths are the divider's shared multiply into its round and compare, and a
+lane's product into the 45-bit accumulate. Both execute stages need one carry chain: a sum written
+as `x + a + 1` builds two chains in series, so the +1 of a negation enters as the carry of an
+extra low bit.
+
+**Gate: PASS.** Bit-exact and busy-exact on every suite (see [Verification](#verification)),
+2,490.8 ≤ 3,000 ALMs, 3 ≤ 4 DSP, positive setup at slow 85 °C and positive hold in all four
+corners. No clk4x domain exists, so the +0.7 ns clk4x criterion does not apply.

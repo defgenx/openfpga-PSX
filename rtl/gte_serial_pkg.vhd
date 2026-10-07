@@ -8,6 +8,7 @@ use IEEE.numeric_std.all;
 package gte_serial_pkg is
 
    constant UW : integer := 97;  -- micro-word width
+   constant NSTG : integer := 4;  -- staging slots (RD_DST and SE_HSLOT use 2 of their 3 bits)
 
    -- read port p (p = 0, 1) at RD_BASE(p)
    constant RD0_LSB : integer := 0;

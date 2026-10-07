@@ -119,9 +119,13 @@ architecture arch of gte_serial is
    signal rom_addr  : integer range 0 to UCODE_DEPTH-1 := 0;
    signal rom_next  : integer range 0 to UCODE_DEPTH-1;
    signal rom_q     : std_logic_vector(UW-1 downto 0) := (others => '0');
+   -- a signal, not the constant, so Quartus infers an M10K ROM instead of folding it into logic
+   signal ucode_rom : t_ucode := UCODE;
+   attribute romstyle : string;
+   attribute romstyle of ucode_rom : signal is "M10K";
 
    -- engine read ports and staging
-   type t_stg is array (0 to 7) of signed(31 downto 0);
+   type t_stg is array (0 to NSTG-1) of signed(31 downto 0);
    signal stg       : t_stg := (others => (others => '0'));
    signal sel0      : std_logic;
    signal sel1      : std_logic;
@@ -133,8 +137,8 @@ architecture arch of gte_serial is
    signal vq1       : std_logic := '0';
    signal ld0       : std_logic := '0';
    signal ld1       : std_logic := '0';
-   signal dst0      : integer range 0 to 7 := 0;
-   signal dst1      : integer range 0 to 7 := 0;
+   signal dst0      : integer range 0 to NSTG-1 := 0;
+   signal dst1      : integer range 0 to NSTG-1 := 0;
 
    -- lanes
    type t_ctl is record
@@ -147,12 +151,19 @@ architecture arch of gte_serial is
       sub  : std_logic;
       swap : std_logic;
       wb   : integer range 0 to 7;
+      -- execute decode: X = sval when xsv; addend sval / accumulator / macLast; res = (X^nx) + (a^na) + cin
+      xsv  : std_logic;
+      asv  : std_logic;
+      aac  : std_logic;
+      ala  : std_logic;
+      nx   : std_logic;
+      na   : std_logic;
    end record;
-   constant CTL0 : t_ctl := ('0', '0', 0, '0', 0, 0, '0', '0', 0);
+   constant CTL0 : t_ctl := ('0', '0', 0, '0', 0, 0, '0', '0', 0, '0', '0', '0', '0', '0', '0');
    type t_ctls  is array (0 to 1) of t_ctl;
    type t_opa   is array (0 to 1) of signed(17 downto 0);
    type t_opb   is array (0 to 1) of signed(18 downto 0);
-   type t_ops   is array (0 to 1) of signed(31 downto 0);
+   type t_ops   is array (0 to 1) of signed(44 downto 0);
    type t_prod  is array (0 to 1) of signed(36 downto 0);
    type t_res   is array (0 to 1) of signed(44 downto 0);
    type t_acc   is array (0 to 3) of signed(44 downto 0);
@@ -239,6 +250,7 @@ architecture arch of gte_serial is
    begin
       c.v    := run and w(lsb + L_V);
       c.m0   := w(lsb + L_M0);
+      if lsb = LB_LSB then c.m0 := '0'; end if;  -- MAC0 ops are always on lane A (gte_ucode.py)
       c.row  := to_integer(unsigned(w(lsb + L_ROW + 1 downto lsb + L_ROW)));
       c.xs   := w(lsb + L_XS);
       c.k    := to_integer(unsigned(w(lsb + L_K + 1 downto lsb + L_K)));
@@ -246,6 +258,16 @@ architecture arch of gte_serial is
       c.sub  := w(lsb + L_SUB);
       c.swap := w(lsb + L_SWAP);
       c.wb   := to_integer(unsigned(w(lsb + L_WB + 2 downto lsb + L_WB)));
+      c.xsv  := c.xs;
+      c.asv  := '0'; c.aac := '0'; c.ala := '0';
+      case c.add is
+         when ADD_ACC              => c.aac := '1';
+         when ADD_MACLAST          => c.ala := '1';
+         when ADD_S | ADD_S_SH12   => c.asv := '1';
+         when others               => null;
+      end case;
+      c.nx := c.sub and not c.swap;  -- a - X
+      c.na := c.sub and c.swap;      -- X - a
       return c;
    end function;
 
@@ -265,7 +287,7 @@ architecture arch of gte_serial is
       variable r : signed(15 downto 0);
    begin
       case code is
-         when 1 to 16 => return resize(stg_half(code), 18);
+         when 1 to 2*NSTG => return resize(stg_half(code), 18);
          when 17 => return resize(REG_IR1, 18);
          when 18 => return resize(REG_IR2, 18);
          when 19 => return resize(REG_IR3, 18);
@@ -298,7 +320,7 @@ architecture arch of gte_serial is
    impure function b_sel(code : integer) return signed is
    begin
       case code is
-         when 1 to 16 => return resize(stg_half(code), 19);
+         when 1 to 2*NSTG => return resize(stg_half(code), 19);
          when 17 => return resize(REG_IR1, 19);
          when 18 => return resize(REG_IR2, 19);
          when 19 => return resize(REG_IR3, 19);
@@ -319,10 +341,32 @@ architecture arch of gte_serial is
       end case;
    end function;
 
+   impure function s_sel(code : integer) return signed;
+
+   -- S operand at issue: shifted for X (xs), or as the S / S<<12 addend
+   impure function s_val(w : std_logic_vector(UW-1 downto 0); lsb : integer) return signed is
+      variable sv : signed(44 downto 0);
+      variable sh : integer;
+   begin
+      sv := resize(s_sel(to_integer(unsigned(w(lsb + L_SSEL + 3 downto lsb + L_SSEL)))), 45);
+      if w(lsb + L_XS) = '1' then
+         case to_integer(unsigned(w(lsb + L_K + 1 downto lsb + L_K))) is
+            when K_0    => sh := 0;
+            when K_4    => sh := 4;
+            when K_12   => sh := 12;
+            when others => if (c_sf = '1') then sh := 12; else sh := 0; end if;
+         end case;
+         return shift_left(sv, sh);
+      elsif to_integer(unsigned(w(lsb + L_ADD + 2 downto lsb + L_ADD))) = ADD_S_SH12 then
+         return shift_left(sv, 12);
+      end if;
+      return sv;
+   end function;
+
    impure function s_sel(code : integer) return signed is
    begin
       case code is
-         when 1 to 8  => return stg(code - 1);
+         when 1 to NSTG => return stg(code - 1);
          when 9       => return REG_MAC1;
          when 10      => return REG_MAC2;
          when 11      => return REG_MAC3;
@@ -444,7 +488,7 @@ begin
                if (acc_run = '1') then
                   dst0 <= to_integer(unsigned(pf0(RD_DST + 2 downto RD_DST)));
                else
-                  dst0 <= to_integer(unsigned(rom_q(RD0_LSB + RD_DST + 2 downto RD0_LSB + RD_DST)));
+                  dst0 <= to_integer(unsigned(rom_q(RD0_LSB + RD_DST + 1 downto RD0_LSB + RD_DST)));
                end if;
             end if;
          end if;
@@ -470,7 +514,7 @@ begin
                if (acc_run = '1') then
                   dst1 <= to_integer(unsigned(pf1(RD_DST + 2 downto RD_DST)));
                else
-                  dst1 <= to_integer(unsigned(rom_q(RD1_LSB + RD_DST + 2 downto RD1_LSB + RD_DST)));
+                  dst1 <= to_integer(unsigned(rom_q(RD1_LSB + RD_DST + 1 downto RD1_LSB + RD_DST)));
                end if;
             end if;
          end if;
@@ -504,7 +548,7 @@ begin
       if rising_edge(clk2x) then
          if (ce = '1') then
             rom_addr <= rom_next;
-            rom_q    <= UCODE(rom_next);
+            rom_q    <= ucode_rom(rom_next);
          end if;
       end if;
    end process;
@@ -541,53 +585,30 @@ begin
    end generate;
 
    -- execute stage, combinational: X, addend and combine
-   exec_comb : process (eC, eP, eS, acc, macLast, acc0, mac0Last, c_sf)
+   exec_comb : process (eC, eP, eS, acc, macLast, acc0, mac0Last)
       variable x   : signed(44 downto 0);
       variable a   : signed(44 downto 0);
-      variable r   : signed(44 downto 0);
+      variable r46 : signed(45 downto 0);
+      variable ci  : std_logic;
       variable lc  : t_ctl;
-      variable sh  : integer;
    begin
       for l in 0 to 1 loop
          lc := eC(l);
-               if (lc.xs = '0') then
-                  x := resize(eP(l), 45);
-               else
-                  case lc.k is
-                     when K_0    => sh := 0;
-                     when K_4    => sh := 4;
-                     when K_12   => sh := 12;
-                     when others => if (c_sf = '1') then sh := 12; else sh := 0; end if;
-                  end case;
-                  x := shift_left(resize(eS(l), 45), sh);
-               end if;
-
-               case lc.add is
-                  when ADD_ACC =>
-                     if (lc.m0 = '1') then
-                        a := resize(acc0, 45);
-                     else
-                        a := resize(acc(lc.row)(43 downto 0), 45);
-                     end if;
-                  when ADD_MACLAST =>
-                     if (lc.m0 = '1') then
-                        a := resize(mac0Last, 45);
-                     else
-                        a := macLast(lc.row);
-                     end if;
-                  when ADD_S      => a := resize(eS(l), 45);
-                  when ADD_S_SH12 => a := shift_left(resize(eS(l), 45), 12);
-                  when others     => a := (others => '0');
-               end case;
-
-               if (lc.swap = '1' and lc.sub = '1') then
-                  r := x - a;
-               elsif (lc.sub = '1') then
-                  r := a - x;
-               else
-                  r := a + x;
-               end if;
-         res_c(l) <= r;
+         if (lc.xsv = '1') then x := eS(l); else x := resize(eP(l), 45); end if;
+         a := (others => '0');
+         if (lc.asv = '1') then
+            a := eS(l);
+         elsif (lc.aac = '1') then
+            if (lc.m0 = '1') then a := resize(acc0, 45); else a := resize(acc(lc.row)(43 downto 0), 45); end if;
+         elsif (lc.ala = '1') then
+            if (lc.m0 = '1') then a := resize(mac0Last, 45); else a := macLast(lc.row); end if;
+         end if;
+         if (lc.nx = '1') then x := not x; end if;
+         if (lc.na = '1') then a := not a; end if;
+         -- one carry chain: the +1 of a negation enters as the carry of an extra low bit
+         if (lc.nx = '1' or lc.na = '1') then ci := '1'; else ci := '0'; end if;
+         r46 := (x & '1') + (a & ci);
+         res_c(l) <= r46(45 downto 1);
       end loop;
    end process;
 
@@ -610,7 +631,7 @@ begin
                iC(l)  <= lane_ctl(rom_q, lsb, run);
                opA(l) <= a_sel(to_integer(unsigned(rom_q(lsb + L_ASEL + 5 downto lsb + L_ASEL))));
                opB(l) <= b_sel(to_integer(unsigned(rom_q(lsb + L_BSEL + 5 downto lsb + L_BSEL))));
-               opS(l) <= s_sel(to_integer(unsigned(rom_q(lsb + L_SSEL + 3 downto lsb + L_SSEL))));
+               opS(l) <= s_val(rom_q, lsb);
             end loop;
 
             -- execute
@@ -866,7 +887,7 @@ begin
                -- push sz and start divide
                if (rom_q(SE_SZ) = '1') then
                   m3s := acc(3)(43 downto 12);
-                  hv  := unsigned(stg(to_integer(unsigned(rom_q(SE_HSLOT + 2 downto SE_HSLOT))))(15 downto 0));
+                  hv  := unsigned(stg(to_integer(unsigned(rom_q(SE_HSLOT + 1 downto SE_HSLOT))))(15 downto 0));
                   div_trigger <= '1';
                   div_lhs     <= hv;
                   if (m3s < 0) then

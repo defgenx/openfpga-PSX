@@ -25,13 +25,16 @@ passes. Phase 3 needs only a Pocket, so it can run in parallel with phases 1–2
 
 ### Phase 1 — GTE gate (`pocket-gte-gate`)
 
-Rewrite the GTE (`rtl/gte.vhd`) as `rtl/gte_serial.vhd`: one 32×18 MAC time-multiplexed at
-4× clk1x (135.4752 MHz), a microcoded sequencer, and the COP2 register file in RAM.
-The current GTE is the golden model: the two run side by side in nvc on the same command streams.
+Rewrite the GTE (`rtl/gte.vhd`) as `rtl/gte_serial.vhd`: two 18×19 MAC lanes at clk2x driven by
+a generated micro-code ROM, and the CPU-written COP2 registers in RAM. The current GTE is the
+golden model: the two run side by side in nvc on the same command streams (`sim/gte_diff`).
+Design, schedule and measurements: [GTE.md](GTE.md).
 
-**Gate:** bit-exact on every register and FLAG · per-command busy cycles equal to the current GTE's ·
-≤ 3,000 ALMs · ≤ 4 DSP · timing met at its clocks on 5CEBA4F23C8 (slow 85 °C corner).
-Projection: 4,200 → 2,700 ALMs.
+**Gate:** bit-exact on every register and FLAG, and `gte_busy` identical at every clk1x edge, on
+directed, edge, reset, CPU-timing (pauses included) and 1,000,000 random commands · ≤ 3,000 ALMs,
+measured as the fitter's per-entity "ALMs needed" for the GTE instance · ≤ 4 DSP · setup slack
+positive at slow 85 °C (≥ +0.7 ns on a clk4x domain, if there is one) and hold slack positive in
+all four corners, on 5CEBA4F23C8. Projection: 4,200 → 2,700 ALMs.
 
 ### Phase 2 — GPU gate
 
@@ -106,3 +109,4 @@ Record each gate's measured numbers here when its phase ends.
 | Phase | Result | ALMs | DSP | M10K | Timing | Date |
 |---|---|---|---|---|---|---|
 | 0 — sizing | measured | 26,135 (options off) | 83 | ~1.9 Mbit | n/a | 2026-10-07 |
+| 1 — GTE | **PASS** | 2,490.8 needed (golden 3,917.6) | 3 (golden 15) | 9 blocks, 49,841 bits | clk2x +2.025 ns slow 85 °C, +1.599 ns slow 0 °C; hold ≥ +0.125 ns | 2026-10-07 |

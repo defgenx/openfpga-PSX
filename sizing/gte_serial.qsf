@@ -1,0 +1,32 @@
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CEBA4F23C8
+set_global_assignment -name TOP_LEVEL_ENTITY gte_size_wrap
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 1
+set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files_gte_serial
+set_parameter -name G_SERIAL true
+set_global_assignment -name VHDL_FILE ../rtl/pGTE.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gte_mac0.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gte_mac123.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gte_UNRDivide.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gte.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gte_serial_pkg.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gte_serial_ucode.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gte_serial_div.vhd
+set_global_assignment -name VHDL_FILE ../rtl/gte_serial.vhd
+set_global_assignment -name VHDL_FILE gte_size_wrap.vhd
+set_global_assignment -name SDC_FILE gte.sdc
+set_instance_assignment -name VIRTUAL_PIN ON -to i_ce
+set_instance_assignment -name VIRTUAL_PIN ON -to i_reset
+set_instance_assignment -name VIRTUAL_PIN ON -to i_readAddr[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to i_readEna
+set_instance_assignment -name VIRTUAL_PIN ON -to i_writeAddr[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to i_writeData[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to i_writeEna
+set_instance_assignment -name VIRTUAL_PIN ON -to i_cmdData[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to i_cmdEna
+set_instance_assignment -name VIRTUAL_PIN ON -to o_busy
+set_instance_assignment -name VIRTUAL_PIN ON -to o_readData[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to o_idle
+
+set_global_assignment -name LAST_QUARTUS_VERSION "21.1.1 Lite Edition"

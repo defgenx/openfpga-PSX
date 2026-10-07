@@ -34,7 +34,8 @@ begin
    clk2x <= not clk2x after 5 ns when not done else clk2x;
 
    ------------------------------------------------------------------
-   -- stimulus: sweep every rhs; pass 0 = trigger every cycle, pass 1 = random gaps
+   -- stimulus: sweep every rhs; triggers 3 cycles apart (the DUT shares one multiplier across
+   -- stages 4-6); pass 0 holds the inputs between triggers as the GTE does, pass 1 adds random gaps
    ------------------------------------------------------------------
    stim : process
       variable seed : unsigned(31 downto 0) := x"1234ABCD";
@@ -58,20 +59,22 @@ begin
       procedure drive(lv, rv : natural; gaps : boolean) is
          variable r : unsigned(15 downto 0);
       begin
+         trigger <= '1';
+         lhs <= to_unsigned(lv, 16);
+         rhs <= to_unsigned(rv, 16);
+         wait until rising_edge(clk2x);
+         trigger <= '0';
+         wait until rising_edge(clk2x);
+         wait until rising_edge(clk2x);
          if gaps then
-            -- idle cycles with garbage on the data inputs
+            -- extra idle cycles with garbage on the data inputs
             r := rnd16;
             for k in 1 to to_integer(r(1 downto 0)) loop
-               trigger <= '0';
                lhs <= rnd16;
                rhs <= rnd16;
                wait until rising_edge(clk2x);
             end loop;
          end if;
-         trigger <= '1';
-         lhs <= to_unsigned(lv, 16);
-         rhs <= to_unsigned(rv, 16);
-         wait until rising_edge(clk2x);
       end procedure;
    begin
       wait until rising_edge(clk2x);

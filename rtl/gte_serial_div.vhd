@@ -1,6 +1,6 @@
--- gte_UNRDivide pipeline with two narrowings: the stage-6 multiply is
--- lhs * calc_val_r (16x20) with the shift applied to the product, and
--- calc_val_d is 18-bit signed. Reasoning: docs/pocket/GTE.md.
+-- gte_UNRDivide pipeline with two narrowings (stage-6 multiply is lhs * calc_val_r with the shift
+-- applied to the product; calc_val_d is 18-bit signed) and one multiplier shared by stages 4-6.
+-- Triggers must be at least 3 cycles apart. Reasoning: docs/pocket/GTE.md ("Divider").
 -- ce gates every register; with ce = '1' it matches gte_UNRDivide cycle for cycle.
 
 library IEEE;
@@ -97,13 +97,31 @@ architecture arch of gte_serial_div is
    signal shiftcount_6  : integer range 0 to 15;
    signal calc_val_r    : unsigned(19 downto 0);
 
+   -- the multiplier shared by stages 4, 5 and 6 (one DSP block); operands registered one stage
+   -- early, from trigger_3/4/5, so no mux sits between them and the DSP
+   signal mul_a         : signed(26 downto 0) := (others => '0');
+   signal mul_b         : signed(26 downto 0) := (others => '0');
+   signal prod          : signed(53 downto 0);
+
 begin
+
+   prod  <= mul_a * mul_b;
+
+   -- synthesis translate_off
+   process (clk2x)
+   begin
+      if rising_edge(clk2x) then
+         assert not (ce = '1' and trigger = '1' and (trigger_1 = '1' or trigger_2 = '1'))
+            report "gte_serial_div: triggers less than 3 cycles apart" severity error;
+      end if;
+   end process;
+   -- synthesis translate_on
 
    process (clk2x)
       variable var_calc_d  : signed(27 downto 0);
       variable var_d20     : signed(19 downto 0);
-      variable var_calc_r  : signed(28 downto 0);
-      variable var_prod    : unsigned(35 downto 0);
+      variable var_calc_r  : signed(27 downto 0);
+      variable var_prod    : unsigned(37 downto 0);
       variable var_shifted : unsigned(51 downto 0);
       variable calc_result : unsigned(31 downto 0);
    begin
@@ -162,6 +180,8 @@ begin
          if (trigger_3 = '1') then
             calc_val_x  <= signed(resize(tableValue, 11) + 16#101#);
             calc_val_xn <= -signed((resize(tableValue, 11) + 16#101#));
+            mul_a       <= resize(divisor, 27);
+            mul_b       <= resize(-signed((resize(tableValue, 11) + 16#101#)), 27);
          end if;
 
          -- stage 4: CALC_D
@@ -171,26 +191,30 @@ begin
          shiftcount_5   <= shiftcount_4;
          calc_val_x_5   <= calc_val_x;
 
-         var_calc_d := resize(((divisor_4 * calc_val_xn) + 16#80#), 28);
+         var_calc_d := resize(prod + 16#80#, 28);
          var_d20    := x"20000" + var_calc_d(27 downto 8);
          if (trigger_4 = '1') then
             calc_val_d <= var_d20(17 downto 0);
+            mul_a      <= resize(calc_val_x, 27);
+            mul_b      <= resize(var_d20(17 downto 0), 27);
          end if;
 
          -- stage 5: CALC_R
          trigger_6   <= trigger_5;
          divError_6 <= divError_5;
 
-         var_calc_r := (calc_val_x_5 * calc_val_d) + 16#80#;
+         var_calc_r := resize(prod + 16#80#, 28);
          if (trigger_5 = '1') then
             calc_val_r   <= unsigned(var_calc_r(27 downto 8));
             lhs_6        <= lhs_5;
             shiftcount_6 <= shiftcount_5;
+            mul_a        <= signed(resize(shift_left(resize(lhs_5, 19), shiftcount_5 mod 4), 27));  -- low 2 shift bits before the multiply
+            mul_b        <= signed(resize(unsigned(var_calc_r(27 downto 8)), 27));
          end if;
 
-         -- stage 6: CALCRESULT (shift, round, >>16, in that order)
-         var_prod    := lhs_6 * calc_val_r;
-         var_shifted := shift_left(resize(var_prod, 52), shiftcount_6);
+         -- stage 6: CALCRESULT (shift, round, >>16, in that order; shift split around the multiply)
+         var_prod    := unsigned(prod(37 downto 0));
+         var_shifted := shift_left(resize(var_prod, 52), 4 * (shiftcount_6 / 4));
          var_shifted := var_shifted + x"8000";
          calc_result := resize(shift_right(var_shifted, 16), 32);
          if (trigger_6 = '1') then
