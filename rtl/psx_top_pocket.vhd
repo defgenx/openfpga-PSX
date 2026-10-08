@@ -245,6 +245,9 @@ architecture arch of psx_top_pocket is
 
    signal reset_in               : std_logic := '0';
    signal reset_intern           : std_logic := '0';
+   signal reset_in_1             : std_logic := '0';
+   signal rst_busy               : std_logic := '0';
+   signal rst_cnt                : unsigned(5 downto 0) := (others => '0');
    signal reset_exe              : std_logic;
    
    signal ce                     : std_logic := '0';
@@ -2086,7 +2089,6 @@ begin
    savestate_pause   <= '0';
    savestate_busy    <= '0';
    ddr3_savestate    <= '0';
-   SS_reset          <= '0';
    SS_DataWrite      <= (others => '0');
    SS_Adr            <= (others => '0');
    SS_wren           <= (others => '0');
@@ -2100,11 +2102,36 @@ begin
    state_loaded      <= '0';
    validSStates      <= (others => '0');
 
-   -- reset is a registered copy of reset_in, with no savestate reload (docs/pocket/ROADMAP.md)
+   -- Reset release, as savestates.vhd on reset_in falling: SS_reset (2 cycles, reset_intern low)
+   -- loads every module's power-on defaults, then reset_intern applies them for 61 cycles, past
+   -- the CPU's 32-cycle register-file clear. SS_reset must not overlap reset_intern: cd_top's
+   -- reset branch would overwrite startMotorReset in the same cycle.
    process (clk1x)
    begin
       if rising_edge(clk1x) then
-         reset_intern <= reset_in;
+         reset_in_1 <= reset_in;
+         SS_reset   <= '0';
+         if (reset_in = '1') then
+            reset_intern <= '1';
+            rst_busy     <= '0';
+         elsif (reset_in_1 = '1') then
+            rst_busy     <= '1';
+            rst_cnt      <= (others => '0');
+            SS_reset     <= '1';
+            reset_intern <= '0';
+         elsif (rst_busy = '1') then
+            rst_cnt <= rst_cnt + 1;
+            if (rst_cnt = 0) then
+               SS_reset <= '1';
+            end if;
+            if (rst_cnt = 1) then
+               reset_intern <= '1';
+            end if;
+            if (rst_cnt = 62) then
+               rst_busy     <= '0';
+               reset_intern <= '0';
+            end if;
+         end if;
       end if;
    end process;
    
