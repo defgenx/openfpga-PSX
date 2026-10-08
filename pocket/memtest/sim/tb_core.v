@@ -1,24 +1,34 @@
-`timescale 1ns/1ps
+`timescale 1ns/10fs
 // Whole-core simulation: memtest_core with behavioural SDRAM, PSRAM and SRAM models.
-// Reduced test sizes unless FULL is defined. Prints the result table and checks it.
+// Reduced test sizes unless FULL is defined (SDFULL: the SDRAM and scan-out sizes of FULL, everything else reduced).
+// SDRAM_135 runs the 135.4752 MHz variant. Prints the result table and checks it.
 `ifndef MAXC
 `define MAXC 60000000
 `endif
 module tb_core;
+    `include "memtest_defs.vh"
+`ifdef SDRAM_135
+    parameter real TCK = 1000.0 / 135.4752;
+`else
     parameter real TCK = 9.842;
+`endif
 `ifdef FULL
     localparam SD_REG_BITS = 17, SD_RND_LOG2 = 16, SC_LINES = 96, SC_Y_WRAP = 480, PS_REG_BITS = 19, PS_SEQ_LOG2 = 16,
                PS_RND_LOG2 = 14, PS_SWEEP_LOG2 = 11, DMA_LOG2 = 16, SR_SWEEP_LOG2 = 10, SR_N_LOG2 = 16,
-               SD_INIT = 20600;
+               SD_INIT = `MT_SD_INIT;
+`elsif SDFULL
+    localparam SD_REG_BITS = 17, SD_RND_LOG2 = 16, SC_LINES = 96, SC_Y_WRAP = 480, PS_REG_BITS = 8, PS_SEQ_LOG2 = 8,
+               PS_RND_LOG2 = 8, PS_SWEEP_LOG2 = 6, DMA_LOG2 = 8, SR_SWEEP_LOG2 = 7, SR_N_LOG2 = 9,
+               SD_INIT = 300;
 `else
     localparam SD_REG_BITS = 11, SD_RND_LOG2 = 10, SC_LINES = 4, SC_Y_WRAP = 8, PS_REG_BITS = 8, PS_SEQ_LOG2 = 8,
                PS_RND_LOG2 = 8, PS_SWEEP_LOG2 = 6, DMA_LOG2 = 8, SR_SWEEP_LOG2 = 7, SR_N_LOG2 = 9,
                SD_INIT = 300;
 `endif
 `ifdef LATE
-    localparam SC_LINE = 500;       // shorter than the 640 cycles one line needs: every line is late
+    localparam SC_NUM = 500, SC_DEN = 1;    // shorter than the 640 cycles one line needs: every line is late
 `else
-    localparam SC_LINE = 6400;
+    localparam SC_NUM = `MT_LINE_NUM, SC_DEN = `MT_LINE_DEN;
 `endif
 `ifdef PS_TAA
     localparam real PS_T_AA = `PS_TAA;     // slower PSRAM: the sweep must find a larger wait
@@ -52,9 +62,16 @@ module tb_core;
 
     reg clk = 0;
     always #(TCK/2) clk = ~clk;
-    // SDRAM clock = system clock here. The capture clock is half a period late, which gives the same
-    // CL + 3 cycle read latency as the hardware phases (pin clock 3.7 ns early, capture 1.1 ns late).
+    // SDRAM clock = system clock here. The capture clock sits inside the read data window, after the
+    // system clock edge that ends the CL + 3 cycle read latency, as the hardware phases do (docs/pocket/MEMTEST.md).
+    // 101 MHz: half a period late, with the pad and routing delays of the read path folded into the model.
+    // 135 MHz: the datasheet model with no added delay, capture 0.26 ns late (middle of tAC .. tOH).
+`ifdef SDRAM_135
+    wire clk_cap;
+    assign #0.26 clk_cap = clk;
+`else
     wire clk_cap = ~clk;
+`endif
     reg rst = 1;
 
     wire [12:0] dram_a; wire [1:0] dram_ba; wire [15:0] dram_dq; wire [1:0] dram_dqm;
@@ -67,7 +84,7 @@ module tb_core;
     wire [32:0] rq, rq_b; wire [1:0] run_state;
     reg  [6:0] ra = 0;
 
-    memtest_core #(.SD_REG_BITS(SD_REG_BITS), .SD_RND_LOG2(SD_RND_LOG2), .SC_LINES(SC_LINES), .SC_Y_WRAP(SC_Y_WRAP), .SC_LINE_CYCLES(SC_LINE),
+    memtest_core #(.SD_REG_BITS(SD_REG_BITS), .SD_RND_LOG2(SD_RND_LOG2), .SC_LINES(SC_LINES), .SC_Y_WRAP(SC_Y_WRAP), .SC_LINE_NUM(SC_NUM), .SC_LINE_DEN(SC_DEN),
                    .PS_REG_BITS(PS_REG_BITS), .PS_SEQ_LOG2(PS_SEQ_LOG2), .PS_RND_LOG2(PS_RND_LOG2), .PS_SWEEP_LOG2(PS_SWEEP_LOG2),
                    .DMA_LOG2(DMA_LOG2), .SR_SWEEP_LOG2(SR_SWEEP_LOG2), .SR_N_LOG2(SR_N_LOG2),
                    .SD_INIT_CYCLES(SD_INIT), .WD_BITS(25)) dut (
@@ -84,10 +101,15 @@ module tb_core;
         .sram_ub_n(sram_ub_n), .sram_lb_n(sram_lb_n)
     );
 
-    // pad and routing delays of the read path folded into the model: data valid 10.6 ns after the
-    // clock edge, held until 6.9 ns after the next one (tAC 6.4 + 4.2, tOH 3.2 + 3.7 as seen at the capture register)
-    sdram_model #(.T_AC(10.6), .T_OH(6.9)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dram_dqm),
+`ifdef SDRAM_135
+    sdram_model #(.TCK(TCK)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dram_dqm),
                        .ras_n(dram_ras_n), .cas_n(dram_cas_n), .we_n(dram_we_n));
+`else
+    // pad and routing delays of the read path folded into the model: data valid tAC + 4.2 ns after the
+    // clock edge, held until tOH + 3.7 ns after the next one (as seen at the capture register)
+    sdram_model #(.TCK(TCK), .T_AC(`SDT_TAC_NS + 4.2), .T_OH(`SDT_TOH_NS + 3.7)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dram_dqm),
+                       .ras_n(dram_ras_n), .cas_n(dram_cas_n), .we_n(dram_we_n));
+`endif
     psram_model #(.T_AA(PS_T_AA), .STUCK_BIT(STUCK), .STUCK_VAL(STUCK_V), .BRIDGE_BIT(BRIDGE)) pr0 (.a(cram_a), .dq(cram0_dq), .wait_o(), .clk(cram_clk), .adv_n(cram_adv_n), .cre(cram_cre),
                      .ce0_n(cram_ce0_n), .ce1_n(cram_ce1_n), .oe_n(cram_oe_n), .we_n(cram_we_n),
                      .ub_n(cram0_ub_n), .lb_n(cram0_lb_n));
@@ -96,7 +118,6 @@ module tb_core;
                      .ub_n(cram1_ub_n), .lb_n(cram1_lb_n));
     sram_model sram (.a(sram_a), .dq(sram_dq), .oe_n(sram_oe_n), .we_n(sram_we_n), .ub_n(sram_ub_n), .lb_n(sram_lb_n));
 
-    `include "memtest_defs.vh"
     function [32:0] res;
         input integer i;
         res = dut.rres.ma[i];
@@ -146,6 +167,35 @@ module tb_core;
         end
     endtask
 
+    // The bench counts the cycles of every SDRAM engine step itself, to check the reported MB/s.
+    integer bc [0:63];
+    integer ii;
+    initial for (ii = 0; ii < 64; ii = ii + 1) bc[ii] = 0;
+    always @(posedge clk) if (dut.sdt.busy) bc[dut.step] = bc[dut.step] + 1;
+
+    integer mb_diff = 0;
+    // reported MB/s x10 against bytes x clock / cycles counted here
+    task check_mbps;
+        input [255:0] name;
+        input integer i;
+        input integer step;
+        input integer bytes;
+        reg [32:0] v;
+        real e;
+        integer want;
+        begin
+            v = res(i);
+            e = bytes * (`MT_CLK_HZ / 1.0e5) / bc[step];
+            want = $rtoi(e);
+            $display("  %-18s step %0d: %0d cycles counted here, %0d bytes -> %0d (x0.1 MB/s) by the bench, %0d reported", name, step, bc[step], bytes, want, v[31:0]);
+            if (!v[32] || v[31:0] !== want) begin
+                mb_diff = mb_diff + 1;
+                fails = fails + 1;
+                $display("  CHECK FAILED: %0s MB/s: reported %0d, bench count gives %0d", name, v[31:0], want);
+            end
+        end
+    endtask
+
     integer cycles = 0;
 `ifdef TRACE_DMA
     integer acc = 0;
@@ -190,6 +240,7 @@ module tb_core;
         show("SD seq read", `R_SD_SR);
         show("SD random read", `R_SD_RR);
         show("SD mixed", `R_SD_MX);
+        show("SD byte mask", `R_SD_BE);
         show("scan alone", `R_SC_ALONE);
         show("scan under mix", `R_SC_MIX);
         show("mixed under scan", `R_SD_MXS);
@@ -213,12 +264,38 @@ module tb_core;
 
         expect_eq("run done", `R_STATUS, 2);
         // throughput and latency arithmetic: 4 words per 4 cycles peak is 203 MB/s, one PSRAM read ~12 cycles
+`ifdef SDRAM_135
+        // 4 words per 4 cycles at 135.4752 MHz is 270.9 MB/s
+        expect_range("SD seq write MB/s x10", `R_SD_SW, 2520, 2710);
+        expect_range("SD seq read MB/s x10", `R_SD_SR, 2520, 2710);
+        expect_range("SD random read MB/s x10", `R_SD_RR, 700, 2600);
+`else
         expect_range("SD seq write MB/s x10", `R_SD_SW, 1900, 2035);
         expect_range("SD seq read MB/s x10", `R_SD_SR, 1900, 2035);
         expect_range("SD random read MB/s x10", `R_SD_RR, 700, 1900);
+`endif
+        expect_eq("SD byte-enable readback errors", `R_SD_BE + 1, 0);
+        expect_range("SD byte-enable write MB/s x10", `R_SD_BE, 500, 2710);
+        check_mbps("SD seq write", `R_SD_SW, 1, 8 << SD_REG_BITS);
+        check_mbps("SD seq read", `R_SD_SR, 2, 8 << SD_REG_BITS);
+        check_mbps("SD random read", `R_SD_RR, 3, 8 << SD_RND_LOG2);
+        check_mbps("SD mixed", `R_SD_MX, 4, 8 << SD_RND_LOG2);
+        check_mbps("MIXED UNDER SCAN", `R_SD_MXS, 6, 8 << SD_RND_LOG2);
+        check_mbps("SD byte-enable write", `R_SD_BE, 24, 8 << SD_REG_BITS);
+        begin : mbs
+            reg [32:0] m1, m2;
+            m1 = res(`R_SD_MX); m2 = res(`R_SD_MXS);
+            $display("MIXED MB/s = %0d.%0d", m1[31:0] / 10, m1[31:0] % 10);
+            $display("MIXED UNDER SCAN MB/s = %0d.%0d", m2[31:0] / 10, m2[31:0] % 10);
+        end
 `ifndef PS_TAA
+  `ifdef SDRAM_135
+        expect_range("PSRAM random read ns x10", `R_PS_RR, 900, 1300);
+        expect_range("PSRAM random read wall ns x10", `R_PS_RW, 1100, 1300);
+  `else
         expect_range("PSRAM random read ns x10", `R_PS_RR, 1000, 1400);
         expect_range("PSRAM random read wall ns x10", `R_PS_RW, 1300, 1500);
+  `endif
 `endif
         expect_range("PSRAM write ns x10", `R_PS_WR, 800, 1300);
         expect_range("SRAM read ns x10", `R_SR_RD, 400, 900);
@@ -247,8 +324,14 @@ module tb_core;
             if (us[31:0] !== mn[31:0] + 1) begin fails = fails + 1; $display("  CHECK FAILED: wait used %0d != min %0d + 1", us[31:0], mn[31:0]); end
         end
 `else
+  `ifdef SDRAM_135
+        // 70 ns access: 9 cycles of 7.38 ns are 66 ns, 10 are 74 ns
+        expect_eq("PSRAM sweep min wait", `R_PS_SWEEP, 10);
+        expect_eq("PSRAM sweep run wait", `R_PS_SWEEP + 2, 11);
+  `else
         expect_eq("PSRAM sweep min wait", `R_PS_SWEEP, 8);
         expect_eq("PSRAM sweep run wait", `R_PS_SWEEP + 2, 9);
+  `endif
 `endif
 `ifdef PS_ADDR_FAULT
         expect_range("PS walk errors, addr fault", `R_PS_AW + 1, 1, 1000000);
@@ -261,8 +344,14 @@ module tb_core;
 `ifndef PS_STUCK_BIT   // the injected fault corrupts word 0, which later tests read
         expect_eq("PSRAM seq errors", `R_PS_SR + 1, 0);
 `endif
+`ifdef SDRAM_135
+        // 25 ns access, 15 ns write pulse: 4 cycles (29.5 ns) and 3 cycles (22.1 ns) at 7.38 ns
+        expect_eq("SRAM min read wait", `R_SR_SWEEP, 4);
+        expect_eq("SRAM min write wait", `R_SR_SWEEP + 1, 3);
+`else
         expect_eq("SRAM min read wait", `R_SR_SWEEP, 3);
         expect_eq("SRAM min write wait", `R_SR_SWEEP + 1, 2);
+`endif
         expect_eq("SRAM read errors", `R_SR_RD + 1, 0);
 `ifndef PS_STUCK_BIT   // the injected fault corrupts word 0, which later tests read
         expect_eq("DMA async errors", `R_DMA_A + 1, 0);

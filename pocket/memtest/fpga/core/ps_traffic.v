@@ -35,7 +35,7 @@ module ps_traffic #(
 );
     `include "memtest_fn.vh"
 
-    localparam S_IDLE = 3'd0, S_NEXT = 3'd1, S_CMD = 3'd2, S_WAIT = 3'd3, S_WDOG = 3'd4;
+    localparam S_IDLE = 3'd0, S_NEXT = 3'd1, S_CMD = 3'd2, S_WAIT = 3'd3, S_WDOG = 3'd4, S_FIN = 3'd5;
 
     reg [2:0]  st, m;
     reg [31:0] total, ops, rnd;
@@ -43,21 +43,26 @@ module ps_traffic #(
     reg [4:0]  last_bad;
     reg [31:0] w_err;
     reg [31:0] widx;
-    reg [22:0] a0;
+    reg [22:0] exp_a;                  // address of the word the next rd_valid delivers
+    reg [31:0] ops_nx;                 // ops after the running command
+    reg        at_end;                 // ops >= total, known before the running command ends
     reg [15:0] wd;
     reg        in_cmd;
+    // read check, one stage late: the data and its expected value are registered first
+    reg        chk_v, bad_r;
+    reg [31:0] chk_d, chk_e;
+    reg        inc16;                  // chained reads advance ops by 16, everything else by 1
 
     assign cmd_be  = 4'hF;
     assign rd_wait = (m == `PSM_SWEEP) ? w : run_wait;
 
-    wire [22:0] exp_addr = a0 + widx[22:0];
-    wire [31:0] exp_data = pat32({9'd0, exp_addr}, seed);
+    wire [31:0] exp_data = pat32({9'd0, exp_a}, seed);
 `ifdef ALTERA_RESERVED_QIS
     wire x_bad = 1'b0;
 `else
-    wire x_bad = (^rd_data) === 1'bx;
+    wire x_bad = (^chk_d) === 1'bx;
 `endif
-    wire bad = x_bad || (rd_data != exp_data);
+    wire bad = chk_v && (x_bad || (chk_d != chk_e));
 
     // address-line walk: per die, word 0 and 2^0 .. 2^(WALK_BITS-1), written then read back
     localparam WALK_BITS = 19;
@@ -94,17 +99,37 @@ module ps_traffic #(
         end else begin
             if (busy) cycles <= cycles + 1'b1;
             if (in_cmd) bcyc <= bcyc + 1'b1;
+            // Three register stages after rd_valid; the end of a test or of a sweep step waits for them in S_FIN.
+            chk_v <= rd_valid; chk_d <= rd_data; chk_e <= exp_data;
+            bad_r <= bad;
+            if (bad_r) begin
+                if (m == `PSM_SWEEP) w_err <= w_err + 1'b1;
+                else errors <= errors + 1'b1;
+            end
             case (st)
                 S_IDLE: if (start) begin
                     busy <= 1'b1; m <= mode; cycles <= 32'd0; bcyc <= 32'd0; errors <= 32'd0; timeout <= 1'b0;
-                    ops <= 32'd0; rnd <= seed | 32'd1; last_bad <= 5'd0; w <= w_lo; w_err <= 32'd0;
+                    inc16 <= (mode == `PSM_SEQ_RD);
+                    ops <= 32'd0; at_end <= 1'b0; rnd <= seed | 32'd1; last_bad <= 5'd0; w <= w_lo; w_err <= 32'd0;
                     min_ok <= w_lo;
                     total <= (mode == `PSM_FILL) ? {n_ops[30:0], 1'b0} : (mode == `PSM_WALK) ? 32'd4 * WALK_N : n_ops;
                     st <= S_NEXT;
                 end
 
                 S_NEXT: begin
-                    if (ops >= total) begin
+                    if (at_end) begin
+                        st <= S_FIN;
+                    end else begin
+                        cmd_valid <= 1'b1; cmd_we <= n_we; cmd_addr <= n_addr; cmd_len <= n_len;
+                        cmd_wdata <= n_wdata;
+                        exp_a <= n_addr; widx <= 32'd0; wd <= 16'd0;
+                        ops_nx <= ops + (inc16 ? 32'd16 : 32'd1);
+                        st <= S_CMD;
+                    end
+                end
+
+                S_FIN: begin
+                    begin   // end of a test, or of one wait value of the sweep
                         if (m == `PSM_SWEEP) begin
                             // close the current wait value
                             if (w_err != 0) last_bad <= w;
@@ -114,21 +139,17 @@ module ps_traffic #(
                                 busy <= 1'b0; done <= 1'b1; st <= S_IDLE;
                                 min_ok <= (w_err != 0) ? w + 1'b1 : (last_bad == 0 ? w_lo : last_bad + 1'b1);
                             end else begin
-                                w <= w + 1'b1; ops <= 32'd0;
+                                w <= w + 1'b1; ops <= 32'd0; at_end <= 1'b0; st <= S_NEXT;
                             end
                         end else begin
                             busy <= 1'b0; done <= 1'b1; st <= S_IDLE;
                         end
-                    end else begin
-                        cmd_valid <= 1'b1; cmd_we <= n_we; cmd_addr <= n_addr; cmd_len <= n_len;
-                        cmd_wdata <= n_wdata;
-                        a0 <= n_addr; widx <= 32'd0; wd <= 16'd0;
-                        st <= S_CMD;
                     end
                 end
 
                 S_CMD: begin
                     wd <= wd + 1'b1;
+                    at_end <= (ops_nx >= total);
                     if (cmd_valid && cmd_ready) begin
                         cmd_valid <= 1'b0; st <= S_WAIT; wd <= 16'd0; in_cmd <= 1'b1;
                     end else if (wd == 16'hFFFF) begin
@@ -141,14 +162,11 @@ module ps_traffic #(
                     wd <= wd + 1'b1;
                     if (rd_valid) begin
                         widx <= widx + 1'b1;
-                        if (bad) begin
-                            if (m == `PSM_SWEEP) w_err <= w_err + 1'b1;
-                            else errors <= errors + 1'b1;
-                        end
+                        exp_a <= exp_a + 1'b1;
                     end
                     if (rd_done) begin
                         in_cmd <= 1'b0;
-                        ops <= ops + (cmd_we ? 32'd1 : {27'd0, cmd_len});
+                        ops <= ops_nx;
                         // a short read burst (device not answering) counts as errors
                         if (!cmd_we && widx[4:0] != cmd_len) begin
                             errors <= errors + 1'b1;

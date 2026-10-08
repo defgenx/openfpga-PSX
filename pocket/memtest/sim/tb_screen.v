@@ -72,8 +72,9 @@ module tb_screen;
     initial begin
         #200;
         reset_n = 1;
-        // status: done, step 23, run 1
-        put(`R_STATUS + 0, 2); put(`R_STATUS + 1, 23); put(`R_STATUS + 2, 1);
+        // status: done, step 26, run 1
+        put(`R_STATUS + 0, 2); put(`R_STATUS + 1, 26); put(`R_STATUS + 2, 1);
+        put(`R_SD_BE + 0, 1950); put(`R_SD_BE + 1, 0); put(`R_SD_BE + 2, 8470);
         put(`R_SD_SW + 0, 1980);  put(`R_SD_SW + 2, 8407);
         put(`R_SD_SR + 0, 1978);  put(`R_SD_SR + 1, 0);   put(`R_SD_SR + 2, 8415);
         put(`R_SD_RR + 0, 1270);  put(`R_SD_RR + 1, 0);   put(`R_SD_RR + 2, 6550);
@@ -118,7 +119,8 @@ module tb_screen;
         check_field(21, 1, "      0 ");
         check_field(18, 0, "      8 "); check_field(18, 2, "      9 ");
         check_field(29, 0, "   PASS "); check_field(29, 1, "   FAIL "); check_field(29, 2, "   PASS ");
-        check_field(1, 0, "   DONE ");  check_field(1, 1, "     23 ");
+        check_field(1, 0, "   DONE ");  check_field(1, 1, "     26 ");
+        check_field(2, 0, "  195.0 ");  check_field(2, 1, "      0 ");  check_field(2, 2, "   8470 ");
         check_field(19, 0, "99999.9 "); check_field(19, 1, "9999999 ");
         check_field(19, 2, "      - ");
         check_field(20, 0, "      - ");

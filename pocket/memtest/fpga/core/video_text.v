@@ -1,5 +1,5 @@
 // 320 x 240 text screen (40 x 30 characters of 8 x 8) for the APF scaler, 6.3504 MHz pixel clock.
-// Static labels come from screen_text.vh, numbers from the text RAM written by report_fmt.v.
+// Static labels come from screen_text.vh (screen_text_135.vh in the SDRAM_135 build), numbers from the text RAM written by report_fmt.v.
 // Timing and screen layout: docs/pocket/MEMTEST.md.
 module video_text #(
     parameter FONT_FILE = "core/font8x8.hex"
@@ -16,7 +16,11 @@ module video_text #(
     output reg         hs,
     output reg         vs
 );
+`ifdef SDRAM_135
+    `include "screen_text_135.vh"
+`else
     `include "screen_text.vh"
+`endif
 
     localparam H_TOTAL = 400, H_ACTIVE = 320, H_BP = 10;
     localparam V_TOTAL = 264, V_ACTIVE = 240, V_BP = 10;

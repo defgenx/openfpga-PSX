@@ -1,6 +1,16 @@
-// Clocks from the 74.25 MHz reference, one 812.85 MHz VCO: system 101.6064 MHz, SDRAM pin clock (3.7 ns early),
-// SDRAM read capture clock (1.1 ns late), pixel 6.3504 MHz and its 90 degree copy.
+// Clocks from the 74.25 MHz reference, one 812.85 MHz VCO: system clock, SDRAM pin clock, SDRAM read
+// capture clock, pixel 6.3504 MHz and its 90 degree copy. The system clock is 101.6064 MHz (VCO / 8) or,
+// in the SDRAM_135 variant, 135.4752 MHz (VCO / 6); the SDRAM clock phases are per variant.
 // Phase shifts are multiples of 1/8 VCO period (153.8 ps). See docs/pocket/MEMTEST.md.
+`ifdef SDRAM_135
+  `define PLL_SYS_MHZ "135.4752 MHz"
+  `define PLL_SD_PS   "4767 ps"
+  `define PLL_CAP_PS  "2614 ps"
+`else
+  `define PLL_SYS_MHZ "101.6064 MHz"
+  `define PLL_SD_PS   "6151 ps"
+  `define PLL_CAP_PS  "307 ps"
+`endif
 `timescale 1ns/10ps
 module pll_mem (
 	input  wire refclk,
@@ -18,14 +28,14 @@ module pll_mem (
 		.reference_clock_frequency("74.25 MHz"),
 		.operation_mode("direct"),
 		.number_of_clocks(5),
-		.output_clock_frequency0("101.6064 MHz"),
+		.output_clock_frequency0(`PLL_SYS_MHZ),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
-		.output_clock_frequency1("101.6064 MHz"),
-		.phase_shift1("6151 ps"),
+		.output_clock_frequency1(`PLL_SYS_MHZ),
+		.phase_shift1(`PLL_SD_PS),
 		.duty_cycle1(50),
-		.output_clock_frequency2("101.6064 MHz"),
-		.phase_shift2("1076 ps"),
+		.output_clock_frequency2(`PLL_SYS_MHZ),
+		.phase_shift2(`PLL_CAP_PS),
 		.duty_cycle2(50),
 		.output_clock_frequency3("6.3504 MHz"),
 		.phase_shift3("0 ps"),

@@ -1,6 +1,8 @@
 // SRAM (256 KB, 16-bit) as a byte-wide store: access controller and test engine.
 // Cycle counts and the wait sweep are described in docs/pocket/MEMTEST.md.
 
+`include "memtest_defs.vh"
+
 // One byte access. wait_c = cycles the address (read) or the write pulse (write) is held.
 module sram_ctl (
     input  wire        clk,
@@ -63,7 +65,9 @@ module sram_ctl (
 endmodule
 
 // Random byte write / read-verify and the wait sweeps.
-module sram_test (
+module sram_test #(
+    parameter [3:0] SAFE_W = `MT_CYC(787)    // known-good wait: 78.7 ns, 8 cycles at 101.6 MHz
+) (
     input  wire        clk,
     input  wire        rst,
     input  wire        start,
@@ -91,7 +95,6 @@ module sram_test (
     `include "memtest_fn.vh"
 
     localparam S_IDLE = 3'd0, S_NEXT = 3'd1, S_WAIT = 3'd2;
-    localparam [3:0] SAFE_W = 4'd8;
 
     reg [2:0]  st;
     reg [1:0]  m;
@@ -104,8 +107,8 @@ module sram_test (
 
     wire [17:0] a = rnd[17:0];
     wire [31:0] dp = pat32({14'd0, a}, seed);
-    // sweep-write alternates the data polarity per wait value so stale data never matches
-    wire [7:0]  d = dp[7:0] ^ ((m == 2'd3) ? {8{w[0]}} : 8'h00);
+    // sweep-write alternates the data polarity per wait value, starting inverted at w_lo, so stale data never matches
+    wire [7:0]  d = dp[7:0] ^ ((m == 2'd3) ? {8{~(w[0] ^ w_lo[0])}} : 8'h00);
     wire [3:0]  p_w = (m == 2'd2) ? (p_we ? SAFE_W : w) :
                       (m == 2'd3) ? (p_we ? w : SAFE_W) : run_wait;
 `ifdef ALTERA_RESERVED_QIS
@@ -163,7 +166,7 @@ module sram_test (
                 end
 
                 S_WAIT: if (c_done) begin
-                    if (p_verify && (x_bad || c_rdata != d)) begin
+                    if (p_verify && (x_bad || c_rdata != c_wdata)) begin     // c_wdata holds d of this access
                         if (m[1]) w_err <= w_err + 1'b1; else errors <= errors + 1'b1;
                     end
                     ops <= ops + 1'b1; rnd <= xs32(rnd);

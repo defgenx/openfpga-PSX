@@ -22,6 +22,9 @@ module report_fmt (
         input [6:0] f;
         begin
             case (f)
+                7'd6:  field = {K_X10,   `R_SD_BE + 7'd0};
+                7'd7:  field = {K_ERR,   `R_SD_BE + 7'd1};
+                7'd8:  field = {K_INT,   `R_SD_BE + 7'd2};
                 7'd3:  field = {K_STATE, `R_STATUS + 7'd0};
                 7'd4:  field = {K_INT,   `R_STATUS + 7'd1};
                 7'd5:  field = {K_INT,   `R_STATUS + 7'd2};

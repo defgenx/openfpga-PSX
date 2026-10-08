@@ -1,18 +1,24 @@
 `timescale 1ns/1ps
 // Behavioural AS4C32M16SB model for simulation: BL4 (fixed), CAS latency from the mode register,
 // 4 banks, timing checks in ns. Storage is 2^21 words; rows above bit 8 are not modelled.
+// Every figure defaults to the SDRAM timing table (sdram_timing.vh, docs/pocket/MEMTEST.md); TCK is the
+// test's clock period, used for the minimum-clock-count rules.
+`include "sdram_timing.vh"
 module sdram_model #(
-    parameter real TCK   = 9.842,
-    parameter real T_RCD = 20.0,
-    parameter real T_RP  = 20.0,
-    parameter real T_RAS = 42.0,
-    parameter real T_RC  = 63.0,
-    parameter real T_RFC = 63.0,
-    parameter real T_WR  = 14.0,
-    parameter real T_RRD = 14.0,
-    parameter real T_REFI = 7812.5,   // 8192 rows / 64 ms
-    parameter real T_AC  = 5.4,
-    parameter real T_OH  = 2.7
+    parameter real TCK   = `SDT_TCK_NS,
+    parameter real T_RCD = `SDT_TRCD_NS,
+    parameter real T_RP  = `SDT_TRP_NS,
+    parameter real T_RAS = `SDT_TRAS_NS,
+    parameter real T_RC  = `SDT_TRC_NS,
+    parameter real T_RFC = `SDT_TRFC_NS,
+    parameter real T_WR  = `SDT_TWR_NS,
+    parameter real T_RRD = `SDT_TRRD_NS,
+    parameter real T_REFI = `SDT_TREFI_NS,
+    parameter real T_AC  = `SDT_TAC_NS,
+    parameter real T_OH  = `SDT_TOH_NS,
+    parameter real T_CK_MIN = `SDT_TCK_NS,
+    parameter integer N_MRD = `SDT_TMRD_CLK,     // clocks after the mode register set
+    parameter integer N_WR  = `SDT_TWR_CLK       // clocks from the last write beat to PRECHARGE
 ) (
     input  wire        clk,
     input  wire [12:0] a,
@@ -23,6 +29,9 @@ module sdram_model #(
 );
     reg [15:0] mem [0:(1<<21)-1];
     integer violations = 0;
+    // tWR is the longer of the ns figure and the clock count at the test's clock
+    real T_WR_EFF;
+    initial T_WR_EFF = (N_WR * TCK > T_WR) ? N_WR * TCK : T_WR;
     integer i;
 
     reg        open [0:3];
@@ -36,6 +45,9 @@ module sdram_model #(
     integer    rd_edge [0:3];      // edge of the last READ per bank
     integer    cl = 0, bl = 0;
     reg        mrs_done = 0;
+    integer    mrs_edge = -1000;
+    real       t_clk_prev = -1000.0;
+    reg [1:0]  dqm_h1 = 2'b00, dqm_h2 = 2'b00;   // DQM at the previous two edges (read latency 2)
     integer    nref = 0;
     reg        pre_all_seen = 0;
 
@@ -88,12 +100,17 @@ module sdram_model #(
         edge_cnt = edge_cnt + 1;
         cmd = {ras_n, cas_n, we_n};
         beat_due = 0;
+        if ($realtime - t_clk_prev < T_CK_MIN - 0.001 && t_clk_prev > 0) viol("tCK below the CL3 minimum");
+        t_clk_prev = $realtime;
+        if (mrs_done && cmd != 3'b111 && edge_cnt - mrs_edge < N_MRD) viol("tMRD");
 
         // ---- read data out
         for (s = 0; s < 8; s = s + 1) if (rd_used[s]) begin
             b = edge_cnt - rd_start[s] - cl;
             if (b >= 0 && b < 4) begin
                 beat_due = 1;
+                // DQM has read latency 2: DQM high two edges before a beat leaves would mask it
+                if (dqm_h2 != 2'b00) viol("DQM high on a read beat");
                 dq_en <= 1;
                 dq_o <= #(T_OH) 16'hxxxx;
                 dq_o <= #(T_AC) mem[idx(rd_ba[s], rd_row[s], rd_col[s] + b[9:0])];
@@ -157,7 +174,7 @@ module sdram_model #(
                     for (s = 0; s < 4; s = s + 1) begin
                         if (open[s]) begin
                             if ($realtime - t_act[s] < T_RAS - 0.001) viol("tRAS (PRE all)");
-                            if ($realtime - t_wr_end[s] < T_WR - 0.001) viol("tWR (PRE all)");
+                            if ($realtime - t_wr_end[s] < T_WR_EFF - 0.001) viol("tWR (PRE all)");
                             if (edge_cnt - rd_edge[s] < bl) viol("READ to PRE under BL (PRE all)");
                             if (wr_left > 0 && wr_ba == s) viol("PRE during write burst (PRE all)");
                         end
@@ -167,7 +184,7 @@ module sdram_model #(
                 end else begin
                     if (open[ba]) begin
                         if ($realtime - t_act[ba] < T_RAS - 0.001) viol("tRAS");
-                        if ($realtime - t_wr_end[ba] < T_WR - 0.001) viol("tWR");
+                        if ($realtime - t_wr_end[ba] < T_WR_EFF - 0.001) viol("tWR");
                         if (edge_cnt - rd_edge[ba] < bl) viol("READ to PRE under BL");
                         if (wr_left > 0 && wr_ba == ba) viol("PRE during write burst");
                     end
@@ -175,7 +192,10 @@ module sdram_model #(
                 end
             end
             3'b001: begin // AUTO REFRESH
-                for (s = 0; s < 4; s = s + 1) if (open[s]) viol("REFRESH with open bank");
+                for (s = 0; s < 4; s = s + 1) begin
+                    if (open[s]) viol("REFRESH with open bank");
+                    if ($realtime - t_pre[s] < T_RP - 0.001) viol("tRP (REFRESH)");
+                end
                 if ($realtime - t_ref < T_RFC - 0.001) viol("tRFC");
                 t_ref = $realtime; nref = nref + 1;
                 // at most 8 refreshes may be pulled in
@@ -183,6 +203,8 @@ module sdram_model #(
             end
             3'b000: begin // MODE REGISTER SET
                 if (nref < 2) viol("MRS before two refreshes");
+                if ($realtime - t_ref < T_RFC - 0.001) viol("tRFC (MRS)");
+                mrs_edge = edge_cnt;
                 if (!pre_all_seen) viol("MRS before precharge all");
                 bl = (a[2:0] == 3'd2) ? 4 : (a[2:0] == 3'd1) ? 2 : 0;
                 cl = a[6:4];
@@ -192,6 +214,8 @@ module sdram_model #(
             end
             default: ;
         endcase
+
+        dqm_h2 = dqm_h1; dqm_h1 = dqm;
 
         // JEDEC: average tREFI, at most 8 refreshes postponed
         if (mrs_done && ($realtime - t_ref_base > 9 * T_REFI)) begin

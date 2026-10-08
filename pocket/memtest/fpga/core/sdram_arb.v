@@ -9,6 +9,7 @@ module sdram_arb (
     input  wire        a_we,
     input  wire [24:0] a_addr,
     input  wire [63:0] a_wdata,
+    input  wire [7:0]  a_be,
 
     input  wire        b_valid,
     output wire        b_ready,
@@ -23,6 +24,7 @@ module sdram_arb (
     output wire        c_we,
     output wire [24:0] c_addr,
     output wire [63:0] c_wdata,
+    output wire [7:0]  c_be,
     output wire        c_tag,
     input  wire        c_rvalid,
     input  wire [63:0] c_rdata,
@@ -35,6 +37,7 @@ module sdram_arb (
     assign c_we    = sel_b ? 1'b0 : a_we;
     assign c_addr  = sel_b ? b_addr : a_addr;
     assign c_wdata = a_wdata;
+    assign c_be    = a_be;
     assign c_tag   = sel_b;
     assign a_ready = c_ready & ~sel_b & a_valid;
     assign b_ready = c_ready &  sel_b;

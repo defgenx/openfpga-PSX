@@ -3,7 +3,7 @@
 
   tools/gen_screen.py
 
-40 x 30 characters. Columns 0-15 are the label, 16-39 are three 8-character fields that
+Writes screen_text.vh (101.6 MHz build) and screen_text_135.vh (SDRAM_135 build). 40 x 30 characters. Columns 0-15 are the label, 16-39 are three 8-character fields that
 report_fmt.v overwrites with numbers. A row marked HEAD is drawn in the header colour (bit 7).
 Edit ROWS here; the row to result mapping lives in report_fmt.v.
 """
@@ -18,48 +18,56 @@ def row(label, h0="", h1="", h2="", head=False):
     return s, head
 
 
-ROWS = [
-    row("PSX MEMTEST", "SYS CLK", "101.6", "MHZ", HEAD),               # 0
-    row("STATE STEP RUNS"),                                            # 1
-    row(""),                                                           # 2
-    row("SDRAM 16B CL3", "MB/S", "ERR", "CYCLES", HEAD),           # 3
-    row("SEQ WRITE"),                                                  # 4
-    row("SEQ READ"),                                                   # 5
-    row("RANDOM READ"),                                                # 6
-    row("MIXED RD/WR"),                                                # 7
-    row("SCAN 640X16 US", "LATE", "WORST", "LINES", HEAD),        # 8
-    row("  ALONE"),                                                    # 9
-    row("  UNDER MIXED"),                                              # 10
-    row("MIXED UNDER SCAN", "MB/S", "ERR", "CYCLES"),                  # 11
-    row("SCAN DATA ERR"),                                              # 12
-    row("PSRAM 2X16 GANG", "NS/OP", "ERR", "MB/S", HEAD),             # 13
-    row("WRITE 32B"),                                                  # 14
-    row("RANDOM READ 32B"),                                            # 15
-    row("  WALL CLOCK"),                                               # 16
-    row("CHAINED READ"),                                               # 17
-    row("RD WAIT MIN/USE", "MIN", "ERRSUM", "USED"),                      # 18
-    row("SYNC BURST RD16"),                                            # 19
-    row("SYNC RANDOM RD"),                                             # 20
-    row("ADDR LINE WALK"),                                             # 21
-    row("SRAM BYTE 256K", "NS/OP", "ERR", "CYCLES", HEAD),            # 22
-    row("RANDOM WRITE"),                                               # 23
-    row("RANDOM READ"),                                                # 24
-    row("WAIT MIN RD/WR", "RD", "WR", "ERRSUM"),                          # 25
-    row("DMA PSRAM>SDRAM", "MB/S", "ERR", "CYCLES", HEAD),            # 26
-    row("ASYNC"),                                                      # 27
-    row("SYNC BURST"),                                                 # 28
-    row("180NS 100M SCAN"),                                            # 29
-]
-assert len(ROWS) == 30
+def rows(mhz, psram, sram, dma):
+    """psram, sram and dma are the header labels of those blocks (the 135 variant says which clock they ran at)."""
+    r = [
+        row("PSX MEMTEST", "SYS CLK", mhz, "MHZ", HEAD),                   # 0
+        row("STATE STEP RUNS"),                                            # 1
+        row("SDRAM BYTE MASK"),                                            # 2
+        row("SDRAM 16B CL3", "MB/S", "ERR", "CYCLES", HEAD),               # 3
+        row("SEQ WRITE"),                                                  # 4
+        row("SEQ READ"),                                                   # 5
+        row("RANDOM READ"),                                                # 6
+        row("MIXED RD/WR"),                                                # 7
+        row("SCAN 640X16 US", "LATE", "WORST", "LINES", HEAD),             # 8
+        row("  ALONE"),                                                    # 9
+        row("  UNDER MIXED"),                                              # 10
+        row("MIXED UNDER SCAN", "MB/S", "ERR", "CYCLES"),                  # 11
+        row("SCAN DATA ERR"),                                              # 12
+        row(psram, "NS/OP", "ERR", "MB/S", HEAD),                          # 13
+        row("WRITE 32B"),                                                  # 14
+        row("RANDOM READ 32B"),                                            # 15
+        row("  WALL CLOCK"),                                               # 16
+        row("CHAINED READ"),                                               # 17
+        row("RD WAIT MIN/USE", "MIN", "ERRSUM", "USED"),                   # 18
+        row("SYNC BURST RD16"),                                            # 19
+        row("SYNC RANDOM RD"),                                             # 20
+        row("ADDR LINE WALK"),                                             # 21
+        row(sram, "NS/OP", "ERR", "CYCLES", HEAD),                         # 22
+        row("RANDOM WRITE"),                                               # 23
+        row("RANDOM READ"),                                                # 24
+        row("WAIT MIN RD/WR", "RD", "WR", "ERRSUM"),                       # 25
+        row(dma, "MB/S", "ERR", "CYCLES", HEAD),                           # 26
+        row("ASYNC"),                                                      # 27
+        row("SYNC BURST"),                                                 # 28
+        row("180NS 100M SCAN"),                                            # 29
+    ]
+    assert len(r) == 30
+    return r
 
-data = bytearray()
-for text, head in ROWS:
-    for ch in text:
-        c = ord(ch)
-        assert 32 <= c < 127
-        data.append(c | (0x80 if head else 0))
-hexs = data.hex().upper()
-out = ["// Generated by tools/gen_screen.py - do not edit.",
-       "localparam [9599:0] SCREEN_TEXT = 9600'h" + hexs + ";"]
-Path(__file__).resolve().parent.parent.joinpath("fpga/core/screen_text.vh").write_text("\n".join(out) + "\n")
-print("screen_text.vh:", len(data), "characters")
+
+def emit(name, rws):
+    data = bytearray()
+    for text, head in rws:
+        for ch in text:
+            c = ord(ch)
+            assert 32 <= c < 127
+            data.append(c | (0x80 if head else 0))
+    out = ["// Generated by tools/gen_screen.py - do not edit.",
+           "localparam [9599:0] SCREEN_TEXT = 9600'h" + data.hex().upper() + ";"]
+    Path(__file__).resolve().parent.parent.joinpath("fpga/core", name).write_text("\n".join(out) + "\n")
+    print(name + ":", len(data), "characters")
+
+
+emit("screen_text.vh", rows("101.6", "PSRAM 2X16 GANG", "SRAM BYTE 256K", "DMA PSRAM>SDRAM"))
+emit("screen_text_135.vh", rows("135.5", "PSRAM @135.5MHZ", "SRAM @135.5MHZ", "DMA @135.5MHZ"))

@@ -266,7 +266,7 @@ assign aux_scl = 1'bZ;
 assign vpll_feed = 1'bZ;
 
 ///////////////////////////////////////////////////////////////////////////////
-// clocks: 74.25 MHz in; 101.6064 MHz system clock (3 x 33.8688), the same clock
+// clocks: 74.25 MHz in; the system clock (101.6064 MHz, or 135.4752 MHz in the SDRAM_135 variant), the same clock
 // shifted for the SDRAM pin and for SDRAM read capture, 6.3504 MHz pixel clock and its 90 degree copy
 wire clk_sys, clk_sd, clk_cap, clk_vid, clk_vid_90;
 wire pll_core_locked;
@@ -490,7 +490,8 @@ always @(posedge clk_sys) begin
     if (restart_d != restart_tog_s || !reset_n_s) rst_cnt <= 5'd31;
     else if (rst_cnt != 0) rst_cnt <= rst_cnt - 1'b1;
 end
-wire rst_sys = (rst_cnt != 0);
+reg rst_sys;
+always @(posedge clk_sys) rst_sys <= (rst_cnt != 0);
 
 reg [31:0] seed_ctr;
 always @(posedge clk_sys) seed_ctr <= seed_ctr + 32'd1;

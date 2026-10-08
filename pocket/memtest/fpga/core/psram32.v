@@ -1,11 +1,12 @@
 // Both PSRAM chips ganged as one 32-bit memory (same control, 16 data bits each).
 // Asynchronous single and chained reads, single writes, and an optional synchronous
 // burst read at half the system clock. Cycle counts are explained in docs/pocket/MEMTEST.md.
+`include "memtest_defs.vh"
 module psram32 #(
     parameter ADV_C  = 1,      // ADV# low cycles
     parameter AH     = 1,      // address hold after ADV# rises
     parameter DOFF   = 2,      // cycles from address release to write data
-    parameter WR_END = 8       // write cycle length (>= 70 ns)
+    parameter WR_END = `MT_CYC(780) // write cycle length: 78 ns, 8 cycles at 101.6 MHz (tAW and tWC are 70 ns)
 ) (
     input  wire        clk,
     input  wire        rst,
