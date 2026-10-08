@@ -20,6 +20,7 @@ entity tb_diff is
       G_REPRODUCIBLEGPUTIMING : integer := 0;
       G_TIMING_STRICT       : boolean := true;    -- timing differences fail the run
       G_TRACEFILE           : string  := "";      -- golden VRAM access trace, see vram_model.vhd
+      G_TRACEFILE_DUT       : string  := "";      -- the same for the DUT
       G_VRAM_BUSY           : integer := 1;
       G_VRAM_LAT            : integer := 8;
       G_STAT_TIMING_MASK    : integer := 16#1E000000#; -- GPUSTAT bits that follow command timing
@@ -34,7 +35,9 @@ entity tb_diff is
       G_FAULT_IDLE_PRIM     : integer := -1;      -- primitive K: DUT idle seen late by G_FAULT_IDLE_DELAY clk2x
       G_FAULT_IDLE_DELAY    : integer := 0;
       G_FAULT_RD_IDX        : integer := -1;      -- K-th compared bus read: flip bit 0 of the DUT value
-      G_FAULT_SPAN_IDX      : integer := -1       -- K-th DUT span: flip bit 0 of r
+      G_FAULT_SPAN_IDX      : integer := -1;      -- K-th DUT span: flip bit 0 of r
+      G_FAULT_SETUP_TRI     : integer := -1;      -- triangle K: DUT setup inflated by G_FAULT_SETUP_ADD clk2x in the criterion
+      G_FAULT_SETUP_ADD     : integer := 0
    );
 end entity;
 
@@ -301,6 +304,7 @@ begin
    generic map
    (
       G_DUT           => true,
+      G_TRACEFILE     => G_TRACEFILE_DUT,
       G_VRAM_BUSY     => G_VRAM_BUSY,
       G_VRAM_LAT      => G_VRAM_LAT,
       G_FAULT_MON_IDX => G_FAULT_WR_MON,
@@ -476,6 +480,7 @@ begin
             if t_span_g(k) >= 0 and t_span_d(k) >= 0 and t_prep_g(k) >= 0 then
                gsu  := t_prep_g(k) - t_iss_g(k);
                dsu := gsu + (t_span_d(k) - t_iss_d(k)) - (t_span_g(k) - t_iss_g(k));
+               if ke = G_FAULT_SETUP_TRI then dsu := dsu + G_FAULT_SETUP_ADD; end if;
                if cls(k) >= 4 then ref := REF_QUAD(cls(k) - 4); else ref := REF_TRI(cls(k)); end if;
                if gsu > ref then ref := gsu; end if;
                chk := chk + 1;

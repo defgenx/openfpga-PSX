@@ -3,7 +3,9 @@
 #   make golden                golden vs golden, smoke test of the harness
 #   make selftest              fault injection: each injected fault must be reported exactly
 #   make diff                  golden vs gpu_pocket (needs POCKET_SRCS, see pocket.mk)
-#   make trace SEED=n          golden VRAM access trace of the game-like suite -> run/trace_sN.txt
+#   make trace SEED=n          VRAM access trace of the game-like suite: golden -> run/trace_sN.txt,
+#                              gpu_pocket (when POCKET_SRCS is set) -> run/trace_pocket_sN.txt; fails if a run has no RESULT
+#   make bw SEEDS="1 2 3"      trace each seed, then bwmodel.py --max-util 0.8 on every trace (BWARGS: extra bwmodel options)
 #   make clean
 #
 # SEEDS   one job per (suite, seed); each job runs in its own directory under run/
@@ -56,7 +58,7 @@ TB_SRCS   := $(HERE)gpu_diff_pkg.vhd $(HERE)gpu_span_pkg.vhd $(HERE)gpu_dut.vhd 
 FLGEN_golden :=
 FLGEN_pocket := -g G_TIMING_STRICT=false
 
-.PHONY: golden diff selftest trace clean FORCE
+.PHONY: golden diff selftest trace bw clean FORCE
 .DEFAULT_GOAL := golden
 
 $(BUILD)/gpu_line_dbg.vhd: $(RTL)/gpu_line.vhd $(HERE)dbg_insert.awk
@@ -119,13 +121,33 @@ endif
 diff-run: $(RESULTS_pocket)
 	@python3 $(HERE)summarize.py $(COVREQ) $(SUMARGS) $(dir $(RESULTS_pocket))
 
-trace: $(BUILD)/golden/stamp
-	@d=$(RUNROOT)/trace_s$(SEED); rm -rf $$d; mkdir -p $$d; \
-	cd $$d && for n in $(DBGNAMES); do ln -s /dev/null "$$n"; done && \
-	python3 $(HERE)gen_vectors.py --suite game --seed $(SEED) --count $(COUNT) --tail $(TRACE_TAIL) $(GENARGS) --out vec.txt && \
-	$(NVC) -H 256m --work=work:$(BUILD)/golden -L $(BUILD) -e --no-save -g G_VECFILE=vec.txt -g G_TRACEFILE=trace.txt -g G_VRAM_BUSY=0 $(NVCGEN) tb_diff -r > run.log 2>&1; \
+# $(1) flavour, $(2) output name, $(3) generic that names the trace file of that flavour's side
+define TRACEJOB
+	@set -e; d=$(RUNROOT)/trace_$(2)s$(SEED); rm -rf $$d; mkdir -p $$d; cd $$d; \
+	for n in $(DBGNAMES); do ln -s /dev/null "$$n"; done; \
+	python3 $(HERE)gen_vectors.py --suite game --seed $(SEED) --count $(COUNT) --tail $(TRACE_TAIL) $(GENARGS) --out vec.txt; \
+	$(NVC) -H 256m --work=work:$(BUILD)/$(1) -L $(BUILD) -e --no-save -g G_VECFILE=vec.txt $(FLGEN_$(1)) -g $(3)=trace.txt -g G_VRAM_BUSY=0 $(NVCGEN) tb_diff -r > run.log 2>&1 || true; \
+	grep -q '^RESULT' run.log || { echo "trace $(1) seed $(SEED): simulator error"; tail -5 run.log; exit 1; }; \
 	grep '^RESULT' run.log | tail -1; \
-	mv trace.txt $(RUNROOT)/trace_s$(SEED).txt && echo "trace: $(RUNROOT)/trace_s$(SEED).txt `wc -l < $(RUNROOT)/trace_s$(SEED).txt` accesses"
+	test -s trace.txt || { echo "trace $(1) seed $(SEED): empty trace"; exit 1; }; \
+	mv trace.txt $(RUNROOT)/trace_$(2)s$(SEED).txt; \
+	echo "trace: $(RUNROOT)/trace_$(2)s$(SEED).txt `wc -l < $(RUNROOT)/trace_$(2)s$(SEED).txt` accesses"
+endef
+
+trace: $(BUILD)/golden/stamp
+	$(call TRACEJOB,golden,,G_TRACEFILE)
+ifneq ($(strip $(POCKET_ABS)),)
+	@$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) trace-pocket SEED=$(SEED)
+
+.PHONY: trace-pocket
+trace-pocket: $(BUILD)/pocket/stamp
+	$(call TRACEJOB,pocket,pocket_,G_TRACEFILE_DUT)
+endif
+
+BWSEEDS := $(SEEDS)
+bw:
+	@set -e; for s in $(BWSEEDS); do $(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) trace SEED=$$s; done; \
+	python3 $(HERE)bwmodel.py --max-util 0.8 $(BWARGS) $(foreach s,$(BWSEEDS),$(RUNROOT)/trace_s$(s).txt $(if $(strip $(POCKET_ABS)),$(RUNROOT)/trace_pocket_s$(s).txt))
 
 selftest: $(BUILD)/golden/stamp
 	@python3 $(HERE)selftest.py $(BUILD)/golden $(BUILD) $(RUNROOT)/selftest

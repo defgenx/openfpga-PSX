@@ -3,7 +3,8 @@
 
 Model and assumptions: docs/pocket/GPU.md ("SDRAM bandwidth").
   bwmodel.py [options] TRACE...
-Exit status 1 when --max-util is given and any trace's peak window utilisation exceeds it.
+Exit status 1 when --max-util is given and any trace's peak window utilisation exceeds it; 2 when a trace
+has no accesses or is shorter than one window.
 """
 import argparse
 import sys
@@ -78,9 +79,18 @@ class Sdram:
         return s, e
 
 
+class TraceError(Exception):
+    pass
+
+
 def windows(busy, total, win):
-    """Peak and mean utilisation over consecutive windows of `win` cycles."""
+    """Peak and mean utilisation over consecutive windows of `win` cycles.
+
+    The peak covers complete windows only: a trailing partial window divided by `win` under-reports,
+    divided by its own length it over-reports a short tail. A trace without one complete window has no peak."""
     n = int(total // win) + 1
+    if n < 2:
+        raise TraceError(f"trace is {total / win:.3f} of one window")
     acc = [0.0] * n
     for s, e in busy:
         while s < e:
@@ -90,8 +100,7 @@ def windows(busy, total, win):
             edge = min(e, (i + 1) * win)
             acc[i] += edge - s
             s = edge
-    full = acc[:-1] if len(acc) > 1 else acc
-    return max(full) / win, sum(acc) / total if total else 0.0
+    return max(acc[:-1]) / win, sum(acc) / total
 
 
 def run(path, a):
@@ -100,17 +109,21 @@ def run(path, a):
     scan_lat = []
     wait = 0.0
     last = 0.0
+    n_acc = 0
     with open(path) as f:
         for line in f:
             if not line.strip() or line.startswith('#'):
                 continue
             cyc, rw, addr, beats, _be = line.split()
+            n_acc += 1
             t = int(cyc) * ratio
             s, e = sd.access(t, rw == 'W', int(addr, 16), int(beats))
             wait = max(wait, s - t)
             if rw == 'R' and int(beats) >= 64:   # line-sized reads: scan-out (and copies)
                 scan_lat.append((e - t) / a.mhz)
             last = max(last, e)
+    if n_acc == 0:
+        raise TraceError("no accesses")
     total = last
     # SPU traffic as a uniform extra load
     spu = a.spu_mbps / (2 * a.mhz)
@@ -128,7 +141,11 @@ def main(argv):
     a = parse_args(argv)
     worst = 0.0
     for t in a.traces:
-        r = run(t, a)
+        try:
+            r = run(t, a)
+        except TraceError as e:
+            print(f"BW ERROR {t}: {e} (window {a.window_us:g} us)", file=sys.stderr)
+            return 2
         worst = max(worst, r['peak'])
         print(f"BW {r['trace']}: {r['accesses']} accesses over {r['ms']:.2f} ms  "
               f"mean {100*r['mean']:.1f}%  peak/{a.window_us:g}us {100*r['peak']:.1f}%  "

@@ -6,6 +6,9 @@ comments point here. Phase 2 gate and project context: [ROADMAP.md](ROADMAP.md).
 The golden model is `gpu.vhd` and everything it instantiates, frozen. `gpu_pocket` must write
 exactly the golden's VRAM contents, in the same order, and return the same data on every GPUREAD
 and GPUSTAT read (busy/ready bits excepted, see [Timing](#timing)). `sim/gpu_diff` proves it.
+One exception: a polygon that keeps the poly unit busy for more than 2^20 clk2x is drawn
+completely, where the golden's watchdog aborts it part-way (see the Removed item below). The
+harness cannot run a primitive that long.
 
 ## Contract
 
@@ -144,10 +147,15 @@ in `sizing/gpu_size.qpf` (revisions `gpu_golden`, `gpu_pocket`), the same metric
 
 ## SDRAM bandwidth
 
-`sim/gpu_diff` writes a VRAM access trace (`make trace`). `sim/gpu_diff/bwmodel.py` replays it
-against a 16-bit SDRAM at 101.6 MHz (row misses, refresh, video scan-out deadline) through a
-64→16-bit adapter and reports the peak utilisation over any window. There are no game traces in
-this repository (no BIOS or game images); the traces are the generator's game-like random suite.
+`sim/gpu_diff` writes a VRAM access trace of each side (`make trace`: golden `run/trace_sN.txt`,
+`gpu_pocket` `run/trace_pocket_sN.txt`). `sim/gpu_diff/bwmodel.py` replays it against a 16-bit
+SDRAM at 101.6 MHz (row misses, refresh, video scan-out deadline) through a 64→16-bit adapter and
+reports the peak utilisation over any complete window; `make bw` applies the 80% gate to every
+traced seed. There are no game traces in this repository (no BIOS or game images); the traces are
+the generator's game-like random suite.
+
+The model is open-loop and conservative: each access starts at its traced time, every read pays
+its full CAS latency (no pipelining), and ACT/PRE are serialised (no bank overlap).
 
 ## Verification
 
@@ -166,7 +174,7 @@ Measured 2026-10-08. Gate result: **FAIL**, on area and on SDRAM bandwidth.
 | DSP | ≤ 10 | 32 | 10 | pass |
 | M10K | — | 27 | 27 | |
 | Setup vs reference (per triangle) | ≤ max(golden, reference) | — | 4,094 checked, 0 over | pass |
-| Worst trace, peak 1 ms window, SDRAM at 101.6 MHz | ≤ 80% | 98.5% | not traced (same writes, same order) | FAIL |
+| Worst trace, peak 1 ms window, SDRAM at 101.6 MHz | ≤ 80% | 98.5% | 98.2% | FAIL |
 | Bit-exact (VRAM, GPUREAD, GPUSTAT data, spans) | 0 mismatches | — | 0 over 12,825 commands | pass |
 
 **Area by entity** (`sizing/gpu_size.qpf` revision `gpu_pocket`, ALMs needed): `gpu_poly_pocket`
@@ -185,13 +193,22 @@ Average setup in clk2x, golden → `gpu_pocket`: flat 62.6 → 57.0, gouraud 129
 120.3 → 98.3, gouraud-textured 182.7 → 216.7. Gouraud setup is slower than the golden but stays
 under the reference (334 / 496).
 
-**Bandwidth** (`bwmodel.py`, game-like traces `make trace SEED=1..3`, peak over any 1 ms window):
+**Bandwidth** (`make bw SEEDS="1 2 3"`, game-like traces, peak over any 1 ms window, golden /
+`gpu_pocket`):
 
-| SDRAM clock | seed 1 | seed 2 | seed 3 | Peak per scanline |
-|---|---|---|---|---|
-| 101.6 MHz (3 × clk1x, the plan) | 98.5% | 98.0% | 93.6% | 102.5% |
-| 135.5 MHz (4 × clk1x) | 73.9% | 73.1% | 69.9% | 101.8% |
+| SDRAM clock | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| 101.6 MHz (3 × clk1x, the plan) | 98.5% / 98.2% | 98.0% / 96.6% | 93.6% / 94.1% |
+| 135.5 MHz (4 × clk1x) | 73.9% / 73.5% | 73.1% / 73.0% | 69.9% / 70.4% |
 
-The generator issues primitives back to back with no CPU or GTE time between them, so it draws at
-the GPU's full fill rate for the whole trace. No game trace exists in this repository. A peak per
-scanline above 100% means the GPU stalls on SDRAM during the busiest lines at either clock.
+How far these figures overstate a game:
+- The generator issues primitives back to back with no CPU or GTE time between them, so it draws
+  at the GPU's full fill rate for the whole trace. A game interleaves other work.
+- The model's controller overheads are the worst case (see above). Seed 1 at 101.6 MHz, golden /
+  `gpu_pocket`: no CAS latency (`--cl 0`) 94.4% / 94.2%; no tRCD, tRP or tRC 87.5% / 86.8%; every
+  overhead off (`--cl 0 --trcd 0 --trp 0 --trc 1 --twr 0 --trfc 0 --refresh-us 1e9`), data beats
+  and the SPU load only, 82.3% / 82.6%. Without the SPU load the data beats alone are 79.8% / 80.1%.
+  The FAIL holds even for an ideal controller.
+- `bwmodel.py` also prints a peak per scanline (`peak/line`). For an open-loop trace it only shows
+  that some line-length window is saturated: it reads 100% plus the SPU term at either clock and
+  says nothing about how long the GPU would stall.
