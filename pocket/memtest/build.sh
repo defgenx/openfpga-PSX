@@ -10,7 +10,13 @@ cd "$(dirname "$0")"
 QUARTUS_IMAGE=${QUARTUS_IMAGE:-raetro/quartus:21.1}
 CORE=defgenx.PSXMemTest
 
+# the generated SDRAM timing files must match tools/sdram_timing.py's table (MEMTEST.md, SDRAM timing table)
+timing_check() {
+	python3 tools/sdram_timing.py --check
+}
+
 compile() {
+	timing_check
 	if command -v quartus_sh >/dev/null; then
 		(cd fpga && quartus_sh --flow compile ap_core)
 	else
@@ -41,6 +47,7 @@ vvp_pass() {
 }
 
 simulate() {
+	timing_check
 	python3 tools/gen_font.py
 	python3 tools/gen_screen.py
 	sim/run.sh fast

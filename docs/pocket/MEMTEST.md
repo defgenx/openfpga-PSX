@@ -117,17 +117,41 @@ AS4C32M16SB: 16 bit, 4 banks, 8,192 rows × 1,024 columns. Chip select is tied l
 idle command is a NOP. Burst length 4, CL 3, open-page policy. Word address mapping: column `[9:0]`,
 bank `[11:10]`, row `[24:12]`, so one 1,024-word VRAM line is one row.
 
-| Constant | Cycles | Time at 101.6 MHz | Datasheet (-7, from memory, not re-checked) |
-|---|---|---|---|
-| tRCD, tRP | 3, 3 | 29.5 ns | ≥ 20 ns |
-| tRAS | 5 | 49 ns | ≥ 42 ns |
-| tWR | 3 after the last write word | 29.5 ns | ≥ 14 ns |
-| tRRD | 2 | 19.7 ns | ≥ 14 ns |
-| tRFC | 8 | 79 ns | ≥ 63 ns |
-| Refresh | one per 700 cycles | 6.9 µs | 7.8 µs (8,192 rows in 64 ms) |
-| read → write command gap | 9 | | data bus turn-around, no overlap with read data |
+Every timing figure lives in one table, `tools/sdram_timing.py`, which generates `fpga/core/sdram_timing.vh`
+(cycle counts per clock for `sdram_ctl`, ns figures for `sim/sdram_model.v`), `fpga/core/sdram_timing.sdc` (the
+I/O figures `core_constraints.sdc` sources) and `fpga/core/sdram_timing.json` (read by `sim/gpu_diff/bwmodel.py`).
+`build.sh compile` and `build.sh sim` fail when a committed generated file differs from the script's output. A
+cycle count is `max(minimum clocks, ceil(ns / tCK))`.
 
-CL 2 needs a clock of 100 MHz or less on a -7 part (from memory), so CL 3 is used. A request is decoded while the previous burst is
+#### SDRAM timing table
+
+**Speed grade: unconfirmed.** The part is named only in the SDC comment, "AS4C32M16SB-7"; no Pocket chip marking
+or schematic has been checked. The table therefore holds the -7 column, whose CL 3 minimum tCK is 7 ns:
+135.4752 MHz (7.38 ns) is 5% inside it, 101.6064 MHz (9.84 ns) 29%. If the part is a -6 the figures only get
+better. "B-die" is the AS4C32M16SB datasheet (figures confirmed from its key-specification and AC tables:
+tCK3, tAC3, tRAS, tRC); "A-die" is the AS4C32M16SA Rev 2.0 datasheet (-7), used for the figures not read from the
+B-die sheet. Where two sources differ the slower figure is kept.
+
+| Figure | ns | Source | Cycles at 101.6 / 135.5 MHz |
+|---|---|---|---|
+| tCK (CL 3), min | 7.0 | B-die | |
+| tAC (CL 3), max | 5.4 | B-die | |
+| tOH, min | 2.5 | A-die | |
+| tIS / tIH, min | 1.5 / 0.8 | A-die | |
+| tRCD, tRP, min | 20 | A-die 15; 20 kept | 3, 3 / 3, 3 |
+| tRAS, min | 42 | B-die (A-die 45) | 5 / 6 |
+| tRC, min | 63 | B-die (A-die 65) | 7 / 9 |
+| tWR, min | 14 and ≥ 2 CLK | A-die tDPL 2 CLK | 2 / 2 |
+| tRRD, min | 15 | A-die | 2 / 3 |
+| tRFC (= tRC) | 63 | B-die | 7 / 9 |
+| tMRD | 2 CLK | A-die | 2 / 2 |
+| tREFI | 7,812.5 (8,192 in 64 ms) | A-die | refresh every 6.9 µs: 701 / 934 cycles |
+| power-up wait | 200 µs (203 kept) | datasheet | 20,627 / 27,502 cycles |
+
+The controller's own constants, from its structure rather than the datasheet: CL 3, BL 4, a read → write
+command gap of CL + 6 = 9 cycles so the write data never overlaps read data on the bus.
+
+CL 2 needs a clock of 100 MHz or less on a -7 part (A-die tCK at CL 2: 10 ns), so CL 3 is used. A request is decoded while the previous burst is
 still on the bus, so back-to-back reads or writes in an open row issue every 4 cycles (full bus rate,
 203 MB/s). Row misses precharge and activate before the burst; the controller does not open the next
 request's row early, so the random figures are a floor for what a bank-aware controller could do.
@@ -343,8 +367,9 @@ Every cell needs a Pocket.
 - Everything above on real hardware, in particular SDRAM clock phase and CL 3 at 101.6 MHz, PSRAM access time
   and the 5 … 20 cycle sweep window, SRAM speed.
 - The PSRAM bus configuration register layout, the maximum synchronous clock, and whether fixed-latency burst reads work at all.
-- Datasheet figures for the SDRAM and PSRAM are from memory of the usual part families; the Pocket's exact part
-  numbers were not looked up.
+- The SDRAM speed grade (see the SDRAM timing table): the Pocket's chip marking was not checked, so the -7 column
+  is assumed. PSRAM datasheet figures are from memory of the usual part family; its exact part number was not
+  looked up.
 - `cram*_wait` is not used.
 - `cram_a[21:19]` are never driven (2 MiB needs only `cram_a[18:16]`), and a swapped pair of address pins is a
   consistent remap that no memory test, and no console, can see.

@@ -1,0 +1,107 @@
+{
+  "generated_by": "pocket/memtest/tools/sdram_timing.py; do not edit",
+  "part": "AS4C32M16SB-7",
+  "grade_source": "unconfirmed: core_constraints.sdc comment, no chip marking checked",
+  "cl": 3,
+  "bl": 4,
+  "refi_target_ns": 6900.0,
+  "rule": "cycles = max(min_clk, ceil(ns * MHz / 1000))",
+  "timing": {
+    "tCK": {
+      "ns": 7.0,
+      "min_clk": 0,
+      "source": "B-die: CL3 minimum cycle time, 143 MHz"
+    },
+    "tAC": {
+      "ns": 5.4,
+      "min_clk": 0,
+      "source": "B-die: access time from CLK, CL3, max"
+    },
+    "tOH": {
+      "ns": 2.5,
+      "min_clk": 0,
+      "source": "A-die: data-out hold time, min"
+    },
+    "tIS": {
+      "ns": 1.5,
+      "min_clk": 0,
+      "source": "A-die: input setup time, min"
+    },
+    "tIH": {
+      "ns": 0.8,
+      "min_clk": 0,
+      "source": "A-die: input hold time, min"
+    },
+    "tRCD": {
+      "ns": 20.0,
+      "min_clk": 0,
+      "source": "A-die 15 ns; 20 ns kept (slower of the two)"
+    },
+    "tRP": {
+      "ns": 20.0,
+      "min_clk": 0,
+      "source": "A-die 15 ns; 20 ns kept (slower of the two)"
+    },
+    "tRAS": {
+      "ns": 42.0,
+      "min_clk": 0,
+      "source": "B-die: row active time, min (A-die 45)"
+    },
+    "tRC": {
+      "ns": 63.0,
+      "min_clk": 0,
+      "source": "B-die: row cycle time, min (A-die 65)"
+    },
+    "tWR": {
+      "ns": 14.0,
+      "min_clk": 2,
+      "source": "A-die tDPL 2 CLK; 14 ns kept as well"
+    },
+    "tRRD": {
+      "ns": 15.0,
+      "min_clk": 0,
+      "source": "A-die: ACT to ACT, different banks, min"
+    },
+    "tRFC": {
+      "ns": 63.0,
+      "min_clk": 0,
+      "source": "auto refresh cycle = tRC (B-die)"
+    },
+    "tMRD": {
+      "ns": 0.0,
+      "min_clk": 2,
+      "source": "A-die: mode register set cycle, 2 CLK"
+    },
+    "tREFI": {
+      "ns": 7812.5,
+      "min_clk": 0,
+      "source": "A-die: 8192 refreshes per 64 ms"
+    }
+  },
+  "cycles": {
+    "101.6064": {
+      "tRCD": 3,
+      "tRP": 3,
+      "tRAS": 5,
+      "tRC": 7,
+      "tWR": 2,
+      "tRRD": 2,
+      "tRFC": 7,
+      "tMRD": 2,
+      "INIT": 20627,
+      "REF": 701
+    },
+    "135.4752": {
+      "tRCD": 3,
+      "tRP": 3,
+      "tRAS": 6,
+      "tRC": 9,
+      "tWR": 2,
+      "tRRD": 3,
+      "tRFC": 9,
+      "tMRD": 2,
+      "INIT": 27502,
+      "REF": 934
+    }
+  }
+}
