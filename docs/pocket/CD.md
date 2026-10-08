@@ -74,3 +74,5 @@ context: `sizing/output_files/psx_min_a6.fit.rpt:5645` in the main checkout.
 (`rtl/psx_top_pocket.vhd`). `cd_top:icd_top`: **2,632.0** ALMs needed (2,817.8 placed), 71 M10K, 6 DSP
 (`sizing/output_files_psx_pocket_a6/psx_pocket_a6.fit.rpt:3700`), against 3,265.0 in `psx_min_a6`.
 The savestate lever in context is therefore 633.0 ALMs. The in-context figure stays 232 ALMs above the standalone `cd_golden`; the standalone figure is the gate metric.
+The levers above other than the savestate removal apply to both figures alike; only the savestate lever is
+measured in context.

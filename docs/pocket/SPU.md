@@ -76,3 +76,5 @@ main checkout.
 (`rtl/psx_top_pocket.vhd`). `spu:ispu`: **3,172.7** ALMs needed (3,529.6 placed), 78 M10K, 13 DSP
 (`sizing/output_files_psx_pocket_a6/psx_pocket_a6.fit.rpt:3922`), against 4,028.1 in `psx_min_a6`.
 The savestate lever in context is therefore 855.4 ALMs. The standalone `spu_golden` is 93 ALMs above the in-context `psx_top_pocket` figure (different device and packing): the standalone figure is the gate metric.
+The levers above other than the savestate removal apply to both figures alike; only the savestate lever is
+measured in context.

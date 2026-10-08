@@ -2100,7 +2100,7 @@ begin
    state_loaded      <= '0';
    validSStates      <= (others => '0');
 
-   -- a reset sequencer replaces this later, see docs/pocket/ROADMAP.md
+   -- reset is a registered copy of reset_in, with no savestate reload (docs/pocket/ROADMAP.md)
    process (clk1x)
    begin
       if rising_edge(clk1x) then

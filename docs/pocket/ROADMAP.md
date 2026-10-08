@@ -123,7 +123,8 @@ engine is an estimate. The SPU's remaining-lever sum counts that estimate at its
 
 `psx_top_pocket` (golden SPU/CPU/CD/DMA/MDEC, `gte_serial`, `gpu_pocket`, every savestate driver tied
 inactive) fits in **19,569.8 ALMs and 295 M10K** on 5CSEBA6U23I7, against 26,226.3 and 289 for `psx_min_a6`.
-Removing the savestates in context saves about 3,800 ALMs over the blocks, not FEASIBILITY's 500. `NO_MDEC`
+The blocks other than the GTE and GPU shrink by 3,787 ALMs in context, the savestate removal: SPU 855, CPU
+818, CD 633, DMA 409, the `savestates` module 569, the rest 502 (FEASIBILITY priced it at 500). `NO_MDEC`
 saves 583 ALMs, 17 M10K and 9 DSP.
 
 - **Core projection** (gated blocks at their gates, GTE and GPU as measured, the 4D blocks at their
@@ -173,7 +174,7 @@ Record each gate's measured numbers here when its phase ends.
 | 0 — sizing | measured | 26,135 (options off) | 83 | ~1.9 Mbit | n/a | 2026-10-07 |
 | 1 — GTE | **PASS** | 2,490.8 needed (golden 3,917.6) | 3 (golden 15) | 9 blocks, 49,841 bits | clk2x +2.025 ns slow 85 °C, +1.599 ns slow 0 °C; hold ≥ +0.125 ns | 2026-10-07 |
 | 2 — GPU | **FAIL**: area, and worst synthetic trace 99.9% of SDRAM at 101.6 MHz (`make bw`, table-driven model); bit-exact, setup within reference. Accepted by the re-plan with the SDRAM at 135.5 MHz, where the gate figure is **74.7%**. 135.5 MHz did not close timing in Phase 3, so the fallback applies: the bandwidth gate stays FAIL at 101.6 MHz and the GPU is re-planned before Phase 5 | 4,785.3 needed (golden 5,481.4) | 10 (golden 32) | 27 (golden 27) | clk2x +0.763 ns slow 85 °C, +0.411 ns slow 0 °C; hold ≥ +0.079 ns | 2026-10-08 |
-| 3 — memory test core | built, **pending hardware**. 135.5 MHz variant: **timing not met**; simulation passes, and the model matches the simulation (MIXED UNDER SCAN 105.8 MB/s vs 105.8) | 4,097 (101.6 MHz), 4,138 (135.5 MHz), whole core | — | — | 101.6 MHz: met on every clock, all four corners. 135.5 MHz: SDRAM read capture −0.42 ns setup, −0.38 ns hold, no phase closes it | 2026-10-08 |
+| 3 — memory test core | built, **pending hardware**. 135.5 MHz variant: **timing not met**; simulation passes, and the model matches the simulation (MIXED UNDER SCAN 105.8 MB/s vs 105.8) | 5,635 (101.6 MHz, with the bridge bench of Unit 3B; 4,097 without), whole core | — | — | 101.6 MHz: met on every clock, all four corners. 135.5 MHz: SDRAM read capture −0.42 ns setup, −0.38 ns hold, no phase closes it | 2026-10-08 |
 | 4 — 4.0 baselines | **stop before 4A**: the CPU (991 to find vs 304 of levers) and SPU (1,680 vs ≤ 1,464) rules fire | `psx_top_pocket` 19,569.8 (5CSEBA6); SPU 3,079.6 / CPU 2,291.1 / CD 2,400.1 standalone | 47 | 295 | not gating | 2026-10-08 |
 
 Phase 2 failed its gate and was re-planned. Unit 4.0 has measured the baselines, and the rewrites wait for

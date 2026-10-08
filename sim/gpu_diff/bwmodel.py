@@ -93,6 +93,7 @@ class Sdram:
             t['REF'] = math.floor(a.refresh_us * a.mhz)
         self.t = t
         self.cl = a.cl if a.cl is not None else table['cl']
+        self.bl = table['bl']
         self.open_row = [None] * 4
         self.act_t = [-10**9] * 4       # last ACT per bank
         self.pre_ok = [0] * 4           # first cycle a PRE is allowed
@@ -128,7 +129,11 @@ class Sdram:
             a = max(a, run)
         return a
 
-    def access(self, a, write, bank, row):
+    def write_slot(self, partial):
+        """Data-bus cycles of one write burst. DQM masks bytes with zero latency, so a partial mask costs nothing."""
+        return self.bl
+
+    def access(self, a, write, bank, row, partial=False):
         """One BL4 burst accepted at cycle a. Returns (cas cycle, last read-data cycle)."""
         T = self.t
         d0 = a + 1                                  # the request is in the decode register
@@ -147,17 +152,20 @@ class Sdram:
             self.pre_ok[bank] = at + T['tRAS']
             c0 = self.rcd_ok[bank]
         c = max(c0, self.wr_ok if write else self.rd_ok)
-        self.rd_ok = c + 4
+        bl = self.bl
+        self.rd_ok = c + bl
         if write:
-            self.wr_ok = c + 4
-            self.pre_ok[bank] = c + 4 + T['tWR']    # 3 + tWR after the write command
+            slot = self.write_slot(partial)
+            self.rmw_cycles += slot - self.write_slot(False)
+            self.wr_ok = c + slot
+            self.pre_ok[bank] = c + slot + T['tWR']     # sdram_ctl loads BL - 1 + tWR; PRE issues when it reaches 0
         else:
-            self.wr_ok = c + self.cl + 6            # bus turnaround: CL + 5 after the read command
-            if self.pre_ok[bank] - c < 4:
-                self.pre_ok[bank] = c + 5
+            self.wr_ok = c + self.cl + bl + 2           # read-to-write turnaround, RD_TO_WR in sdram_ctl
+            if self.pre_ok[bank] - c < bl:
+                self.pre_ok[bank] = c + bl + 1
         self.prev_cas = c
-        self._busy(d0, c + 4)                       # busy from decode to the end of the data slot
-        return c, c + self.cl + 6
+        self._busy(d0, c + bl)                      # busy from decode to the end of the data slot
+        return c, c + self.cl + bl + 2
 
 
 class TraceError(Exception):
@@ -205,8 +213,8 @@ def run(path, a, table):
             n_acc += 1
             write = rw == 'W'
             beats = int(beats)
-            if write and int(be, 16) != 0xFF:
-                n_partial += 1                      # DQM masks the bytes: costs nothing extra
+            partial = write and int(be, 16) != 0xFF
+            n_partial += partial
             t = math.ceil(int(cyc) * ratio)
             base = int(addr, 16)
             e = 0
@@ -214,8 +222,8 @@ def run(path, a, table):
                 bank, row = vram_bank_row(base + 8 * i)
                 acc = sd.accept_time(t)
                 wait = max(wait, acc - t)
-                c, e = sd.access(acc, write, bank, row)
-            last = max(last, e if not write else sd.prev_cas + 4)
+                c, e = sd.access(acc, write, bank, row, partial)
+            last = max(last, e if not write else sd.prev_cas + sd.bl)
             if not write and beats >= 64:           # line-sized reads: scan-out (and copies)
                 scan_lat.append((e - t) / a.mhz)
     if n_acc == 0:
@@ -286,12 +294,12 @@ def run_mixed(a, table):
         write = False if a.rnd_read else bool((rnd >> 20) & 1)
         rnd = xs32(rnd)
         word = idx << 2
-        c, e = sd.access(acc, write, (word >> 10) & 3, word >> 12)
+        c, e = sd.access(acc, write, (word >> 10) & 3, word >> 12, partial=write)  # MIXED writes carry random masks
         last_b = False
         last_end = max(last_end, e)
         done_ops += 1
         t_a = acc + 1
-    assert sd.rmw_cycles == 0
+    assert sd.rmw_cycles == 0, "a read-modify-write was charged: DQM has zero write latency, partial writes are free"
     cycles = last_end + 12                           # read return, then the 11-cycle drain
     return {'ops': a.ops, 'cycles': cycles, 'mbps': 8 * a.ops * a.mhz / cycles, 'lines': lines,
             'late': late, 'worst_us': worst / a.mhz, 'refreshes': sd.refreshes}

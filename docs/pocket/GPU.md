@@ -189,14 +189,13 @@ with the test through the round-robin arbiter (`sdram_arb.v`). It prints the ben
 `memtest_core.v` does (bench bytes only, over the test's cycles). The simulated figures in
 `docs/pocket/MEMTEST.md` check it:
 
-| 101.6064 MHz | `memtest` simulation | `bwmodel.py --mixed` | error |
-|---|---|---|---|
-| random read | 93.0 MB/s | 93.2 | +0.2% |
-| mixed | 88.2 | 89.6 | +1.6% |
-| mixed under scan-out | 74.6 | 76.0 | +1.9% |
+| | simulation, 101.6064 MHz | `bwmodel.py`, 101.6064 MHz | simulation, 135.4752 MHz | `bwmodel.py`, 135.4752 MHz |
+|---|---|---|---|---|
+| random read | 93.1 MB/s | 93.2 | 124.0 | 124.0 |
+| mixed | 89.5 | 89.6 | 119.3 | 119.3 |
+| mixed under scan-out | 75.9 | 76.0 | 105.8 | 105.8 |
 
-At 135.4752 MHz it predicts 124.0, 119.3 and 105.8 MB/s. The simulation was run with its own
-`sdram_ctl` parameters (tRFC 8, tWR 3), not the table's, which accounts for part of the error.
+Under scan-out at 135.4752 MHz the model takes 671,151 cycles against the simulation's 671,241.
 The validated model carries the gate: if it falls outside about 10% of the simulation or the
 hardware, a trace-replay check replaces it before the 80% is trusted.
 

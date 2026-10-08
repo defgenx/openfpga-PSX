@@ -82,3 +82,5 @@ checkout.
 (`rtl/psx_top_pocket.vhd`). `cpu:icpu`: **2,674.4** ALMs needed (2,813.6 placed), 75 M10K, 6 DSP
 (`sizing/output_files_psx_pocket_a6/psx_pocket_a6.fit.rpt:3755`), against 3,492.3 in `psx_min_a6`.
 The savestate lever in context is therefore 817.9 ALMs. The in-context figure stays 383 ALMs above the standalone `cpu_golden`: the standalone wrapper registers every port, the core's context does not prune as much. The standalone figure is the gate metric.
+The levers above other than the savestate removal apply to both figures alike; only the savestate lever is
+measured in context.
