@@ -1,24 +1,24 @@
 // PSRAM traffic generator and checker for psram32.
 // Modes are listed in memtest_defs.vh and described in docs/pocket/MEMTEST.md.
 module ps_traffic #(
-    parameter REG_BITS = 16            // log2 of the words tested per die
+    parameter REG_BITS = 19            // log2 of the words tested per die (main RAM: 2 MiB per die)
 ) (
     input  wire        clk,
     input  wire        rst,
 
     input  wire        start,
     input  wire [2:0]  mode,
-    input  wire [31:0] n_ops,          // words (K per wait value for the sweep)
+    input  wire [31:0] n_ops,          // words (K per wait value for the sweep, unused by the walk)
     input  wire [31:0] seed,
-    input  wire [3:0]  run_wait,       // read wait used outside the sweep
-    input  wire [3:0]  w_lo,
-    input  wire [3:0]  w_hi,
+    input  wire [4:0]  run_wait,       // read wait used outside the sweep
+    input  wire [4:0]  w_lo,
+    input  wire [4:0]  w_hi,
     output reg         busy,
     output reg         done,
     output reg  [31:0] cycles,         // wall clock from start to done
     output reg  [31:0] bcyc,           // cycles the controller spent on commands (accept to done)
     output reg  [31:0] errors,
-    output reg  [3:0]  min_ok,         // sweep: smallest wait with no error above it
+    output reg  [4:0]  min_ok,         // sweep: smallest wait with no error above it (w_hi + 1: none)
     output reg         timeout,
 
     output reg         cmd_valid,
@@ -28,7 +28,7 @@ module ps_traffic #(
     output reg  [4:0]  cmd_len,
     output reg  [31:0] cmd_wdata,
     output wire [3:0]  cmd_be,
-    output wire [3:0]  rd_wait,
+    output wire [4:0]  rd_wait,
     input  wire        rd_valid,
     input  wire [31:0] rd_data,
     input  wire        rd_done
@@ -39,8 +39,8 @@ module ps_traffic #(
 
     reg [2:0]  st, m;
     reg [31:0] total, ops, rnd;
-    reg [3:0]  w;
-    reg [3:0]  last_bad;
+    reg [4:0]  w;
+    reg [4:0]  last_bad;
     reg [31:0] w_err;
     reg [31:0] widx;
     reg [22:0] a0;
@@ -59,18 +59,29 @@ module ps_traffic #(
 `endif
     wire bad = x_bad || (rd_data != exp_data);
 
+    // address-line walk: per die, word 0 and 2^0 .. 2^(WALK_BITS-1), written then read back
+    localparam WALK_BITS = 19;
+    localparam WALK_N    = WALK_BITS + 1;
+    wire [6:0]  wk_o    = ops[6:0];
+    wire        wk_wr   = wk_o < 7'd2 * WALK_N;
+    wire [6:0]  wk_r    = wk_wr ? wk_o : wk_o - 7'd2 * WALK_N;
+    wire        wk_die  = wk_r >= WALK_N;
+    wire [6:0]  wk_k    = wk_die ? wk_r - WALK_N : wk_r;
+    wire [22:0] wk_addr = {wk_die, 22'd0} | ((wk_k == 7'd0) ? 23'd0 : (23'd1 << (wk_k - 7'd1)));
+
     // next command
     reg        n_we;
     reg [22:0] n_addr;
     reg [4:0]  n_len;
     reg [31:0] n_wdata;
     always @(*) begin
-        n_we = (m == `PSM_FILL);
+        n_we = (m == `PSM_FILL) || (m == `PSM_WALK && wk_wr);
         n_len = (m == `PSM_SEQ_RD) ? 5'd16 : 5'd1;
         case (m)
             `PSM_FILL:   n_addr = {ops[REG_BITS], {(22-REG_BITS){1'b0}}, ops[REG_BITS-1:0]};
             `PSM_SEQ_RD: n_addr = {1'b0, ops[21:0]};
-            default:     n_addr = {rnd[20], {(22-REG_BITS){1'b0}}, rnd[REG_BITS-1:0]};
+            `PSM_WALK:   n_addr = wk_addr;
+            default:     n_addr = {rnd[REG_BITS], {(22-REG_BITS){1'b0}}, rnd[REG_BITS-1:0]};
         endcase
         n_wdata = pat32({9'd0, n_addr}, seed);
     end
@@ -79,16 +90,16 @@ module ps_traffic #(
         done <= 1'b0;
         if (rst) begin
             st <= S_IDLE; busy <= 1'b0; cmd_valid <= 1'b0; cycles <= 32'd0; bcyc <= 32'd0; in_cmd <= 1'b0; errors <= 32'd0;
-            timeout <= 1'b0; min_ok <= 4'd0;
+            timeout <= 1'b0; min_ok <= 5'd0;
         end else begin
             if (busy) cycles <= cycles + 1'b1;
             if (in_cmd) bcyc <= bcyc + 1'b1;
             case (st)
                 S_IDLE: if (start) begin
                     busy <= 1'b1; m <= mode; cycles <= 32'd0; bcyc <= 32'd0; errors <= 32'd0; timeout <= 1'b0;
-                    ops <= 32'd0; rnd <= seed | 32'd1; last_bad <= 4'd0; w <= w_lo; w_err <= 32'd0;
+                    ops <= 32'd0; rnd <= seed | 32'd1; last_bad <= 5'd0; w <= w_lo; w_err <= 32'd0;
                     min_ok <= w_lo;
-                    total <= (mode == `PSM_FILL) ? {n_ops[30:0], 1'b0} : n_ops;
+                    total <= (mode == `PSM_FILL) ? {n_ops[30:0], 1'b0} : (mode == `PSM_WALK) ? 32'd4 * WALK_N : n_ops;
                     st <= S_NEXT;
                 end
 

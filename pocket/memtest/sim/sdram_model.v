@@ -10,6 +10,7 @@ module sdram_model #(
     parameter real T_RFC = 63.0,
     parameter real T_WR  = 14.0,
     parameter real T_RRD = 14.0,
+    parameter real T_REFI = 7812.5,   // 8192 rows / 64 ms
     parameter real T_AC  = 5.4,
     parameter real T_OH  = 2.7
 ) (
@@ -31,7 +32,8 @@ module sdram_model #(
     real       t_wr_end [0:3];
     real       t_any_act = -1000.0;
     real       t_ref = -1000.0;
-    real       t_last_ref = 0.0;
+    real       t_ref_base = 0.0;   // refresh debt = (now - t_ref_base) / T_REFI
+    integer    rd_edge [0:3];      // edge of the last READ per bank
     integer    cl = 0, bl = 0;
     reg        mrs_done = 0;
     integer    nref = 0;
@@ -57,7 +59,7 @@ module sdram_model #(
 
     initial begin
         for (i = 0; i < 4; i = i + 1) begin
-            open[i] = 0; orow[i] = 0; t_act[i] = -1000.0; t_pre[i] = -1000.0; t_wr_end[i] = -1000.0;
+            open[i] = 0; orow[i] = 0; t_act[i] = -1000.0; t_pre[i] = -1000.0; t_wr_end[i] = -1000.0; rd_edge[i] = -1000;
         end
         for (i = 0; i < 8; i = i + 1) rd_used[i] = 0;
     end
@@ -130,6 +132,7 @@ module sdram_model #(
                 if (a[10]) viol("auto precharge not used");
                 if (bl != 4) viol("burst length not 4");
                 if (cmd == 3'b101) begin
+                    rd_edge[ba] = edge_cnt;
                     for (s = 0; s < 8; s = s + 1) if (!rd_used[s]) begin
                         rd_used[s] = 1; rd_start[s] = edge_cnt; rd_ba[s] = ba; rd_row[s] = orow[ba]; rd_col[s] = a[9:0];
                         s = 8;
@@ -155,6 +158,8 @@ module sdram_model #(
                         if (open[s]) begin
                             if ($realtime - t_act[s] < T_RAS - 0.001) viol("tRAS (PRE all)");
                             if ($realtime - t_wr_end[s] < T_WR - 0.001) viol("tWR (PRE all)");
+                            if (edge_cnt - rd_edge[s] < bl) viol("READ to PRE under BL (PRE all)");
+                            if (wr_left > 0 && wr_ba == s) viol("PRE during write burst (PRE all)");
                         end
                         open[s] = 0; t_pre[s] = $realtime;
                     end
@@ -163,6 +168,8 @@ module sdram_model #(
                     if (open[ba]) begin
                         if ($realtime - t_act[ba] < T_RAS - 0.001) viol("tRAS");
                         if ($realtime - t_wr_end[ba] < T_WR - 0.001) viol("tWR");
+                        if (edge_cnt - rd_edge[ba] < bl) viol("READ to PRE under BL");
+                        if (wr_left > 0 && wr_ba == ba) viol("PRE during write burst");
                     end
                     open[ba] = 0; t_pre[ba] = $realtime;
                 end
@@ -170,7 +177,9 @@ module sdram_model #(
             3'b001: begin // AUTO REFRESH
                 for (s = 0; s < 4; s = s + 1) if (open[s]) viol("REFRESH with open bank");
                 if ($realtime - t_ref < T_RFC - 0.001) viol("tRFC");
-                t_ref = $realtime; t_last_ref = $realtime; nref = nref + 1;
+                t_ref = $realtime; nref = nref + 1;
+                // at most 8 refreshes may be pulled in
+                if (mrs_done) t_ref_base = (t_ref_base + T_REFI > $realtime + 8 * T_REFI) ? $realtime + 8 * T_REFI : t_ref_base + T_REFI;
             end
             3'b000: begin // MODE REGISTER SET
                 if (nref < 2) viol("MRS before two refreshes");
@@ -178,15 +187,16 @@ module sdram_model #(
                 bl = (a[2:0] == 3'd2) ? 4 : (a[2:0] == 3'd1) ? 2 : 0;
                 cl = a[6:4];
                 mrs_done = 1;
-                t_last_ref = $realtime;
+                t_ref_base = $realtime;
                 $display("%0t SDRAM mode register: BL=%0d CL=%0d", $time, bl, cl);
             end
             default: ;
         endcase
 
-        if (mrs_done && ($realtime - t_last_ref > 9 * 7812.5)) begin
-            viol("refresh interval exceeded");
-            t_last_ref = $realtime;
+        // JEDEC: average tREFI, at most 8 refreshes postponed
+        if (mrs_done && ($realtime - t_ref_base > 9 * T_REFI)) begin
+            viol("refresh debt above 8");
+            t_ref_base = $realtime;
         end
     end
 endmodule

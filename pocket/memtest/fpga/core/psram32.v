@@ -21,7 +21,7 @@ module psram32 #(
     input  wire [3:0]  cmd_be,
 
     input  wire        sync_mode,       // reads use the synchronous burst protocol
-    input  wire [3:0]  rd_wait,         // async read: cycles from address to sample
+    input  wire [4:0]  rd_wait,         // async read: cycles from address to sample
     input  wire [2:0]  sync_lc,         // latency counter code programmed into the device
     input  wire [1:0]  sync_phase,      // sync read: cycles after the clock edge to sample
 
@@ -53,7 +53,7 @@ module psram32 #(
     reg [3:0]  c_be;
     reg [6:0]  s;
     reg [6:0]  next_sample;
-    reg [3:0]  c_wait;
+    reg [4:0]  c_wait;
     reg [2:0]  c_lc;
     reg [1:0]  c_ph;
     reg        first;
@@ -134,7 +134,7 @@ module psram32 #(
                         if (s == ADV_C) cram_adv_n <= 1'b1;
                         if (s == ADV_C + AH) dq_oe <= 1'b0;
                         if (s == ADV_C + AH + 1) cram_oe_n <= 1'b0;
-                        if (s == {3'd0, c_wait}) begin
+                        if (s == {2'd0, c_wait}) begin
                             rd_valid <= 1'b1; rd_data <= {cram1_dq, cram0_dq};
                             cram_oe_n <= 1'b1;
                             c_n <= c_n + 1'b1;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Whole-core simulation (Icarus Verilog). Usage: sim/run.sh [fast|sync|late|full|fullsync]
+# Whole-core simulation (Icarus Verilog). Usage: [EXTRA="-D…"] sim/run.sh [fast|sync|late|full|fullsync]
 # late: scan-out line period shortened below what one line needs, the late-line counter must fire
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -14,7 +14,7 @@ case "$mode" in
   *) echo "usage: $0 [fast|sync|late|full|fullsync]" >&2; exit 1 ;;
 esac
 mkdir -p sim/out
-iverilog -g2012 -o sim/out/core_$mode.vvp -I fpga/core $defs -DMAXC=${MAXC:-60000000} \
+iverilog -g2012 -o sim/out/core_$mode.vvp -I fpga/core $defs ${EXTRA:-} -DMAXC=${MAXC:-60000000} \
   sim/tb_core.v sim/sdram_model.v sim/psram_model.v sim/sram_model.v \
   fpga/core/{memtest_core,res_ram,sdram_ctl,sdram_arb,sd_traffic,sd_scan,psram32,ps_traffic,sram_test,dma_eng,div32}.v
 vvp sim/out/core_$mode.vvp

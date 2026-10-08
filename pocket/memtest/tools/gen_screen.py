@@ -32,15 +32,15 @@ ROWS = [
     row("  UNDER MIXED"),                                              # 10
     row("MIXED UNDER SCAN", "MB/S", "ERR", "CYCLES"),                  # 11
     row("SCAN DATA ERR"),                                              # 12
-    row(""),                                                           # 13
-    row("PSRAM 2X16 GANG", "NS/OP", "ERR", "MB/S", HEAD),             # 14
-    row("WRITE 32B"),                                                  # 15
-    row("RANDOM READ 32B"),                                            # 16
+    row("PSRAM 2X16 GANG", "NS/OP", "ERR", "MB/S", HEAD),             # 13
+    row("WRITE 32B"),                                                  # 14
+    row("RANDOM READ 32B"),                                            # 15
+    row("  WALL CLOCK"),                                               # 16
     row("CHAINED READ"),                                               # 17
     row("RD WAIT MIN/USE", "MIN", "ERRSUM", "USED"),                      # 18
     row("SYNC BURST RD16"),                                            # 19
     row("SYNC RANDOM RD"),                                             # 20
-    row(""),                                                           # 21
+    row("ADDR LINE WALK"),                                             # 21
     row("SRAM BYTE 256K", "NS/OP", "ERR", "CYCLES", HEAD),            # 22
     row("RANDOM WRITE"),                                               # 23
     row("RANDOM READ"),                                                # 24

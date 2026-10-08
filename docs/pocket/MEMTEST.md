@@ -20,10 +20,11 @@ per-run seed), reads it back and counts mismatches, including unknown or floatin
 | SDRAM mixed | 65,536 random bursts, half reads, half writes | MB/s, errors |
 | Scan-out alone | One 640 × 16-bit line (160 bursts) per line period of 6,400 cycles, 96 lines | lines late, worst line time (µs), lines |
 | Scan-out under mixed traffic | The mixed test above runs while the scan-out stream is active | the same, plus the mixed test's MB/s |
-| PSRAM write | 2 × 65,536 single 32-bit writes, both dies | ns per write, MB/s |
-| PSRAM random read | 16,384 single 32-bit reads, random die and address | ns per read, errors, MB/s |
+| PSRAM write | 2 × 524,288 single 32-bit writes, both dies: the whole 2 MiB per die | ns per write, MB/s |
+| PSRAM random read | 16,384 single 32-bit reads, random die and address over the full 2 MiB per die | busy ns per read, wall-clock ns per read, errors, MB/s |
 | PSRAM chained read | 65,536 words as 16-word bursts (CE# held, one address cycle per word) | ns per word, errors, MB/s |
-| PSRAM read-wait sweep | random reads with 5 … 14 cycles from address to sample | smallest safe wait, summed errors, wait used afterwards (smallest + 1) |
+| PSRAM read-wait sweep | random reads with 5 … 20 cycles from address to sample | smallest safe wait (21 = none), summed errors, wait used afterwards (smallest + 1) |
+| PSRAM address-line walk | per die, word 0 and the words 2^0 … 2^18 are written, then all read back; runs at the wait found by the sweep | errors |
 | PSRAM sync burst (optional) | Programs the bus configuration register of both dies, then 16-word synchronous bursts and single-word synchronous reads | ns per word, errors, MB/s |
 | SRAM wait sweep | random byte read and write with 1 … 8 cycles | smallest safe wait for read and for write |
 | SRAM random byte write / read | 65,536 byte accesses at the safe wait + 1 | ns per access, errors |
@@ -35,17 +36,26 @@ its deadline" count.
 
 "ns per access" is the time the controller is busy with an access (command accepted to done), so it
 excludes the test engine's own hand-off cycles. It is a cycle time, not a first-data latency: a
-random PSRAM read at 9 wait cycles is 12 cycles, 118 ns. "MB/s" for PSRAM uses the same busy time,
+random PSRAM read at 9 wait cycles is 12 cycles, 118 ns. The **wall-clock** figure of the PSRAM random read
+is the whole test time divided by the number of reads, so it also counts the 2 hand-off cycles between commands
+(wait + 5 cycles per read, 138 ns at wait 9). "MB/s" for PSRAM uses the busy time (the wall-clock row has its own),
 for SDRAM and DMA the wall-clock time of the whole test.
 
 ### Gate criteria this core measures
 
 | Row on screen | Criterion (ROADMAP, phase 3) | How it is judged |
 |---|---|---|
-| `180NS` (first field) | Ganged PSRAM ≤ 180 ns per random 32-bit read | PSRAM random read ns ≤ 180.0 and no errors |
+| `180NS` (first field) | Ganged PSRAM ≤ 180 ns per random 32-bit read | PSRAM random read **wall-clock** ns ≤ 180.0, no errors in the random reads (full 2 MiB per die) and none in the address-line walk |
 | `100M` (second field) | DMA path ≥ 100 MB/s | DMA MB/s ≥ 100.0 with no verify errors; the best of async and sync counts |
 | `SCAN` (third field) | Scan-out never misses its deadline | no late line alone or under mixed traffic, no data errors anywhere in SDRAM |
 | SDRAM MB/s rows | SDRAM sustains the Phase 2 worst trace | raw MB/s only; the bandwidth figure is supplied by phase 2 |
+
+The 180 ns gate judges wall-clock time because the console's ~177 ns is the time between successive
+random accesses as the CPU sees it, and a requester pays the hand-off cycles around each command as well; busy time
+alone would let a slow part pass. The test engine's 2 hand-off cycles are part of that figure, so it is a conservative
+bound for this controller with the simplest requester. At wait *w* a read takes *w* + 5 cycles: 177.2 ns at *w* = 13
+passes, 187.0 ns at *w* = 14 fails. The wait used is the smallest safe wait + 1 (never clamped), so a part whose smallest
+safe wait is 13 or more fails the gate; the sweep reaches 20, so such a part shows its real figure on screen.
 
 Each gate shows `---` until its tests have run, `PASS` or `FAIL` after. Nothing on this page is a
 hardware result; see [Hardware results](#hardware-results).
@@ -58,17 +68,20 @@ Numbers are right-aligned, `-` means "not run (yet)", green/red marks error coun
 
 | Row (from 0) | Label | Field 1 | Field 2 | Field 3 |
 |---|---|---|---|---|
-| 1 | state step runs | `INIT` / `RUN` / `DONE` | last finished step (22 = all) | runs completed |
+| 1 | state step runs | `INIT` / `RUN` / `DONE` | last finished step (23 = all) | runs completed |
 | 4 | SDRAM SEQ WRITE | MB/s | | cycles |
 | 5–7 | SDRAM SEQ READ, RANDOM READ, MIXED RD/WR | MB/s | errors | cycles |
 | 9 | SCAN ALONE | late lines | worst line time µs | lines |
 | 10 | SCAN UNDER MIXED | late lines | worst line time µs | lines |
 | 11 | MIXED UNDER SCAN | MB/s | errors | cycles |
 | 12 | SCAN DATA ERR | alone | under mixed | |
-| 15 | PSRAM WRITE 32B | ns | | MB/s |
-| 16–17 | PSRAM RANDOM READ 32B, CHAINED READ | ns | errors | MB/s |
-| 18 | RD WAIT MIN/USE | smallest safe wait | sweep errors (expected > 0) | wait used |
+| 14 | PSRAM WRITE 32B | ns | | MB/s |
+| 15 | PSRAM RANDOM READ 32B | busy ns | errors | MB/s |
+| 16 | WALL CLOCK | wall-clock ns per random read (the 180NS figure) | | MB/s |
+| 17 | CHAINED READ | ns | errors | MB/s |
+| 18 | RD WAIT MIN/USE | smallest safe wait (21 = none) | sweep errors (expected > 0) | wait used |
 | 19–20 | SYNC BURST RD16, SYNC RANDOM RD | ns | errors | MB/s |
+| 21 | ADDR LINE WALK | | errors | |
 | 23 | SRAM RANDOM WRITE | ns | | cycles |
 | 24 | SRAM RANDOM READ | ns | errors | cycles |
 | 25 | WAIT MIN RD/WR | smallest safe read wait | smallest safe write wait | sweep errors (expected > 0) |
@@ -149,6 +162,11 @@ The asynchronous sequence (ADV# pulse, address hold, OE# or WE# phasing, 70 ns a
 `wait` is 9 by default (88 ns for a 70 ns access); the sweep finds the smallest value that reads
 correctly and the later tests use that value + 1.
 
+The sweep runs 5 … 20 cycles (5-bit wait field) so that a slow part is seen as slow instead of being clamped.
+Address bits 16 … 18 of the 2 MiB main RAM are the pins `cram_a[18:16]`; the fill, the random reads and the address-line
+walk (word 0, then one set address bit at a time up to bit 18, both dies) drive them, so an open, stuck or swapped
+high address pin shows as errors in the 180NS gate.
+
 **No page mode is used.** With address and data multiplexed, the low address bits share the data pins, so an
 in-page read cannot change only `A[3:0]` while data is out; the device's datasheet was not available to check
 whether it offers one anyway. The "chained" read is the closest this bus allows (it saves chip-select setup only):
@@ -218,8 +236,8 @@ successful, no critical warnings, timing met on every clock in all four models (
 
 | Resource | Used |
 |---|---|
-| ALMs | 2,908 / 18,480 (16%) — memtest core 2,245 (of which SDRAM controller 290, traffic/scan engines 346, PSRAM 141 + 328 engine, SRAM 22 + 258 engine, DMA 158, divider 87), screen formatter 147, video 57, APF bridge 199, rest of the APF framework 187 |
-| Registers | 4,422 |
+| ALMs | 3,070 / 18,480 (17%) — memtest core 2,383 (of which SDRAM controller 252, traffic/scan engines 358, PSRAM 149 + 481 engine, SRAM 22 + 247 engine, DMA 155, divider 88), screen formatter 150, video 58, APF bridge 209, everything else (APF framework, `core_top` glue) 271 |
+| Registers | 4,707 |
 | Block memory | 45,040 bits in 11 M10K / 308 (font 8 Kb, label ROM 9.6 Kb, text RAM 9 Kb, two result copies 2 × 4.2 Kb, DMA FIFO 1.4 Kb, APF data table 8 Kb) |
 | DSP | 0 |
 | PLL | 1 fractional, VCO 812.8512 MHz; outputs 101.6064 MHz (0°), 101.6064 MHz (225°, SDRAM pin clock), 101.6064 MHz (39.4°, read capture), 6.3504 MHz (0°), 6.3504 MHz (90°) |
@@ -230,14 +248,14 @@ models, hold the fast ones, as the analyser does.
 
 | Clock | Worst setup | Worst hold |
 |---|---|---|
-| `clk_sys` 101.6064 MHz | +0.794 ns (slow 0 °C) | +0.123 ns (fast 0 °C) |
+| `clk_sys` 101.6064 MHz | +0.814 ns (slow 85 °C) | +0.100 ns (fast 0 °C) |
 | `clk_cap` SDRAM read capture, 101.6064 MHz | +0.575 ns (slow 0 °C), from the SDRAM data pins | +0.785 ns (fast 0 °C) |
 | `clk_sd` SDRAM clock source | no register paths; minimum pulse width +3.8 ns | |
-| `dram_clk_pin` (SDRAM command, address and write data pins) | +2.779 ns (slow 85 °C) | +2.334 ns (slow 0 °C) |
-| `clk_vid` 6.3504 MHz | +148.05 ns | +0.175 ns (fast 0 °C) |
+| `dram_clk_pin` (SDRAM command, address and write data pins) | +2.775 ns (slow 85 °C) | +2.334 ns (slow 0 °C) |
+| `clk_vid` 6.3504 MHz | +149.71 ns | +0.176 ns (fast 0 °C) |
 | `clk_vid_90` | no register paths | |
-| `clk_74a` | +5.427 ns | +0.132 ns (fast 0 °C) |
-| `bridge_spiclk` | +9.778 ns | +0.171 ns (fast 0 °C) |
+| `clk_74a` | +4.725 ns | +0.168 ns (fast 0 °C) |
+| `bridge_spiclk` | +10.275 ns | +0.154 ns (fast 0 °C) |
 
 Minimum pulse width is positive on every clock (smallest +0.615 ns, on the VCO). The SDRAM pins are timed with
 tAC 6.4 / tOH 3.2 / tIS 1.5 / tIH 0.8 ns assumptions in `core_constraints.sdc`; the read-capture slacks (+0.58 setup,
@@ -252,18 +270,24 @@ hold check give positive margin on every read, command and internal path.
 ## Verification
 
 Behavioural models in `sim/` (`sdram_model.v`, `psram_model.v`, `sram_model.v`) check the controllers against the
-numbers above and flag every violation: SDRAM tRCD, tRP, tRAS, tRC, tRRD, tRFC, tWR, refresh interval, mode register
+numbers above and flag every violation: SDRAM tRCD, tRP, tRAS, tRC, tRRD, tRFC, tWR, READ to PRE (≥ BL cycles), PRE during a write burst,
+refresh rate (average tREFI 7.8125 µs, at most 8 refreshes postponed), mode register
 order, bank state, unknown write data, bus overlap; PSRAM tVP, tAVS, tAVH, tWP, tDW, tAW, access time, die select,
 register write and the synchronous burst; SRAM access time and write pulse width. Unknown data read back counts as an error.
 
 | Simulation (`sim/run.sh <mode>`) | What it covers | Result |
 |---|---|---|
-| `fast` | whole core, reduced sizes, async PSRAM | PASS, 129,945 cycles |
-| `sync` | same plus the synchronous PSRAM tests and DMA | PASS, 135,825 cycles |
+| `fast` | whole core, reduced sizes (PSRAM fill 256 words per die; the address-line walk always reaches bit 18), async PSRAM | PASS, 139,742 cycles |
+| `sync` | same plus the synchronous PSRAM tests and DMA | PASS, 145,622 cycles |
 | `late` | scan-out line period shortened below what a line needs: late lines must be counted, the gate must fail | PASS: 4 of 4 lines late, scan gate FAIL |
-| `full`, `fullsync` | the sizes the hardware runs (1 MiB, 65,536 words, …) | both PASS: 9.26 M cycles (91 ms) with sync, 8.54 M (84 ms) without; all errors 0, no model violations |
+| `full`, `fullsync` | the sizes the hardware runs (1 MiB SDRAM, 2 MiB per PSRAM die, 65,536 words, …) | both PASS: 21.46 M cycles (211 ms) with sync, 20.74 M (204 ms) without; all errors 0, no model violations; about 5.5 min of Icarus time each |
+| `fast` with `-DPS_STUCK_BIT=18` (or 16) | the PSRAM model forces word address bit 18 (16) to 0 (`-DPS_STUCK_HI`: to 1) | PASS = the fault is caught: walk errors 2, 180NS gate FAIL |
+| `fast` with `-DPS_TAA=<ns>` | PSRAM model access time instead of 70 ns; the sweep must find a larger wait | 110: smallest safe wait 12, used 13, wall 177.1 ns, gate PASS (`-DPS_GATE_PASS`); 120: 13 / 14 / 187.0 ns, FAIL; 140: 15 / 16 / 206.6 ns, FAIL; 190: 20 / 21 / 255.8 ns, FAIL |
 | `tb_screen.v` | result store → formatter → text RAM → video frame, number formats, a rendered frame | PASS |
 | `tb_div.v` | the divider against `/` on 2,000 random operands and divide by zero | PASS |
+
+The `PS_STUCK_BIT`, `PS_STUCK_HI`, `PS_TAA` and `PS_GATE_PASS` defines go through `EXTRA`, e.g.
+`EXTRA="-DPS_STUCK_BIT=18" sim/run.sh fast`.
 
 What the full-size simulation reports (behavioural models at 101.6064 MHz; **not** hardware, shown to make the units
 and the expected shape of the results concrete):
@@ -273,7 +297,7 @@ and the expected shape of the results concrete):
 | SDRAM seq write / read | 197.8 / 198.4 MB/s (bus limit 203) |
 | SDRAM random read, mixed, mixed under scan-out | 93.0, 88.2, 74.6 MB/s |
 | Scan-out line time, alone / under mixed traffic | 6.6 µs / 25.9 µs of 63 µs, no late line |
-| PSRAM write / random read / chained read | 108 ns / 118 ns / 99.6 ns per word (36.9 / 33.8 / 40.1 MB/s) |
+| PSRAM write / random read (busy) / chained read | 108 ns / 118 ns / 99.6 ns per word (36.9 / 33.8 / 40.1 MB/s); random read wall-clock 137.7 ns |
 | PSRAM sync burst (latency 3, 50.8 MHz clock) | 25.8 ns per word, 154.8 MB/s; single-word read 118 ns |
 | SRAM random byte write / read | 68.8 / 59.0 ns (model access time 25 ns, smallest safe wait 3 read, 2 write) |
 | DMA PSRAM → SDRAM, async / sync | 39.6 / 147.7 MB/s |
@@ -294,7 +318,8 @@ Every cell needs a Pocket.
 | Scan-out late lines, alone / under mixed | pending — needs a Pocket | 0 |
 | Scan-out worst line time µs | pending — needs a Pocket | < 63 |
 | SDRAM errors | pending — needs a Pocket | 0 |
-| PSRAM random read ns | pending — needs a Pocket | ≤ 180 |
+| PSRAM random read ns, busy / wall-clock | pending — needs a Pocket | wall-clock ≤ 180 |
+| PSRAM address-line walk errors | pending — needs a Pocket | 0 |
 | PSRAM chained read ns per word, MB/s | pending — needs a Pocket | |
 | PSRAM smallest safe read wait (cycles) | pending — needs a Pocket | |
 | PSRAM write ns | pending — needs a Pocket | |
@@ -307,7 +332,7 @@ Every cell needs a Pocket.
 ## Not verified
 
 - Everything above on real hardware, in particular SDRAM clock phase and CL 3 at 101.6 MHz, PSRAM access time
-  and the 5 … 14 cycle sweep window, SRAM speed.
+  and the 5 … 20 cycle sweep window, SRAM speed.
 - The PSRAM bus configuration register layout, the maximum synchronous clock, and whether fixed-latency burst reads work at all.
 - Datasheet figures for the SDRAM and PSRAM are from memory of the usual part families; the Pocket's exact part
   numbers were not looked up.

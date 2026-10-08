@@ -47,11 +47,13 @@ module report_fmt (
                 7'd35: field = {K_INT,   `R_SD_MXS + 7'd2};
                 7'd36: field = {K_ERR,   `R_SC_ERR + 7'd0};
                 7'd37: field = {K_ERR,   `R_SC_ERR + 7'd1};
-                7'd45: field = {K_X10,   `R_PS_WR + 7'd0};
-                7'd47: field = {K_X10,   `R_PS_WR + 7'd2};
-                7'd48: field = {K_X10,   `R_PS_RR + 7'd0};
-                7'd49: field = {K_ERR,   `R_PS_RR + 7'd1};
-                7'd50: field = {K_X10,   `R_PS_RR + 7'd2};
+                7'd42: field = {K_X10,   `R_PS_WR + 7'd0};
+                7'd44: field = {K_X10,   `R_PS_WR + 7'd2};
+                7'd45: field = {K_X10,   `R_PS_RR + 7'd0};
+                7'd46: field = {K_ERR,   `R_PS_RR + 7'd1};
+                7'd47: field = {K_X10,   `R_PS_RR + 7'd2};
+                7'd48: field = {K_X10,   `R_PS_RW + 7'd0};
+                7'd50: field = {K_X10,   `R_PS_RW + 7'd2};
                 7'd51: field = {K_X10,   `R_PS_SR + 7'd0};
                 7'd52: field = {K_ERR,   `R_PS_SR + 7'd1};
                 7'd53: field = {K_X10,   `R_PS_SR + 7'd2};
@@ -64,6 +66,7 @@ module report_fmt (
                 7'd60: field = {K_X10,   `R_PS_SYN + 7'd0};
                 7'd61: field = {K_ERR,   `R_PS_SYN + 7'd1};
                 7'd62: field = {K_X10,   `R_PS_SYN + 7'd2};
+                7'd64: field = {K_ERR,   `R_PS_AW + 7'd1};
                 7'd69: field = {K_X10,   `R_SR_WR + 7'd0};
                 7'd71: field = {K_INT,   `R_SR_WR + 7'd2};
                 7'd72: field = {K_X10,   `R_SR_RD + 7'd0};

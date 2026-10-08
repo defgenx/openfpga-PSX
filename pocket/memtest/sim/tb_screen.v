@@ -72,8 +72,8 @@ module tb_screen;
     initial begin
         #200;
         reset_n = 1;
-        // status: done, step 22, run 1
-        put(`R_STATUS + 0, 2); put(`R_STATUS + 1, 22); put(`R_STATUS + 2, 1);
+        // status: done, step 23, run 1
+        put(`R_STATUS + 0, 2); put(`R_STATUS + 1, 23); put(`R_STATUS + 2, 1);
         put(`R_SD_SW + 0, 1980);  put(`R_SD_SW + 2, 8407);
         put(`R_SD_SR + 0, 1978);  put(`R_SD_SR + 1, 0);   put(`R_SD_SR + 2, 8415);
         put(`R_SD_RR + 0, 1270);  put(`R_SD_RR + 1, 0);   put(`R_SD_RR + 2, 6550);
@@ -84,6 +84,8 @@ module tb_screen;
         put(`R_SC_ERR + 0, 0);    put(`R_SC_ERR + 1, 0);
         put(`R_PS_WR + 0, 1082);  put(`R_PS_WR + 2, 369);
         put(`R_PS_RR + 0, 1180);  put(`R_PS_RR + 1, 0);   put(`R_PS_RR + 2, 338);
+        put(`R_PS_RW + 0, 1378);  put(`R_PS_RW + 2, 290);
+        put(`R_PS_AW + 1, 0);
         put(`R_PS_SR + 0, 996);   put(`R_PS_SR + 1, 0);   put(`R_PS_SR + 2, 401);
         put(`R_PS_SWEEP + 0, 8);  put(`R_PS_SWEEP + 1, 192); put(`R_PS_SWEEP + 2, 9);
         put(`R_SR_WR + 0, 688);   put(`R_SR_WR + 2, 4097);
@@ -111,10 +113,12 @@ module tb_screen;
         check_field(5, 0, "  197.8 ");  check_field(5, 1, "      0 ");  check_field(5, 2, "   8415 ");
         check_field(7, 1, "      3 ");
         check_field(9, 1, "    6.5 ");
-        check_field(16, 0, "  118.0 "); check_field(16, 2, "   33.8 ");
+        check_field(15, 0, "  118.0 "); check_field(15, 2, "   33.8 ");
+        check_field(16, 0, "  137.8 "); check_field(16, 2, "   29.0 ");
+        check_field(21, 1, "      0 ");
         check_field(18, 0, "      8 "); check_field(18, 2, "      9 ");
         check_field(29, 0, "   PASS "); check_field(29, 1, "   FAIL "); check_field(29, 2, "   PASS ");
-        check_field(1, 0, "   DONE ");  check_field(1, 1, "     22 ");
+        check_field(1, 0, "   DONE ");  check_field(1, 1, "     23 ");
         check_field(19, 0, "99999.9 "); check_field(19, 1, "9999999 ");
         check_field(19, 2, "      - ");
         check_field(20, 0, "      - ");
