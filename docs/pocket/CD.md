@@ -66,3 +66,11 @@ savestate measurement is the figure for that lever.
 Sources: `sizing/output_files_cd_golden/cd_golden.fit.rpt:1271` (instance row), `:1270` (wrapper),
 `:1281` (`cd_xa`), `.sta.rpt:130` (Fmax), `.map.rpt:291` (map estimate), `slack_summary.txt`. In
 context: `sizing/output_files/psx_min_a6.fit.rpt:5645` in the main checkout.
+
+### In context: `psx_top_pocket` (savestates removed)
+
+`sizing/psx_pocket_a6.qpf` revision `psx_pocket_a6` on 5CSEBA6U23I7, the device of `psx_min_a6`:
+`psx_top_pocket` with `gte_serial`, `gpu_pocket` and every savestate driver tied inactive
+(`rtl/psx_top_pocket.vhd`). `cd_top:icd_top`: **2,632.0** ALMs needed (2,817.8 placed), 71 M10K, 6 DSP
+(`sizing/output_files_psx_pocket_a6/psx_pocket_a6.fit.rpt:3700`), against 3,265.0 in `psx_min_a6`.
+The savestate lever in context is therefore 633.0 ALMs. The in-context figure stays 232 ALMs above the standalone `cd_golden`; the standalone figure is the gate metric.

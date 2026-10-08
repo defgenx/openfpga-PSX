@@ -74,3 +74,11 @@ Sources: `sizing/output_files_cpu_golden/cpu_golden.fit.rpt:1469` (instance row)
 (wrapper), `:1481-1482` (datacache), `.sta.rpt:132` (Fmax), `.map.rpt:272` (map estimate),
 `slack_summary.txt`. In context: `sizing/output_files/psx_min_a6.fit.rpt:5700` in the main
 checkout.
+
+### In context: `psx_top_pocket` (savestates removed)
+
+`sizing/psx_pocket_a6.qpf` revision `psx_pocket_a6` on 5CSEBA6U23I7, the device of `psx_min_a6`:
+`psx_top_pocket` with `gte_serial`, `gpu_pocket` and every savestate driver tied inactive
+(`rtl/psx_top_pocket.vhd`). `cpu:icpu`: **2,674.4** ALMs needed (2,813.6 placed), 75 M10K, 6 DSP
+(`sizing/output_files_psx_pocket_a6/psx_pocket_a6.fit.rpt:3755`), against 3,492.3 in `psx_min_a6`.
+The savestate lever in context is therefore 817.9 ALMs. The in-context figure stays 383 ALMs above the standalone `cpu_golden`: the standalone wrapper registers every port, the core's context does not prune as much. The standalone figure is the gate metric.

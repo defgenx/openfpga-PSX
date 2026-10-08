@@ -68,3 +68,11 @@ columns), `:1475` (wrapper), `.sta.rpt:131` (Fmax), `.map.rpt:297` (map estimate
 `slack_summary.txt` (per-corner slack); `spu_golden_revoff` the same files at `:1494`, `:1493`,
 `.sta.rpt:131`, `.map.rpt:298`. In context: `sizing/output_files/psx_min_a6.fit.rpt:5875` in the
 main checkout.
+
+### In context: `psx_top_pocket` (savestates removed)
+
+`sizing/psx_pocket_a6.qpf` revision `psx_pocket_a6` on 5CSEBA6U23I7, the device of `psx_min_a6`:
+`psx_top_pocket` with `gte_serial`, `gpu_pocket` and every savestate driver tied inactive
+(`rtl/psx_top_pocket.vhd`). `spu:ispu`: **3,172.7** ALMs needed (3,529.6 placed), 78 M10K, 13 DSP
+(`sizing/output_files_psx_pocket_a6/psx_pocket_a6.fit.rpt:3922`), against 4,028.1 in `psx_min_a6`.
+The savestate lever in context is therefore 855.4 ALMs. The standalone `spu_golden` is 93 ALMs above the in-context `psx_top_pocket` figure (different device and packing): the standalone figure is the gate metric.
