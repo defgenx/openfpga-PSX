@@ -7,12 +7,16 @@ Model and assumptions: docs/pocket/GPU.md ("SDRAM bandwidth").
   bwmodel.py --mixed [--scan] [--rnd-read] [options]
 Timings come from pocket/memtest/fpga/core/sdram_timing.json (generated from the datasheet table);
 they are converted per clock, so --mhz alone changes the clock.
+The peak is over a sliding window (any start cycle, complete windows only). SPU traffic is interleaved as
+random 8-byte BL4 read bursts at --spu-mbps. Each trace is replayed a second time with every byte enable
+forced to 0xFF and must produce identical busy intervals (partial writes are free).
 Exit status 1 when --max-util is given and any trace's peak window utilisation exceeds it; 2 when a trace
 has no accesses or is shorter than one window.
 """
 import argparse
 import json
 import math
+import bisect
 import os
 import sys
 
@@ -26,6 +30,7 @@ NAMES = ('tRCD', 'tRP', 'tRAS', 'tRC', 'tWR', 'tRRD', 'tRFC')
 SC_BURSTS = 160
 SC_LINE_US = 400 / 6.3504
 SC_Y_WRAP = 480
+SPU_ROW0 = 128             # first row past VRAM's 128 rows per bank
 
 
 def load_table():
@@ -64,8 +69,8 @@ def parse_args(argv):
         p.add_argument('--' + n.lower(), type=int, default=None, help=f'override the table\'s {n}, cycles (what-if)')
     p.add_argument('--cl', type=int, default=None, help='override the table\'s CAS latency, cycles (what-if)')
     p.add_argument('--refresh-us', type=float, default=None, help='override the refresh interval (what-if)')
-    p.add_argument('--spu-mbps', type=float, default=5.0, help='SPU RAM traffic sharing the SDRAM')
-    p.add_argument('--window-us', type=float, default=1000.0, help='utilisation window')
+    p.add_argument('--spu-mbps', type=float, default=5.0, help='SPU RAM traffic sharing the SDRAM, as random 8-byte reads')
+    p.add_argument('--window-us', type=float, default=1000.0, help='sliding utilisation window')
     p.add_argument('--max-util', type=float, default=None, help='fail if any window exceeds this (0..1)')
     p.add_argument('--mixed', action='store_true', help="predict memtest's SDRAM mixed test instead of replaying traces")
     p.add_argument('--scan', action='store_true', help='with --mixed: scan-out stream active (MIXED UNDER SCAN)')
@@ -104,7 +109,6 @@ class Sdram:
         self.due_vis = t['REF'] + 1     # first cycle the refresh timer is visibly due
         self.busy = []                  # merged (start, end)
         self.refreshes = 0
-        self.rmw_cycles = 0             # read-modify-write cost charged: must stay 0 (DQM masks partial writes)
 
     def _busy(self, s, e):
         if self.busy and s <= self.busy[-1][1]:
@@ -156,7 +160,6 @@ class Sdram:
         self.rd_ok = c + bl
         if write:
             slot = self.write_slot(partial)
-            self.rmw_cycles += slot - self.write_slot(False)
             self.wr_ok = c + slot
             self.pre_ok[bank] = c + slot + T['tWR']     # sdram_ctl loads BL - 1 + tWR; PRE issues when it reaches 0
         else:
@@ -173,23 +176,29 @@ class TraceError(Exception):
 
 
 def windows(busy, total, win):
-    """Peak and mean utilisation over consecutive windows of `win` cycles.
+    """Peak utilisation over any window of `win` cycles inside [0, total], and the mean over [0, total].
 
-    The peak covers complete windows only: a trailing partial window divided by `win` under-reports,
-    divided by its own length it over-reports a short tail. A trace without one complete window has no peak."""
-    n = int(total // win) + 1
-    if n < 2:
+    Busy time in [t, t + win] is piecewise linear in t and peaks where t is an interval start or t + win an
+    interval end (or at the trace edges), so those candidates are evaluated exactly from prefix sums.
+    Only complete windows count; a trace shorter than one window has no peak."""
+    if total < win:
         raise TraceError(f"trace is {total / win:.3f} of one window")
-    acc = [0.0] * n
+    starts = [s for s, _ in busy]
+    pre = [0]
     for s, e in busy:
-        while s < e:
-            i = int(s // win)
-            if (i + 1) * win <= s:     # float rounding at a window boundary
-                i += 1
-            edge = min(e, (i + 1) * win)
-            acc[i] += edge - s
-            s = edge
-    return max(acc[:-1]) / win, sum(acc) / total
+        pre.append(pre[-1] + (e - s))
+
+    def F(x):                                   # busy cycles in [0, x]
+        k = bisect.bisect_right(starts, x) - 1
+        if k < 0:
+            return 0
+        return pre[k] + min(busy[k][1], x) - busy[k][0]
+
+    cand = {0, total - win}
+    for s, e in busy:
+        cand.update((s, e - win))
+    peak = max(F(t + win) - F(t) for t in cand if 0 <= t <= total - win)
+    return peak / win, F(total) / total
 
 
 def vram_bank_row(byte_addr):
@@ -198,13 +207,26 @@ def vram_bank_row(byte_addr):
     return y % 4, y // 4
 
 
-def run(path, a, table):
+def replay(path, a, table, full_mask=False):
+    """Replay one trace (open loop) with the SPU bursts interleaved by time. full_mask forces every BE to 0xFF."""
     ratio = a.mhz / CLK2X_MHZ
     sd = Sdram(a, table)
+    spu_period = 8 * a.mhz / a.spu_mbps if a.spu_mbps > 0 else None   # one 8-byte burst per period, cycles
+    spu_next = 0.0
+    spu_rnd = 0x2545F491
     scan_lat = []
     wait = 0
     last = 0
     n_acc = n_partial = 0
+
+    def spu_until(t):
+        nonlocal spu_next, spu_rnd
+        while spu_period is not None and spu_next <= t:
+            word = (spu_rnd & 0xFFFF) << 2                  # random burst in a 512 KiB region above VRAM's rows
+            spu_rnd = xs32(spu_rnd)
+            sd.access(sd.accept_time(math.ceil(spu_next)), False, (word >> 10) & 3, SPU_ROW0 + (word >> 12))
+            spu_next += spu_period
+
     with open(path) as f:
         for line in f:
             if not line.strip() or line.startswith('#'):
@@ -215,7 +237,9 @@ def run(path, a, table):
             beats = int(beats)
             partial = write and int(be, 16) != 0xFF
             n_partial += partial
+            partial = partial and not full_mask
             t = math.ceil(int(cyc) * ratio)
+            spu_until(t)
             base = int(addr, 16)
             e = 0
             for i in range(beats):                  # one 64-bit beat = one BL4 burst
@@ -228,16 +252,21 @@ def run(path, a, table):
                 scan_lat.append((e - t) / a.mhz)
     if n_acc == 0:
         raise TraceError("no accesses")
-    assert sd.rmw_cycles == 0, "a read-modify-write was charged: DQM has zero write latency, partial writes are free"
-    total = last
-    spu = a.spu_mbps / (2 * a.mhz)                  # SPU traffic as a uniform extra load
+    return sd, last, n_acc, n_partial, scan_lat, wait
+
+
+def run(path, a, table):
+    sd, total, n_acc, n_partial, scan_lat, wait = replay(path, a, table)
+    sd_full, total_full = replay(path, a, table, full_mask=True)[:2]
+    assert sd.busy == sd_full.busy and total == total_full, \
+        "partial byte enables changed the timing: DQM has zero write latency, partial writes must be free"
     peak, mean = windows(sd.busy, total, a.window_us * a.mhz)
     line_peak, _ = windows(sd.busy, total, LINE_US * a.mhz)
     return {
         'trace': path, 'accesses': n_acc, 'ms': total / a.mhz / 1000, 'partial': n_partial,
-        'mean': mean + spu, 'peak': peak + spu, 'line_peak': line_peak + spu,
+        'mean': mean, 'peak': peak, 'line_peak': line_peak,
         'scan_max_us': max(scan_lat, default=0.0), 'scan_reads': len(scan_lat),
-        'max_wait_us': wait / a.mhz, 'refreshes': sd.refreshes,
+        'max_wait_us': wait / a.mhz, 'refreshes': sd.refreshes, 'full_mask_diff': total - total_full,
     }
 
 
@@ -248,7 +277,7 @@ def xs32(x):
     return x
 
 
-def run_mixed(a, table):
+def run_mixed(a, table, full_mask=False):
     """memtest's closed loop (sd_traffic.v, sd_scan.v, sdram_arb.v): the test engine always has its next burst
     waiting; with the scan-out stream fetching, the round-robin arbiter alternates the two. A burst is a
     word address {row[24:12], bank[11:10], col[9:0]}; the test uses 2^17 bursts from address 0."""
@@ -294,12 +323,11 @@ def run_mixed(a, table):
         write = False if a.rnd_read else bool((rnd >> 20) & 1)
         rnd = xs32(rnd)
         word = idx << 2
-        c, e = sd.access(acc, write, (word >> 10) & 3, word >> 12, partial=write)  # MIXED writes carry random masks
+        c, e = sd.access(acc, write, (word >> 10) & 3, word >> 12, partial=write and not full_mask)  # MIXED writes carry random masks
         last_b = False
         last_end = max(last_end, e)
         done_ops += 1
         t_a = acc + 1
-    assert sd.rmw_cycles == 0, "a read-modify-write was charged: DQM has zero write latency, partial writes are free"
     cycles = last_end + 12                           # read return, then the 11-cycle drain
     return {'ops': a.ops, 'cycles': cycles, 'mbps': 8 * a.ops * a.mhz / cycles, 'lines': lines,
             'late': late, 'worst_us': worst / a.mhz, 'refreshes': sd.refreshes}
@@ -311,6 +339,8 @@ def main(argv):
     check_table(table)
     if a.mixed:
         r = run_mixed(a, table)
+        assert r['cycles'] == run_mixed(a, table, full_mask=True)['cycles'], \
+            "partial byte enables changed the timing: DQM has zero write latency, partial writes must be free"
         name = ('SDRAM random read' if a.rnd_read else 'MIXED') + (' UNDER SCAN' if a.scan else '')
         extra = f"  scan-out lines {r['lines']} late {r['late']} worst {r['worst_us']:.1f} us" if a.scan else ''
         print(f"BW {name} @ {a.mhz:g} MHz: {r['ops']} bursts in {r['cycles']} cycles "
@@ -328,7 +358,7 @@ def main(argv):
               f"mean {100*r['mean']:.1f}%  peak/{a.window_us:g}us {100*r['peak']:.1f}%  "
               f"peak/line {100*r['line_peak']:.1f}%  scan-out reads {r['scan_reads']} "
               f"max latency {r['scan_max_us']:.2f} us  max queue wait {r['max_wait_us']:.2f} us  "
-              f"partial writes {r['partial']} (no cost)")
+              f"partial writes {r['partial']} (cycles vs full-mask run: {r['full_mask_diff']:+d})")
     verdict = ''
     if a.max_util is not None:
         verdict = 'PASS' if worst <= a.max_util else 'FAIL'

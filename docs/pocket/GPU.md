@@ -150,7 +150,8 @@ in `sizing/gpu_size.qpf` (revisions `gpu_golden`, `gpu_pocket`), the same metric
 `sim/gpu_diff` writes a VRAM access trace of each side (`make trace`: golden `run/trace_sN.txt`,
 `gpu_pocket` `run/trace_pocket_sN.txt`). `sim/gpu_diff/bwmodel.py` replays it against a 16-bit
 SDRAM (row misses, refresh, video scan-out deadline) through a 64→16-bit adapter, one BL4 burst per
-64-bit beat, and reports the peak utilisation over any complete 1 ms window. `make bw` runs the 80%
+64-bit beat, and reports the peak utilisation over any complete 1 ms window, sliding (every start cycle, not
+aligned windows). `make bw` runs the 80%
 gate at `BW_MHZ` (default 135.4752, the clock the core uses), then a report at 101.6064 MHz that
 never fails; **the worst peak the gating run prints is the gate figure**. There are no game traces
 in this repository (no BIOS or game images); the traces are the generator's game-like random suite.
@@ -170,10 +171,20 @@ which follows the command timing of `pocket/memtest/fpga/core/sdram_ctl.v`:
   allowed 5 cycles after a read's CAS and 4 + tWR after a write's.
 - Refresh every 6.9 µs: wait for every bank's PRE, PRE ALL, tRP, REF, tRFC, rows closed.
 - **No partial-write cost.** DQM has zero write latency and a 1-beat write is already one BL4
-  burst, so a partial `ddr3_BE` (22% of `trace_s1`'s writes) costs nothing. A counter of
-  read-modify-write cycles is asserted to be 0 at the end of every run.
+  burst, so a partial `ddr3_BE` (22% of `trace_s1`'s writes) costs nothing. Every run replays each
+  trace a second time with every byte enable forced to 0xFF and asserts identical busy intervals;
+  the printed line reports the cycle difference (0).
 - Utilisation is the fraction of cycles from a request's decode to the end of its data slot, plus
-  refresh; the SPU's 5 MB/s is added as a uniform load.
+  refresh. The peak is the maximum over all window start cycles (the exact maximum, from prefix sums
+  over the busy intervals), complete windows only.
+- **SPU traffic is simulated, not a uniform add-on.** `sdram_ctl` serves only BL4 bursts and SPU RAM
+  accesses are random, so the SPU's 5 MB/s (`--spu-mbps`) is replayed as 8-byte BL4 reads (4 words on
+  the 16-bit bus), one every 1.6 µs, at random addresses of a 512 KiB region in the rows above VRAM's
+  (same four banks). They go through the same controller as the trace, so each pays its row misses
+  and read-to-write turnarounds and also closes rows the GPU had open. A 5 MB/s random-read stream
+  alone costs 8.74 cycles per burst at 135.4752 MHz (`--mixed --rnd-read`: 572,581 cycles for 65,536
+  bursts), 4.0 points; interleaved, it adds 5.2 to 5.7 points to the peak. Smaller accesses would cost
+  more; the SPU's real access size and mix are an assumption.
 
 Against the previous model (every read paid its full CAS before the next command, no decode
 overlap, tRCD/tRP/tRC fixed for 101.6 MHz at both clocks) this is closer to `sdram_ctl`: the
@@ -210,9 +221,9 @@ hardware, a trace-replay check replaces it before the 80% is trusted.
 
 Measured 2026-10-08. Gate result: **FAIL**, on area and on SDRAM bandwidth at the 101.6 MHz the gate was
 written for. The re-plan (ROADMAP Phase 4) accepted it with the SDRAM at 135.4752 MHz, where the
-bandwidth gate figure is 74.7% (pass). That clock does not close static timing on the Pocket's SDRAM
-read capture (MEMTEST.md), so the re-plan's fallback applies: the bandwidth gate stays FAIL at
-101.6 MHz and the GPU is re-planned before Phase 5.
+bandwidth gate figure is 81.3% (FAIL against 80%; see Bandwidth). That clock also does not close static
+timing on the Pocket's SDRAM read capture (MEMTEST.md), and the bandwidth gate is FAIL at 101.6 MHz
+too, so the GPU is re-planned before Phase 5.
 
 | Criterion | Gate | Golden | `gpu_pocket` | |
 |---|---|---|---|---|
@@ -220,8 +231,8 @@ read capture (MEMTEST.md), so the re-plan's fallback applies: the bandwidth gate
 | DSP | ≤ 10 | 32 | 10 | pass |
 | M10K | — | 27 | 27 | |
 | Setup vs reference (per triangle) | ≤ max(golden, reference) | — | 4,094 checked, 0 over | pass |
-| Worst trace, peak 1 ms window, SDRAM at 135.4752 MHz (the gate figure `make bw` prints) | ≤ 80% | 74.7% | 74.6% | pass |
-| Same, SDRAM at 101.6064 MHz (report only) | ≤ 80% | 99.9% | 99.2% | FAIL |
+| Worst trace, sliding 1 ms peak with simulated SPU traffic, SDRAM at 135.4752 MHz (the gate figure `make bw` prints) | ≤ 80% | 81.3% | 80.7% | FAIL |
+| Same, SDRAM at 101.6064 MHz (report only) | ≤ 80% | 99.9% | 99.9% | FAIL |
 | Bit-exact (VRAM, GPUREAD, GPUSTAT data, spans) | 0 mismatches | — | 0 over 12,825 commands | pass |
 
 **Area by entity** (`sizing/gpu_size.qpf` revision `gpu_pocket`, ALMs needed): `gpu_poly_pocket`
@@ -240,27 +251,31 @@ Average setup in clk2x, golden → `gpu_pocket`: flat 62.6 → 57.0, gouraud 129
 120.3 → 98.3, gouraud-textured 182.7 → 216.7. Gouraud setup is slower than the golden but stays
 under the reference (334 / 496).
 
-**Bandwidth** (`make bw SEEDS="1 2 3"`, game-like traces, peak over any 1 ms window, golden /
-`gpu_pocket`):
+**Bandwidth** (`make bw SEEDS="1 2 3"`, game-like traces, sliding-window peak over any complete 1 ms
+window, SPU 5 MB/s as random 8-byte BL4 reads interleaved, golden / `gpu_pocket`):
 
 | SDRAM clock | seed 1 | seed 2 | seed 3 |
 |---|---|---|---|
-| 135.4752 MHz (4 × clk1x, gating) | 74.7% / 74.4% | 74.7% / 74.6% | 71.0% / 71.7% |
-| 101.6064 MHz (3 × clk1x, report) | 99.9% / 99.2% | 98.5% / 97.3% | 95.7% / 95.5% |
+| 135.4752 MHz (4 × clk1x, gating) | 81.1% / 80.7% | 81.3% / 80.1% | 79.9% / 79.4% |
+| 101.6064 MHz (3 × clk1x, report) | 99.9% / 99.9% | 99.9% / 99.9% | 99.9% / 99.9% |
 
-These replace the earlier hand-run figures (101.6 MHz 98.5% / 98.2%, 98.0% / 96.6%, 93.6% / 94.1%;
-135.5 MHz 73.9% / 73.5% at seed 1), which used the old model and, at 135.5 MHz, cycle counts
-fixed for 101.6 MHz. Mean utilisation at 135.4752 MHz is 45 to 46% and the SPU load adds 1.8 points.
+At 135.4752 MHz four of the six traces (both sides of seeds 1 and 2) are above 80%: the gate is not met with the SPU charged as random bursts. The same traces without SPU traffic
+(`--spu-mbps 0`) peak at 75.4% / 75.1%, 75.9% / 74.7%, 74.0% / 73.4% at 135.4752 MHz and 98.0% / 97.3%,
+96.7% / 96.2%, 97.1% / 96.5% at 101.6064 MHz. Mean utilisation at 135.4752 MHz is 48 to 50%.
+
+The earlier figures (74.7% / 74.4%, 74.7% / 74.6%, 71.0% / 71.7% at 135.4752 MHz) were the peak over
+aligned, non-overlapping 1 ms windows with the SPU added as a uniform 1.8 points; the sliding window
+alone raises them by about 0.7 to 1.9 points and the SPU model by a further 4 to 5.
 
 How far these figures overstate a game:
 - The generator issues primitives back to back with no CPU or GTE time between them, so it draws
   at the GPU's full fill rate for the whole trace. A game interleaves other work.
 - The model charges every `sdram_ctl` overhead (see above). Seed 1, golden / `gpu_pocket`,
-  no tRCD, tRP, tRAS, tRC or tRRD (`--trcd 0 --trp 0 --tras 0 --trc 0 --trrd 0`): 64.0% / 64.1%
-  at 135.4752 MHz, 86.9% / 87.0% at 101.6064 MHz. Every overhead off (also `--twr 0 --trfc 0
+  no tRCD, tRP, tRAS, tRC or tRRD (`--trcd 0 --trp 0 --tras 0 --trc 0 --trrd 0`): 70.3% / 69.8%
+  at 135.4752 MHz, 94.5% / 93.7% at 101.6064 MHz. Every overhead off (also `--twr 0 --trfc 0
   --refresh-us 1e9 --cl -2`, which removes the read-to-write turnaround), data beats and the SPU
-  load only: 61.6% / 62.0% and 82.3% / 82.6%; without the SPU load (`--spu-mbps 0`) 59.8% / 60.1%
-  and 79.9% / 80.1%. At 101.6064 MHz the FAIL holds even for an ideal controller.
+  bursts only: 66.5% / 66.0% and 88.0% / 87.3%; without the SPU traffic (`--spu-mbps 0`) 64.5% / 64.1%
+  and 85.5% / 84.8%. At 101.6064 MHz the FAIL holds even for an ideal controller.
 - `bwmodel.py` also prints a peak per scanline (`peak/line`). For an open-loop trace it only shows
   that some line-length window is saturated: it reads 100% plus the SPU term at either clock and
   says nothing about how long the GPU would stall.
