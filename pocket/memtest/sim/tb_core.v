@@ -76,6 +76,17 @@ module tb_core;
 
     // ---- APF bridge throughput bench (SLOT): slot_bench on a 74.25 MHz clock against a host model that answers
     // target_dataslot_read at a fixed rate (MEMTEST.md, Bridge throughput bench)
+`ifdef SLOT_SHORT
+  `define SL_ONCE
+`elsif SLOT_ADDR
+  `define SL_ONCE
+`elsif SLOT_TRAIL
+  `define SL_ONCE
+`elsif SLOT_ERR
+  `define SL_ONCE
+`elsif SLOT_TMO
+  `define SL_ONCE
+`endif
 `ifdef SLOT
     localparam real T74 = 1000.0 / 74.25;
     localparam integer SL_N = 16;                   // requests per mode
@@ -83,6 +94,27 @@ module tb_core;
     localparam integer SL_L_RND = 4500;
     localparam integer SL_WORD = 30;                // clk_74a cycles per 32-bit word (588 words per request)
     localparam integer SL_LAG = 270;                // last word to done
+    localparam [31:0] SL_WIN = 32'h20000000;
+    // fault runs (each also checks the whole `fast` list): SLOT_SHORT every random request one word short, SLOT_ADDR
+    // every 4th request clean and the others with a repeated word / a write just past the window / one word 588 times,
+    // SLOT_TRAIL the last 3 words after done on every 4th request and a word 40 cycles late on the last, SLOT_ERR err = 3
+    // on every 4th request, SLOT_TMO the host never raises done
+`ifdef SLOT_SHORT
+    localparam integer SL_BAD0 = 0, SL_BAD1 = SL_N;
+`elsif SLOT_ADDR
+    localparam integer SL_BAD0 = 12, SL_BAD1 = 12;
+`elsif SLOT_ERR
+    localparam integer SL_BAD0 = 4, SL_BAD1 = 4;
+`elsif SLOT_TRAIL
+    localparam integer SL_BAD0 = 0, SL_BAD1 = 1;
+`else
+    localparam integer SL_BAD0 = 0, SL_BAD1 = 0;
+`endif
+`ifdef SLOT_TMO
+    localparam integer SL_TMO_CYC = 20000;
+`else
+    localparam integer SL_TMO_CYC = 2000000;
+`endif
 `ifdef SLOT_NOFILE
     localparam integer SL_FILE = 0;
 `else
@@ -96,59 +128,111 @@ module tb_core;
     reg sl_done = 1, sl_ack = 0; reg [2:0] sl_err = 0;
     wire        sl_read; wire [15:0] sl_id; wire [31:0] sl_off, sl_baddr, sl_len;
     wire slot_tog; wire [6:0] slot_wa; wire [32:0] slot_wd;
-    slot_bench #(.N_REQ(SL_N), .START_DELAY(2000), .TIMEOUT(2000000)) sb (
+    slot_bench #(.N_REQ(SL_N), .START_DELAY(2000), .TIMEOUT(SL_TMO_CYC)) sb (
         .clk(clk74), .reset_n(sl_reset_n), .go_tog(sl_go), .bridge_wr(sl_wr), .bridge_addr(sl_addr),
         .dt_addr(), .dt_q(SL_FILE_Q),
         .tgt_read(sl_read), .tgt_id(sl_id), .tgt_off(sl_off), .tgt_baddr(sl_baddr), .tgt_len(sl_len),
         .tgt_ack(sl_ack), .tgt_done(sl_done), .tgt_err(sl_err),
         .res_tog(slot_tog), .res_wa(slot_wa), .res_wd(slot_wd));
 
-    // host model; expected figures are accumulated from the model's own timestamps ($realtime), per mode
+    // host model; expected figures are accumulated from the model's own timestamps ($realtime), per mode.
+    // A write counts as received only at the next expected address within the 2,352 bytes (sl_exp), as the bench does.
     reg sl_read_d = 0;
     event sl_cmd;
     always @(posedge clk74) begin sl_read_d <= sl_read; if (sl_read && !sl_read_d) -> sl_cmd; end
-    integer sl_req = 0, sl_prev_end = 0, sl_bad_cmd = 0, sl_seq_n = 0, sl_rnd_n = 0, sl_bytes0 = 0, sl_bytes1 = 0;
-    real sl_t_cmd, sl_t_last, sl_t_done;
+    integer sl_req = 0, sl_prev_end = 0, sl_bad_cmd = 0, sl_bytes0 = 0, sl_bytes1 = 0, sl_exp = 0;
+    real sl_t_cmd, sl_t_done, sl_tw, sl_tl, sl_lastlat;
     real sl_sum0 = 0, sl_sum1 = 0, sl_wl0 = 0, sl_wl1 = 0, sl_wd0 = 0, sl_wd1 = 0;
-    integer sl_w, sl_words, sl_mode;
+    integer sl_w, sl_words, sl_pre, sl_mode, sl_r, sl_k;
+
+    // one bridge write pulse; counted = 0: the write is after the bench stopped listening and is not part of the request
+    task sl_put;
+        input [31:0] a;
+        input counted;
+        begin
+            @(posedge clk74); sl_wr <= 1; sl_addr <= a; sl_tw = $realtime;
+            if (counted) begin
+                if (a == SL_WIN + sl_exp && sl_exp < 2352) begin
+                    sl_exp = sl_exp + 4;
+                    if (sl_exp >= 2352) sl_tl = sl_tw + T74;     // the bench stamps the cycle after the write starts
+                end
+            end
+            @(posedge clk74); sl_wr <= 0;
+        end
+    endtask
+
     initial forever begin
         @(sl_cmd);
         sl_t_cmd = $realtime - T74;       // the bench stamped the command one cycle before this event
         sl_mode = (sl_req >= SL_N);
-        if (sl_id !== 16'd1 || sl_len !== 32'd2352 || sl_baddr !== 32'h20000000 || sl_off + sl_len > SL_FILE
+        sl_r = sl_req % SL_N;
+        if (sl_id !== 16'd1 || sl_len !== 32'd2352 || sl_baddr !== SL_WIN || sl_off + sl_len > SL_FILE
             || sl_off % 2352 != 0) begin
             sl_bad_cmd = sl_bad_cmd + 1;
             $display("  CHECK FAILED: request %0d id %0d offset %0d length %0d window %h", sl_req, sl_id, sl_off, sl_len, sl_baddr);
         end
-        // sequential after the previous one: the short latency
         sl_words = sl_len / 4;
 `ifdef SLOT_SHORT
         if (sl_mode) sl_words = sl_words - 1;
 `endif
         repeat (3) @(posedge clk74);
         sl_done <= 0; sl_ack <= 0;
+`ifndef SLOT_TMO
+        // sequential after the previous one: the short latency
         repeat ((sl_off == sl_prev_end) ? SL_L_SEQ : SL_L_RND) @(posedge clk74);
         sl_ack <= 1;
-        for (sl_w = 0; sl_w < sl_words; sl_w = sl_w + 1) begin
-            @(posedge clk74); sl_wr <= 1; sl_addr <= sl_baddr + 4 * sl_w;
-            @(posedge clk74); sl_wr <= 0;
+        sl_exp = 0; sl_tl = 0;
+        sl_pre = sl_words;
+`ifdef SLOT_TRAIL
+        if (sl_r % 4 == 1) sl_pre = sl_words - 3;
+        if (sl_mode && sl_r == SL_N - 1) sl_pre = sl_words - 1;
+`endif
+        for (sl_w = 0; sl_w < sl_pre; sl_w = sl_w + 1) begin
+`ifdef SLOT_ADDR
+            if (sl_r % 4 == 1 && sl_w == 100) begin sl_put(SL_WIN + 4 * 99, 1); repeat (SL_WORD - 2) @(posedge clk74); end
+            if (sl_r % 4 == 3) sl_put(SL_WIN, 1); else
+`endif
+            sl_put(SL_WIN + 4 * sl_w, 1);
             repeat (SL_WORD - 2) @(posedge clk74);
         end
-        sl_t_last = $realtime - (SL_WORD - 2) * T74;     // the cycle after the last word's write pulse starts (the bench's view)
+`ifdef SLOT_ADDR
+        if (sl_r % 4 == 2) begin sl_put(SL_WIN + 2352, 1); repeat (SL_LAG - 2) @(posedge clk74); end
+        else
+`endif
+`ifdef SLOT_TRAIL
+        if (sl_pre == sl_words)
+`endif
         repeat (SL_LAG) @(posedge clk74);
-        sl_done <= 1; sl_err <= 0;
+        sl_done <= 1;
+`ifdef SLOT_ERR
+        sl_err <= (sl_r % 4 == 2) ? 3'd3 : 3'd0;
+`else
+        sl_err <= 0;
+`endif
         @(posedge clk74); sl_t_done = $realtime;
+`ifdef SLOT_TRAIL
+        // words after done: 3 within the bench's 16-cycle guard, or 1 at 40 cycles (dropped)
+        if (sl_pre == sl_words - 3) begin
+            for (sl_k = sl_pre; sl_k < sl_words; sl_k = sl_k + 1) begin sl_put(SL_WIN + 4 * sl_k, 1); repeat (2) @(posedge clk74); end
+        end else if (sl_pre == sl_words - 1) begin
+            repeat (40) @(posedge clk74);
+            sl_put(SL_WIN + 4 * sl_pre, 0);
+        end
+`endif
         @(posedge clk74); sl_ack <= 0;
         sl_prev_end = sl_off + sl_len;
+        // a request that does not reach 2,352 bytes has no last byte: its last-byte latency is its done latency
+        sl_lastlat = (sl_exp >= 2352) ? (sl_tl - sl_t_cmd) : (sl_t_done - sl_t_cmd);
         if (!sl_mode) begin
-            sl_sum0 = sl_sum0 + (sl_t_done - sl_t_cmd); sl_bytes0 = sl_bytes0 + 4 * sl_words;
-            if (sl_t_last - sl_t_cmd > sl_wl0) sl_wl0 = sl_t_last - sl_t_cmd;
+            sl_sum0 = sl_sum0 + (sl_t_done - sl_t_cmd); sl_bytes0 = sl_bytes0 + sl_exp;
+            if (sl_lastlat > sl_wl0) sl_wl0 = sl_lastlat;
             if (sl_t_done - sl_t_cmd > sl_wd0) sl_wd0 = sl_t_done - sl_t_cmd;
         end else begin
-            sl_sum1 = sl_sum1 + (sl_t_done - sl_t_cmd); sl_bytes1 = sl_bytes1 + 4 * sl_words;
-            if (sl_t_last - sl_t_cmd > sl_wl1) sl_wl1 = sl_t_last - sl_t_cmd;
+            sl_sum1 = sl_sum1 + (sl_t_done - sl_t_cmd); sl_bytes1 = sl_bytes1 + sl_exp;
+            if (sl_lastlat > sl_wl1) sl_wl1 = sl_lastlat;
             if (sl_t_done - sl_t_cmd > sl_wd1) sl_wd1 = sl_t_done - sl_t_cmd;
         end
+`endif
         sl_req = sl_req + 1;
     end
 `else
@@ -280,6 +364,26 @@ module tb_core;
 
     integer cycles = 0;
 
+`ifndef LATE
+    // scan-out line period measured at the line starts of the first scan phase, against literals that do not come from the
+    // MT_LINE_* macros: 400 pixels at 6.3504 MHz = 25600 / 3 cycles at 135.4752 MHz, 6400 at 101.6064 MHz.
+    // Three consecutive periods must add up to exactly 3 x the mean (25600 / 19200).
+`ifdef SDRAM_135
+    localparam integer LINE3 = 25600;
+`else
+    localparam integer LINE3 = 19200;
+`endif
+    integer ls_n = 0, ls_cyc = 0, ls_t0 = 0, ls_t3 = 0;
+    always @(posedge clk) begin
+        ls_cyc = ls_cyc + 1;
+        if (dut.scan.wrap && dut.scan.en && !rst) begin
+            if (ls_n == 0) ls_t0 = ls_cyc;
+            if (ls_n == 3) ls_t3 = ls_cyc;
+            ls_n = ls_n + 1;
+        end
+    end
+`endif
+
 `ifdef SLOT
     // the bench's reported kB/s and latencies against the host model's own timestamps
     task slot_wait_done;
@@ -333,22 +437,36 @@ module tb_core;
             expect_eq("slot state = no file", `R_SL_FILE + 1, 3);
             expect_eq("slot file size", `R_SL_FILE, 0);
             if (sl_req != 0) begin fails = fails + 1; $display("  CHECK FAILED: %0d requests issued without a file", sl_req); end
+`elsif SLOT_TMO
+            $display("slot bench, the host never answers (timeout %0d cycles):", SL_TMO_CYC);
+            slot_wait_done(1);
+            expect_eq("slot state = timeout", `R_SL_FILE + 1, 4);
+            expect_eq("slot seq requests", `R_SL_SEQX + 1, 1);
+            expect_eq("slot seq bytes", `R_SL_SEQX + 2, 0);
+            expect_eq("slot seq bad", `R_SL_SEQ + 2, 1);
+            expect_eq("slot rnd requests", `R_SL_RNDX + 1, 0);
+            expect_eq("slot rnd bad", `R_SL_RND + 2, 0);
+            if (sl_req != 1) begin fails = fails + 1; $display("  CHECK FAILED: %0d requests, expected 1", sl_req); end
 `else
             $display("slot bench (host model: %0d cycles to the first word, %0d random, %0d per word, %0d to done):", SL_L_SEQ, SL_L_RND, SL_WORD, SL_LAG);
             slot_wait_done(1);
             expect_eq("slot state = done", `R_SL_FILE + 1, 2);
             expect_eq("slot file size", `R_SL_FILE, SL_FILE);
             expect_eq("slot expected bytes", `R_SL_FILE + 2, SL_N * 2352);
-            slot_expect_mode("sequential", `R_SL_SEQ, `R_SL_SEQX, sl_sum0, sl_wl0, sl_wd0, sl_bytes0, 0);
-`ifdef SLOT_SHORT
-            // a request that falls short has no last byte: its last-byte latency is its done latency
-            slot_expect_mode("random", `R_SL_RND, `R_SL_RNDX, sl_sum1, sl_wd1, sl_wd1, sl_bytes1, SL_N);
-`else
-            slot_expect_mode("random", `R_SL_RND, `R_SL_RNDX, sl_sum1, sl_wl1, sl_wd1, sl_bytes1, 0);
+            slot_expect_mode("sequential", `R_SL_SEQ, `R_SL_SEQX, sl_sum0, sl_wl0, sl_wd0, sl_bytes0, SL_BAD0);
+            slot_expect_mode("random", `R_SL_RND, `R_SL_RNDX, sl_sum1, sl_wl1, sl_wd1, sl_bytes1, SL_BAD1);
+`ifdef SLOT_ADDR
+            // 12 requests of 2,352 bytes and 4 that count one word each, in both modes
+            if (sl_bytes0 != 12 * 2352 + 16 || sl_bytes1 != 12 * 2352 + 16) begin fails = fails + 1; $display("  CHECK FAILED: model bytes %0d / %0d", sl_bytes0, sl_bytes1); end
+`elsif SLOT_TRAIL
+            // the three words after done are counted, the one 40 cycles after is not
+            if (sl_bytes0 != SL_N * 2352 || sl_bytes1 != SL_N * 2352 - 4) begin fails = fails + 1; $display("  CHECK FAILED: model bytes %0d / %0d", sl_bytes0, sl_bytes1); end
+`elsif SLOT_ERR
+            if (sl_bytes0 != SL_N * 2352 || sl_bytes1 != SL_N * 2352) begin fails = fails + 1; $display("  CHECK FAILED: model bytes %0d / %0d", sl_bytes0, sl_bytes1); end
 `endif
             if (sl_bad_cmd != 0) fails = fails + 1;
             if (sl_req != 2 * SL_N) begin fails = fails + 1; $display("  CHECK FAILED: %0d requests, expected %0d", sl_req, 2 * SL_N); end
-`ifndef SLOT_SHORT
+`ifndef SL_ONCE
             // restart: the bench runs again from scratch and reports the same way
             sl_req = 0; sl_prev_end = 0; sl_sum0 = 0; sl_sum1 = 0; sl_wl0 = 0; sl_wl1 = 0; sl_wd0 = 0; sl_wd1 = 0; sl_bytes0 = 0; sl_bytes1 = 0;
             sl_go = ~sl_go;
@@ -536,6 +654,10 @@ module tb_core;
         expect_eq("PSRAM sync seq errors", `R_PS_SYR + 1, 0);
         expect_eq("PSRAM sync rnd errors", `R_PS_SYN + 1, 0);
         expect_eq("DMA sync errors", `R_DMA_S + 1, 0);
+`endif
+`ifndef LATE
+        $display("scan-out line starts: %0d seen, 3 periods = %0d cycles (expected %0d)", ls_n, ls_t3 - ls_t0, LINE3);
+        if (ls_n < 4 || ls_t3 - ls_t0 != LINE3) begin fails = fails + 1; $display("  CHECK FAILED: scan-out line period, 3 lines took %0d cycles, expected %0d", ls_t3 - ls_t0, LINE3); end
 `endif
 `ifdef LATE
         expect_eq("gate scan-out fails when lines are late", `R_GATE + 2, 2);

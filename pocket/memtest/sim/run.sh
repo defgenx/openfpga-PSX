@@ -3,7 +3,8 @@
 # Exits non-zero unless the testbench prints PASS (vvp itself exits 0 either way).
 # late:  scan-out line period shortened below what one line needs, the late-line counter must fire
 # sd135: the 135.4752 MHz variant (SDRAM_135): full-size SDRAM and scan-out tests, reduced PSRAM/SRAM/DMA
-# slot:  the APF bridge throughput bench against a host model (default clock, no file, short reads, 135 variant; each also runs
+# slot:  the APF bridge throughput bench against a host model (default clock, no file, short reads, 135 variant, trailing
+#        words, timeout, error code, wrong addresses; each also runs
 #        the whole core test of `fast`)
 # be:    tb_be, random byte-enable masks against the SDRAM model with a shadow memory, at both clocks
 #        (be101, be135 run one clock; be runs both, then once more with an injected DQM fault that must be caught)
@@ -58,6 +59,10 @@ if [ "$mode" = slot ]; then
   core_run slot_nofile "-DSLOT -DSLOT_NOFILE"
   core_run slot_short "-DSLOT -DSLOT_SHORT"
   core_run slot135 "-DSLOT -DSDRAM_135"
+  core_run slot_trail "-DSLOT -DSLOT_TRAIL"
+  core_run slot_tmo "-DSLOT -DSLOT_TMO"
+  core_run slot_err "-DSLOT -DSLOT_ERR"
+  core_run slot_addr "-DSLOT -DSLOT_ADDR"
   exit 0
 fi
 core_run $mode "$defs"

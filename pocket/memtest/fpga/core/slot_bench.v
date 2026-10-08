@@ -8,7 +8,7 @@ module slot_bench #(
     parameter START_DELAY = 7425000,        // clk_74a cycles from reset release to the first request (0.1 s)
     parameter TIMEOUT     = 74250000,       // clk_74a cycles a request may take (1 s)
     parameter [15:0] SLOT_ID   = 16'd1,
-    parameter [31:0] WIN       = 32'h20000000,   // sink window: bridge writes with this top byte are counted
+    parameter [31:0] WIN       = 32'h20000000,   // sink window base: a write counts only at the next expected address within REQ bytes
     parameter [9:0]  SIZE_ADDR = 10'd1       // data table word that holds the size of the slot at table position 0
 ) (
     input  wire        clk,                 // clk_74a
@@ -54,13 +54,17 @@ module slot_bench #(
     reg        active = 1'b0;
     reg [31:0] rx = 32'd0, t_last = 32'd0;
     reg        got_last = 1'b0;
-    wire       in_win = bridge_wr && (bridge_addr[31:24] == WIN[31:24]);
+    reg        stray = 1'b0;                // a write with the window's top byte that is outside it or not the next word
+    wire       in_top  = bridge_wr && (bridge_addr[31:24] == WIN[31:24]);
+    wire       in_win  = in_top && (rx < REQ) && (bridge_addr == WIN + rx);
     reg [3:0]  st = S_IDLE;
     always @(posedge clk) begin
-        if (st == S_ISSUE) begin rx <= 32'd0; got_last <= 1'b0; end
-        else if (active && in_win) begin
-            rx <= rx + 32'd4;
-            if (!got_last && rx + 32'd4 >= REQ) begin got_last <= 1'b1; t_last <= now; end
+        if (st == S_ISSUE) begin rx <= 32'd0; got_last <= 1'b0; stray <= 1'b0; end
+        else if (active && in_top) begin
+            if (in_win) begin
+                rx <= rx + 32'd4;
+                if (!got_last && rx + 32'd4 >= REQ) begin got_last <= 1'b1; t_last <= now; end
+            end else stray <= 1'b1;
         end
     end
 
@@ -239,7 +243,7 @@ module slot_bench #(
                     rx_tot[m*32 +: 32]   <= rx_m + rx;
                     if (lat_l > wl_m) w_last[m*32 +: 32] <= lat_l;
                     if (lat_d > wd_m) w_done[m*32 +: 32] <= lat_d;
-                    bad[m*32 +: 32]  <= bad[m*32 +: 32] + ((tmo || err_l != 3'd0 || rx != REQ) ? 32'd1 : 32'd0);
+                    bad[m*32 +: 32]  <= bad[m*32 +: 32] + ((tmo || err_l != 3'd0 || rx != REQ || stray) ? 32'd1 : 32'd0);
                     nreq[m*32 +: 32] <= nreq[m*32 +: 32] + 32'd1;
                     idx <= idx + 1'b1;
                     if (tmo) begin tmo_any <= 1'b1; cs <= 3'd0; cph <= 1'b0; st <= S_CALC; end
