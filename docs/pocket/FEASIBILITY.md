@@ -70,7 +70,7 @@ timing target on the slowest speed grade, with 67-135 MHz domains.
 
 | Pocket memory | Holds | Why |
 |---|---|---|
-| SDRAM (16-bit) | VRAM 1 MB + SPU RAM 512 KB | VRAM alone loads it 53% (flat fill) to ~93% (textured, at 101.6 MHz); SPU adds < 5 MB/s |
+| SDRAM (16-bit) | VRAM 1 MB + SPU RAM 512 KB | VRAM alone loads it 53% (flat fill) to ~93% (textured, at 101.6 MHz); SPU adds < 5 MB/s, which as random 8-byte bursts costs 5-6 points of the 1 ms peak at 135.5 MHz ([GPU.md](GPU.md)) |
 | PSRAM0 + PSRAM1 ganged as 32-bit | Main RAM 2 MB + BIOS 512 KB | ~95-140 ns per access, close to the original console's own RAM (~177 ns) |
 | SRAM 256 KB | Memory card 128 KB, CD sector ring, XA buffers | Fast, small, frees M10K |
 

@@ -11,7 +11,7 @@ Source: `pocket/memtest/`. Core id `defgenx.PSXMemTest`, bitstream `memtest.rbf_
 One system clock runs every controller and counter. It is 101.6064 MHz (3 × 33.8688 MHz, 9.842 ns) in the default
 build and 135.4752 MHz (4 × 33.8688 MHz, 7.381 ns) in the `SDRAM_135` variant, which is the SDRAM clock the PSX core will use;
 see [Clock variants](#clock-variants). All times are measured in clock cycles and converted on chip with constants derived from
-the clock (`MT_CLK_HZ`, `memtest_defs.vh`); the screen shows MB/s × 10 as
+the clock (`MT_CLK_HZ`, generated into `sdram_timing.vh`); the screen shows MB/s × 10 as
 `123.4`. Each test fills or writes a pattern derived from the address (xorshift of address and a
 per-run seed), reads it back and counts mismatches, including unknown or floating data. Rows other than SDRAM are
 "measured at" the variant's clock: in the 135 variant their screen labels say `@135.5MHZ`.
@@ -140,6 +140,10 @@ or schematic has been checked. The table therefore holds the -7 column, whose CL
 better. "B-die" is the AS4C32M16SB datasheet (figures confirmed from its key-specification and AC tables:
 tCK3, tAC3, tRAS, tRC); "A-die" is the AS4C32M16SA Rev 2.0 datasheet (-7), used for the figures not read from the
 B-die sheet. Where two sources differ the slower figure is kept.
+
+`CLOCKS` in `tools/sdram_timing.py` also generates the clock constants `MT_CLK_HZ` and `MT_TCK_PS` into `sdram_timing.vh`,
+under the same `SDRAM_135` selection as the cycle counts. `--check` fails if either `PLL_SYS_MHZ` in `pll_mem.v` differs from
+`CLOCKS`, so a clock change is one edit in `CLOCKS` plus the matching PLL values in `pll_mem.v`.
 
 | Figure | ns | Source | Cycles at 101.6 / 135.5 MHz |
 |---|---|---|---|
@@ -309,11 +313,12 @@ issues `N_REQ` = 256 requests per mode, one at a time, each `target_dataslot_rea
 | sequential | 0, 2,352, 4,704, … contiguous; wraps to 0 before the end of the file |
 | random | sector aligned (multiples of 2,352), uniform in the first 2^k sectors where 2^k ≤ file size / 2,352 (at least half the file; a fixed xorshift sequence) |
 
-The sink counts every bridge write whose address top byte is `0x20` as 4 bytes (the data is dropped; `core_top` decodes only this window and
-the `0x8xxxxxxx` settings). A request is **bad** when it ends with a nonzero `target_dataslot_err`, with other than 2,352 bytes counted, or
-after a 1 s timeout (which also ends the test: state 4). Per request the bench records two times, both from the cycle
+The sink counts a bridge write with address top byte `0x20` as 4 bytes only when it is inside the window (`0x20000000` .. +2,351) and at the
+next expected address, `0x20000000` + bytes counted so far (the data is dropped; `core_top` decodes only this window and the `0x8xxxxxxx`
+settings). Any other write with that top byte (outside the window, a repeated or skipped word) is not counted and makes the request bad. A request is
+**bad** when it ends with a nonzero `target_dataslot_err`, with other than 2,352 bytes counted, with such a stray write, or after a 1 s timeout (which also ends the test: state 4). Per request the bench records two times, both from the cycle
 `target_dataslot_read` is raised: **last byte** (the cycle the counter reaches 2,352; for a short request its done time) and **done**
-(the cycle `target_dataslot_done` is seen). Bytes that trail the done flag are counted for 16 cycles.
+(the cycle `target_dataslot_done` is seen). Writes that trail the done flag are counted for 16 cycles.
 
 kB/s = bytes received × 1000 / (Σ request time to done) = bytes × 74,250 / Σ cycles, floor (1 kB = 1,000 bytes); the idle cycles between
 requests are not in it. Latency µs = cycles × 4 / 297, floor. The conversion runs on `clk_74a` in a 64 / 32 serial divider.
@@ -337,7 +342,8 @@ every run and written together at the end. The `ST_INIT` clear of the memory tes
 3. `core_bridge_cmd` clears `target_dataslot_done` within a few cycles of the command's rising edge and keeps it set until the next command,
    so the bench raises the command for 4 cycles and ignores `done` for 8.
 4. A `deferload` slot is not pushed to the core at load time, and the data table is filled once the user has picked a file.
-5. Bridge address `0x20000000` is free for data writes.
+5. Bridge address `0x20000000` is free for data writes, and a read lands there as consecutive words from `bridgeaddr`: a host that writes elsewhere in the
+   window or out of order shows as bad requests (the screen cannot otherwise tell where the data went).
 
 A wrong assumption 1 shows as `NO FILE` with a file present; a wrong 2 or 3 as bad requests or the 1 s timeout (state 4).
 
@@ -352,7 +358,7 @@ sequential rate or the latency fails, the CD phase reads 2,048-byte user data an
 | 135 | `ap_core_135` | `SDRAM_135` (`VERILOG_MACRO "SDRAM_135=1"`) | 135.4752 MHz | the SDRAM clock of the PSX core: **the variant whose hardware result matters, and the release** |
 
 `fpga/ap_core_135.qsf` sources `ap_core.qsf` and adds the macro, so the two revisions differ in nothing else. The define selects, in
-one place (`memtest_defs.vh`): the clock constants, the `sdram_ctl` cycle counts (`SDT_135_*` instead of `SDT_101_*`), the
+one place (`memtest_defs.vh`, with the clock constants in the generated `sdram_timing.vh` it includes): the clock constants, the `sdram_ctl` cycle counts (`SDT_135_*` instead of `SDT_101_*`), the
 scan-out line period, the screen text (`screen_text_135.vh`) and, in `pll_mem.v`, the PLL outputs and the two SDRAM phases. `clk_vid` is
 6.3504 MHz in both. The whole `memtest_core` has one `clk`; the only crossing into it is the result writes of the bridge bench (a toggle plus a held address and value).
 
@@ -376,7 +382,10 @@ docker run --rm --platform linux/amd64 --name memtest_<rev> -v "$PWD":/build -w 
 
 A full compile took 3–8 minutes under x86 emulation on an 11-core Apple-silicon Mac. `build.sh package` then reverses the bits of
 `fpga/output_files/<rev>.rbf` into `dist/Cores/defgenx.PSXMemTest/memtest.rbf_r`, checks the JSON files against the
-APF limits (`tools/check_json.py`) and zips the SD card layout. `tools/sta_report.tcl` (run with `quartus_sta -t` in `fpga/`)
+APF limits (`tools/check_json.py`) and zips the SD card layout. It first reads `fpga/output_files/<rev>.sta.summary` and
+refuses (exit 1) if the summary is missing or any slack is negative, naming the worst slack and its clock and model;
+`ALLOW_TIMING_FAIL=1` packages anyway and prints the worst slack it accepted. The 135 variant fails the SDRAM read capture
+(Compile results), so a plain `build.sh` stops at its package step without that override. `tools/sta_report.tcl` (run with `quartus_sta -t` in `fpga/`)
 writes the SDRAM read-capture and command paths of every operating condition to `output_files/<rev>.sdram_paths.rpt`.
 
 Regenerating files that are checked in: `tools/gen_font.py` → `fpga/core/font8x8.hex`,
@@ -469,8 +478,8 @@ register write and the synchronous burst; SRAM access time and write pulse width
 | `fast` | whole core, reduced sizes (PSRAM fill 256 words per die; the address-line walk always reaches bit 18), async PSRAM | PASS, 159,065 cycles |
 | `sync` | same plus the synchronous PSRAM tests and DMA | PASS, 177,680 cycles |
 | `late` | scan-out line period shortened below what a line needs: late lines must be counted, the gate must fail | PASS: 4 of 4 and 5 of 5 lines late, scan gate FAIL |
-| `sd135` | the 135.4752 MHz variant (`-DSDRAM_135`): the full SDRAM and scan-out sizes (1 MiB; 65,536 random bursts, mixed and mixed under scan-out; the 1 MiB byte-mask test; 96 lines), reduced PSRAM / SRAM / DMA sizes; the datasheet model with no folded pad delay, capture clock 0.26 ns after the system clock (the middle of the data window). PASS needs: every SDRAM row 0 errors, byte-mask readback included, no late line, the scan-out data errors 0, no model violation, and every reported MB/s equal to the bench's own count of bytes × clock / cycles | PASS, 6.49 M cycles (47.9 ms) |
-| `slot` | `-DSLOT`: `slot_bench` on a 74.25 MHz clock against a host model in `tb_core.v` that answers `target_dataslot_read` at a fixed rate (16 requests per mode; 550 cycles to the first word, 4,500 for a non-contiguous offset, 30 cycles per 32-bit word, 270 from the last word to done), and the whole `fast` check list of the core. Four runs: the normal one with a restart in the middle (results invalidated, then reproduced), `-DSLOT_NOFILE` (data table 0: both kB/s fields `FFFFFFFF`, state 3, no request issued), `-DSLOT_SHORT` (every random request one word short: 16 bad requests, last byte = done), and `-DSDRAM_135`. PASS needs the reported kB/s within 0.3% (+2) of the model's, both latencies within 1 µs of the model's own `$realtime` stamps, the request count, bytes received and bad requests, and every request's id, length, window and offset | PASS in all four: sequential 9,457 kB/s, worst 244 µs to last byte / 248 µs to done, random 7,791 kB/s, 297 / 301 µs, all equal to the model's; short run 7,788 kB/s, 16 bad requests; about 3 min for the four |
+| `sd135` | the 135.4752 MHz variant (`-DSDRAM_135`): the full SDRAM and scan-out sizes (1 MiB; 65,536 random bursts, mixed and mixed under scan-out; the 1 MiB byte-mask test; 96 lines), reduced PSRAM / SRAM / DMA sizes; the datasheet model with no folded pad delay, capture clock 0.26 ns after the system clock (the middle of the data window). PASS needs: every SDRAM row 0 errors, byte-mask readback included, no late line, the scan-out data errors 0, no model violation, every reported MB/s equal to the bench's own count of bytes × clock / cycles, and three consecutive scan-out line periods adding up to exactly 25,600 cycles (3 × 25,600 / 3; literal in the testbench, not from `MT_LINE_*`; `fast` and the other non-`late` runs check 19,200 at 101.6 MHz): an accumulator that never carries gives 25,599 | PASS, 6.49 M cycles (47.9 ms) |
+| `slot` | `-DSLOT`: `slot_bench` on a 74.25 MHz clock against a host model in `tb_core.v` that answers `target_dataslot_read` at a fixed rate (16 requests per mode; 550 cycles to the first word, 4,500 for a non-contiguous offset, 30 cycles per 32-bit word, 270 from the last word to done), and the whole `fast` check list of the core. Eight runs: the normal one with a restart in the middle (results invalidated, then reproduced), `-DSLOT_NOFILE` (data table 0: both kB/s fields `FFFFFFFF`, state 3, no request issued), `-DSLOT_SHORT` (every random request one word short: 16 bad requests, last byte = done), `-DSDRAM_135`, `-DSLOT_TRAIL` (the last 3 words of every 4th request written after done, inside the 16-cycle guard: counted, 0 bad sequential; one word 40 cycles after done on the last random request: dropped, 1 bad, 2,348 bytes), `-DSLOT_TMO` (the host never raises done: state 4, 1 sequential request, 1 bad, 0 bytes, no random request), `-DSLOT_ERR` (`target_dataslot_err` = 3 on every 4th request with all data present: 4 bad per mode, full bytes), and `-DSLOT_ADDR` (per 4 requests: clean; a word repeated; a write at `0x20000930` just past the window; one word written 588 times: 12 bad per mode, 28,240 bytes per mode). The model counts a write only at the next expected address, as the bench does. PASS needs the reported kB/s within 0.3% (+2) of the model's, both latencies within 1 µs of the model's own `$realtime` stamps, the request count, bytes received and bad requests, and every request's id, length, window and offset | PASS in all eight: sequential 9,457 kB/s, worst 244 µs to last byte / 248 µs to done, random 7,791 kB/s, 297 / 301 µs, all equal to the model's; short run 7,788 kB/s, 16 bad requests; trail run 1 bad (random), timeout run state 4, error run 4 bad per mode, address run 12 bad per mode with 28,240 bytes; about 6 min for the eight |
 | `be`, `be101`, `be135` | `tb_be.v`: `sdram_ctl` against the model with a shadow memory: 40,000 requests, reads and writes mixed, 25,091 writes of which 9,390 with a partial mask and 1,942 with every byte masked (52,866 masked bytes), a hot set of 64 bursts hit again and again and 25% of the requests spread over 512 rows; every read burst is compared with the shadow, and at the end every word of the model's array (40,040 words) is compared byte by byte | PASS at 101.6064 and at 135.4752 MHz, 0 mismatches, 0 model violations |
 | `be` with `-DBE_FAULT` | the lane-0 DQM bit inverted between controller and model; the test must report mismatches | PASS = the fault is caught: 14,909 read bursts and 40,038 words wrong |
 | `full`, `fullsync` | the sizes the hardware runs (1 MiB SDRAM, 2 MiB per PSRAM die, 65,536 words, …), default variant | both PASS: 24.10 M cycles (237 ms) with sync, 23.37 M (230 ms) without; all errors 0, no model violations; about 12 min of Icarus time each |
@@ -482,7 +491,7 @@ register write and the synchronous burst; SRAM access time and write pulse width
 
 The `PS_STUCK_BIT`, `PS_STUCK_HI`, `PS_BRIDGE_BIT`, `PS_TAA` and `PS_GATE_PASS` defines go through `EXTRA`, e.g.
 `EXTRA="-DPS_STUCK_BIT=18" sim/run.sh fast`. `build.sh sim` runs `fast`, `sync`, `late`, the `PS_TAA` 110 (with
-`PS_GATE_PASS`) and 120 variants, `PS_STUCK_BIT` 16 and 18, `PS_BRIDGE_BIT` 16, `sd135`, `be` (both clocks and the fault), `slot` (four whole-core runs), `tb_div` and
+`PS_GATE_PASS`) and 120 variants, `PS_STUCK_BIT` 16 and 18, `PS_BRIDGE_BIT` 16, `sd135`, `be` (both clocks and the fault), `slot` (eight whole-core runs), `tb_div` and
 `tb_screen` (about 8 min), and exits non-zero unless every one prints `PASS`. `full` and `fullsync` are run by hand: they are the only runs where the
 fill and the random reads span 2 MiB, so a regression in that addressing shows only there. A deliberately wrong DQM in the whole core
 (`dram_dqm | 2'b10` into the model, run by hand) makes the byte-mask readback report 2,048 errors in the fast sizes and the SCAN gate fail.
