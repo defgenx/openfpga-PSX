@@ -32,7 +32,6 @@ entity gpu_line_pocket is
       divE_rsp             : in  tdiv_rsp;
       divG_req             : out tdiv_req := DIV_REQ_IDLE;
       divG_rsp             : in  tdiv_rsp;
-      slot0_prev           : in  std_logic;
       slot0_upd            : out std_logic := '0';
       slot0_val            : out std_logic := '0';
 

@@ -1049,7 +1049,6 @@ begin
       divE_rsp             => divE_rsp,
       divG_req             => divG_line_req,
       divG_rsp             => divG_rsp,
-      slot0_prev           => slot0_lsb,
       slot0_upd            => line_slot0_upd,
       slot0_val            => line_slot0_val,
 
