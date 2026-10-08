@@ -1,0 +1,7 @@
+# Quartus project for the cd sizing revisions (see docs/pocket/CD.md).
+
+QUARTUS_VERSION = "21.1"
+
+# Revisions
+
+PROJECT_REVISION = "cd_golden"

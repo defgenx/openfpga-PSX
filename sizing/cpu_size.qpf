@@ -1,0 +1,7 @@
+# Quartus project for the cpu sizing revisions (see docs/pocket/CPU.md).
+
+QUARTUS_VERSION = "21.1"
+
+# Revisions
+
+PROJECT_REVISION = "cpu_golden"
