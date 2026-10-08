@@ -437,8 +437,9 @@ as the analyser does.
 With `slot_bench` added, the default variant compiled alone (the table above is without it): 5,635 ALMs (30%), 7,996 registers, the same
 45,936 block memory bits, no critical warning, and it meets timing on every clock in all four models. Worst slack per clock, setup / hold:
 `clk_sys` +1.786 ns / +0.147 ns, `clk_cap` +0.825 / +0.846, `dram_clk_pin` +2.783 / +2.308, `clk_vid` +148.95 / +0.153,
-`clk_74a` +2.693 / +0.125, `bridge_spiclk` +10.198 / +0.173. The bench is a 64-bit accumulator and divider block on `clk_74a`; the 135 variant
-was not recompiled with it.
+`clk_74a` +2.693 / +0.125, `bridge_spiclk` +10.198 / +0.173. The bench is a 64-bit accumulator and divider block on `clk_74a`. The 135 variant with it: 5,716 ALMs (31%), and the
+only failing paths are still the SDRAM read capture (setup −0.417 / −0.423 ns slow 85 / 0 °C, hold −0.224 / −0.377 ns fast
+85 / 0 °C); `clk_74a` hold ≥ +0.167 ns, every other clock positive.
 
 Minimum pulse width is positive on every clock (smallest +0.615 ns, on the VCO). PSRAM and SRAM pins are false
 paths by design. The audio clock dividers from the APF template have no clock assignment (analyser warning, unchanged from the template).
