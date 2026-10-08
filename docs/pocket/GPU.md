@@ -211,7 +211,9 @@ hardware, a trace-replay check replaces it before the 80% is trusted.
 
 Measured 2026-10-08. Gate result: **FAIL**, on area and on SDRAM bandwidth at the 101.6 MHz the gate was
 written for. The re-plan (ROADMAP Phase 4) accepted it with the SDRAM at 135.4752 MHz, where the
-bandwidth gate figure is 74.7% (pass).
+bandwidth gate figure is 74.7% (pass). That clock does not close static timing on the Pocket's SDRAM
+read capture (MEMTEST.md), so the re-plan's fallback applies: the bandwidth gate stays FAIL at
+101.6 MHz and the GPU is re-planned before Phase 5.
 
 | Criterion | Gate | Golden | `gpu_pocket` | |
 |---|---|---|---|---|

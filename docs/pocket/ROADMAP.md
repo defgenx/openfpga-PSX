@@ -61,22 +61,80 @@ A small Pocket core with no PSX logic. It exercises the memory plan on the real 
 It reports measured MB/s and latency on screen.
 
 **Gate:** SDRAM sustains the Phase 2 worst trace · ganged PSRAM ≤ 180 ns wall-clock per random 32-bit read over the whole main RAM
-(original console: ~177 ns) · DMA path ≥ 100 MB/s, or a measured slowdown judged acceptable.
+(original console: ~177 ns) · DMA path ≥ 100 MB/s, or a measured slowdown judged acceptable · **SDRAM at 135.4752 MHz**
+(the `SDRAM_135` variant): the fit meets timing on every clock in all four corners, zero data errors on every SDRAM row
+(the byte-mask readback included), no late scan-out line, and `sim/gpu_diff/bwmodel.py --mixed --scan` within ~10% of
+the MIXED UNDER SCAN MB/s, in simulation and on hardware (MEMTEST.md). If the model misses, a trace replay of the worst
+`trace_s1` millisecond through `sdram_ctl` replaces it before the GPU's 80% is trusted.
 
-### Phase 4 — Strip the rest
+### Phase 4 — Rewrites, strip, and the core gate
 
-Remove everything the minimal core does not ship, one block at a time, re-synthesizing after each:
-- Savestates everywhere, replaced by a small reset/pause sequencer (`savestates.vhd` owns both today).
-- CPU: turbo data cache, COP0 debug, merge the two multipliers.
-- SPU: reverb engine, savestate, single-phase ADSR, time-sliced multipliers.
-- CD: 8→2 sector ring, smaller XA FIFOs, rare commands.
-- DMA: debug and turbo paths.
-- Peripherals: one digital/analog pad per port, no multitap/guns/mouse/SNAC.
-- One lightweight 128 KB memory card (byte responder, SRAM-backed).
+Re-planned after the Phase 2 gate. The GTE pattern for three more blocks, in order SPU → CPU → CD: the
+current RTL is the frozen golden, a differential nvc harness proves the new unit, a sizing project measures
+it, and each has a gate below its projection. A missed block gate stops the project or re-plans it. Then
+the rest is stripped inside the current architecture:
+- Savestates everywhere, replaced by a small reset sequencer; the pause/`ce` FSM stays in the top.
+- CPU: turbo data cache, COP0 debug (read 0), shared multiplier. SPU: reverb engine (its registers,
+  address skeleton and 0x7xxxx on-chip RAM kept), savestate, single-phase ADSR. CD: the sector ring
+  stays at 8 and the rare commands stay as the golden has them.
+- DMA: debug and turbo paths. Peripherals: one digital/analog pad per port, no multitap/guns/mouse/SNAC,
+  one lightweight 128 KB memory card (byte responder).
 
-**Gate:** `psx_top` ≤ 13,550 ALMs. If it lands between 13,550 and 15,000, pick from the
-amputation list in FEASIBILITY.md (MDEC, XA, CD timing model, analog, libcrypt). The game cost
-is written next to each one. Above 15,000: stop.
+| Block | Fitted in `psx_min_a6` (ALMs needed) | Projection | **Gate** |
+|---|---|---|---|
+| SPU | 4,028.1 | 2,000 | **≤ 1,400** |
+| CPU | 3,492.3 | 1,500 | **≤ 1,300** |
+| CD + XA | 3,265.0 | 2,500 | **≤ 2,100** |
+
+Budget at those gates (the other blocks at FEASIBILITY's Trimmed column): GTE 2,491 + GPU 4,785 + the three
+gates = 12,076; DMA 1,400 + bus/memctrl/timers/IRQ/top 1,200 + joypad/memcard/SIO 700 + MDEC 800 + reset
+sequencer 50 = 4,150; **16,226 ALMs and ~246 of 260 M10K with no amputation**. Each amputation is a generic
+named for what it removes (`true` takes it, default `false` is golden), measured taken and not taken, and
+counted once:
+
+| Amputation | ALMs | Generic |
+|---|---|---|
+| Drop MDEC | −800 (measured −583, below) | `NO_MDEC` on `psx_top_pocket` |
+| Drop XA-ADPCM (CDDA stays) | −450 | `NO_XA` on `cd_pocket` |
+| Fixed-delay CD timing | −350 | `FIXED_CD_TIMING` on `cd_pocket` |
+| Digital pad only | −300 | `DIGITAL_PAD_ONLY` on the joypad block |
+| Drop libcrypt | −250 | `NO_LIBCRYPT` on `cd_pocket` |
+
+**Unit 4.0** measures the baselines before any rewrite and decides whether the rewrites start: stop and
+re-plan if, for a gated block, (measured after the cheap deletions − gate) exceeds the summed estimates of
+its remaining levers (SPU.md, CPU.md, CD.md), if the core projection exceeds 15,000, or if the M10K
+projection exceeds 260. Result below.
+
+**Gate:** `psx_top_pocket` ≤ 13,550 ALMs, fitted with every generic at `false`, then taking amputations in
+FEASIBILITY's order, only among those accepted, stopping at the first set that fits. With every accepted
+amputation taken: 13,550–15,000 is FAIL with a re-plan; above 15,000, stop.
+
+#### Unit 4.0 result (2026-10-08): stop before the SPU rewrite
+
+| | Standalone golden, 5CEBA4F23C8 | In `psx_top_pocket`, 5CSEBA6U23I7 | Gate | Left to find | Remaining lever estimates | |
+|---|---|---|---|---|---|---|
+| SPU (reverb off, the gate's contract) | 3,079.6 (3,265.9 with reverb) | 3,172.7 | 1,400 | 1,680 | ≤ 1,464 | **fires** |
+| CPU | 2,291.1 | 2,674.4 | 1,300 | 991 | 304 | **fires** |
+| CD + XA | 2,400.1 | 2,632.0 | 2,100 | 300 | 520 | holds |
+
+The standalone figures, the gates' own metric, already have the savestate logic pruned (their ports are
+tied), so the savestate lever is not counted again. `REVERBOFF` saves only 186 ALMs; the rest of the reverb
+engine is an estimate. The SPU's remaining-lever sum counts that estimate at its full 814.
+
+`psx_top_pocket` (golden SPU/CPU/CD/DMA/MDEC, `gte_serial`, `gpu_pocket`, every savestate driver tied
+inactive) fits in **19,569.8 ALMs and 295 M10K** on 5CSEBA6U23I7, against 26,226.3 and 289 for `psx_min_a6`.
+Removing the savestates in context saves about 3,800 ALMs over the blocks, not FEASIBILITY's 500. `NO_MDEC`
+saves 583 ALMs, 17 M10K and 9 DSP.
+
+- **Core projection** (gated blocks at their gates, GTE and GPU as measured, the 4D blocks at their
+  in-context figure less FEASIBILITY's Trimmed saving): 14,911 with no amputation and **12,978 with all
+  five**, under 15,000. With no Trimmed saving credited to the 4D blocks: 15,991 and 14,058. The rule holds.
+- **M10K projection:** 295 − 64 (the CPU's turbo data cache) = 231 of 260. The rule holds.
+- **The CPU and SPU rules fire.** With the rewrites reaching only measured − lever estimates (CPU 1,987, SPU
+  1,616, CD 1,880) and every amputation taken, the core projects to ~13,661, ~111 over budget (14,741 with no
+  Trimmed saving on the 4D blocks).
+
+The rewrites do not start until the re-plan. Figures: SPU.md, CPU.md, CD.md.
 
 ### Phase 5 — Pocket integration
 
@@ -114,8 +172,10 @@ Record each gate's measured numbers here when its phase ends.
 |---|---|---|---|---|---|---|
 | 0 — sizing | measured | 26,135 (options off) | 83 | ~1.9 Mbit | n/a | 2026-10-07 |
 | 1 — GTE | **PASS** | 2,490.8 needed (golden 3,917.6) | 3 (golden 15) | 9 blocks, 49,841 bits | clk2x +2.025 ns slow 85 °C, +1.599 ns slow 0 °C; hold ≥ +0.125 ns | 2026-10-07 |
-| 2 — GPU | **FAIL**: area, and worst synthetic trace 98.5% of SDRAM at 101.6 MHz (82.3% with an ideal controller; 73.9% at 135.5 MHz); bit-exact, setup within reference | 4,785.3 needed (golden 5,481.4) | 10 (golden 32) | 27 (golden 27) | clk2x +0.763 ns slow 85 °C, +0.411 ns slow 0 °C; hold ≥ +0.079 ns | 2026-10-08 |
-| 3 — memory test core | built, **pending hardware** | 3,070 (whole core) | — | — | met on every clock, all four corners | 2026-10-08 |
+| 2 — GPU | **FAIL**: area, and worst synthetic trace 99.9% of SDRAM at 101.6 MHz (`make bw`, table-driven model); bit-exact, setup within reference. Accepted by the re-plan with the SDRAM at 135.5 MHz, where the gate figure is **74.7%**. 135.5 MHz did not close timing in Phase 3, so the fallback applies: the bandwidth gate stays FAIL at 101.6 MHz and the GPU is re-planned before Phase 5 | 4,785.3 needed (golden 5,481.4) | 10 (golden 32) | 27 (golden 27) | clk2x +0.763 ns slow 85 °C, +0.411 ns slow 0 °C; hold ≥ +0.079 ns | 2026-10-08 |
+| 3 — memory test core | built, **pending hardware**. 135.5 MHz variant: **timing not met**; simulation passes, and the model matches the simulation (MIXED UNDER SCAN 105.8 MB/s vs 105.8) | 4,097 (101.6 MHz), 4,138 (135.5 MHz), whole core | — | — | 101.6 MHz: met on every clock, all four corners. 135.5 MHz: SDRAM read capture −0.42 ns setup, −0.38 ns hold, no phase closes it | 2026-10-08 |
+| 4 — 4.0 baselines | **stop before 4A**: the CPU (991 to find vs 304 of levers) and SPU (1,680 vs ≤ 1,464) rules fire | `psx_top_pocket` 19,569.8 (5CSEBA6); SPU 3,079.6 / CPU 2,291.1 / CD 2,400.1 standalone | 47 | 295 | not gating | 2026-10-08 |
 
-Phase 2 failed its gate, so phases 4–7 have not started. Details: [GPU.md](GPU.md#measurements),
-[MEMTEST.md](MEMTEST.md).
+Phase 2 failed its gate and was re-planned. Unit 4.0 has measured the baselines, and the rewrites wait for
+the next re-plan. Details: [GPU.md](GPU.md#measurements), [MEMTEST.md](MEMTEST.md), [SPU.md](SPU.md),
+[CPU.md](CPU.md), [CD.md](CD.md).
