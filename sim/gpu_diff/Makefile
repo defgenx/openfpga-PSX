@@ -5,7 +5,8 @@
 #   make diff                  golden vs gpu_pocket (needs POCKET_SRCS, see pocket.mk)
 #   make trace SEED=n          VRAM access trace of the game-like suite: golden -> run/trace_sN.txt,
 #                              gpu_pocket (when POCKET_SRCS is set) -> run/trace_pocket_sN.txt; fails if a run has no RESULT
-#   make bw SEEDS="1 2 3"      trace each seed, then bwmodel.py --max-util 0.8 on every trace (BWARGS: extra bwmodel options)
+#   make bw SEEDS="1 2 3"      trace each seed, then bwmodel.py on every trace: a report at 101.6064 MHz that never fails,
+#                              then the gate, --max-util 0.8 at BW_MHZ (default 135.4752); BWARGS: extra bwmodel options
 #   make clean
 #
 # SEEDS   one job per (suite, seed); each job runs in its own directory under run/
@@ -145,9 +146,12 @@ trace-pocket: $(BUILD)/pocket/stamp
 endif
 
 BWSEEDS := $(SEEDS)
+BW_MHZ  ?= 135.4752
+BWTRACES = $(foreach s,$(BWSEEDS),$(RUNROOT)/trace_s$(s).txt $(if $(strip $(POCKET_ABS)),$(RUNROOT)/trace_pocket_s$(s).txt))
 bw:
 	@set -e; for s in $(BWSEEDS); do $(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) trace SEED=$$s; done; \
-	python3 $(HERE)bwmodel.py --max-util 0.8 $(BWARGS) $(foreach s,$(BWSEEDS),$(RUNROOT)/trace_s$(s).txt $(if $(strip $(POCKET_ABS)),$(RUNROOT)/trace_pocket_s$(s).txt))
+	python3 $(HERE)bwmodel.py --mhz 101.6064 $(BWARGS) $(BWTRACES) || true; \
+	python3 $(HERE)bwmodel.py --mhz $(BW_MHZ) --max-util 0.8 $(BWARGS) $(BWTRACES)
 
 selftest: $(BUILD)/golden/stamp
 	@python3 $(HERE)selftest.py $(BUILD)/golden $(BUILD) $(RUNROOT)/selftest
