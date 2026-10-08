@@ -114,3 +114,8 @@ Record each gate's measured numbers here when its phase ends.
 |---|---|---|---|---|---|---|
 | 0 — sizing | measured | 26,135 (options off) | 83 | ~1.9 Mbit | n/a | 2026-10-07 |
 | 1 — GTE | **PASS** | 2,490.8 needed (golden 3,917.6) | 3 (golden 15) | 9 blocks, 49,841 bits | clk2x +2.025 ns slow 85 °C, +1.599 ns slow 0 °C; hold ≥ +0.125 ns | 2026-10-07 |
+| 2 — GPU | **FAIL**: area, and worst trace 98.5% of SDRAM at 101.6 MHz (73.9% at 135.5 MHz); bit-exact, setup within reference | 4,785.3 needed (golden 5,481.4) | 10 (golden 32) | 27 (golden 27) | clk2x +0.763 ns slow 85 °C, +0.411 ns slow 0 °C; hold ≥ +0.079 ns | 2026-10-08 |
+| 3 — memory test core | built, **pending hardware** | 2,908 (whole core) | — | — | met on every clock, all four corners | 2026-10-07 |
+
+Phase 2 failed its gate, so phases 4–7 have not started. Details: [GPU.md](GPU.md#measurements),
+[MEMTEST.md](MEMTEST.md).
