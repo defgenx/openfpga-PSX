@@ -4,7 +4,7 @@
 HERE    := $(dir $(lastword $(MAKEFILE_LIST)))
 RTL     := $(HERE)../../rtl
 BUILD   := $(HERE)build
-NVC     := /opt/homebrew/bin/nvc --std=2008
+NVC     := nvc --std=2008
 SRC     := $(RTL)/divider.vhd $(RTL)/pGPU_pocket.vhd $(RTL)/gpu_pocket_div.vhd $(HERE)tb_divtest.vhd
 
 # class:shards
