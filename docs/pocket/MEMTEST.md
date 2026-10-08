@@ -53,7 +53,7 @@ for SDRAM and DMA the wall-clock time of the whole test.
 The 180 ns gate judges wall-clock time because the console's ~177 ns is the time between successive
 random accesses as the CPU sees it, and a requester pays the hand-off cycles around each command as well; busy time
 alone would let a slow part pass. The test engine's 2 hand-off cycles are part of that figure, so it is a conservative
-bound for this controller with the simplest requester. At wait *w* a read takes *w* + 5 cycles: 177.2 ns at *w* = 13
+bound for this controller with the simplest requester. At wait *w* a read takes *w* + 5 cycles: 177.1 ns at *w* = 13
 passes, 187.0 ns at *w* = 14 fails. The wait used is the smallest safe wait + 1 (never clamped), so a part whose smallest
 safe wait is 13 or more fails the gate; the sweep reaches 20, so such a part shows its real figure on screen.
 
@@ -164,8 +164,8 @@ correctly and the later tests use that value + 1.
 
 The sweep runs 5 … 20 cycles (5-bit wait field) so that a slow part is seen as slow instead of being clamped.
 Address bits 16 … 18 of the 2 MiB main RAM are the pins `cram_a[18:16]`; the fill, the random reads and the address-line
-walk (word 0, then one set address bit at a time up to bit 18, both dies) drive them, so an open, stuck or swapped
-high address pin shows as errors in the 180NS gate.
+walk (word 0, then one set address bit at a time up to bit 18, both dies) drive them, so an open or stuck pin among
+`cram_a[18:16]`, or two shorted address lines, shows as errors in the 180NS gate.
 
 **No page mode is used.** With address and data multiplexed, the low address bits share the data pins, so an
 in-page read cannot change only `A[3:0]` while data is out; the device's datasheet was not available to check
@@ -282,12 +282,21 @@ register write and the synchronous burst; SRAM access time and write pulse width
 | `late` | scan-out line period shortened below what a line needs: late lines must be counted, the gate must fail | PASS: 4 of 4 lines late, scan gate FAIL |
 | `full`, `fullsync` | the sizes the hardware runs (1 MiB SDRAM, 2 MiB per PSRAM die, 65,536 words, …) | both PASS: 21.46 M cycles (211 ms) with sync, 20.74 M (204 ms) without; all errors 0, no model violations; about 5.5 min of Icarus time each |
 | `fast` with `-DPS_STUCK_BIT=18` (or 16) | the PSRAM model forces word address bit 18 (16) to 0 (`-DPS_STUCK_HI`: to 1) | PASS = the fault is caught: walk errors 2, 180NS gate FAIL |
+| `fast` with `-DPS_BRIDGE_BIT=16` | the PSRAM model shorts word address bits 16 and 17 (wired-OR); only the walk can see it | PASS = the fault is caught by the walk alone: walk errors 2, random-read errors 0, 180NS gate FAIL |
 | `fast` with `-DPS_TAA=<ns>` | PSRAM model access time instead of 70 ns; the sweep must find a larger wait | 110: smallest safe wait 12, used 13, wall 177.1 ns, gate PASS (`-DPS_GATE_PASS`); 120: 13 / 14 / 187.0 ns, FAIL; 140: 15 / 16 / 206.6 ns, FAIL; 190: 20 / 21 / 255.8 ns, FAIL |
 | `tb_screen.v` | result store → formatter → text RAM → video frame, number formats, a rendered frame | PASS |
 | `tb_div.v` | the divider against `/` on 2,000 random operands and divide by zero | PASS |
 
-The `PS_STUCK_BIT`, `PS_STUCK_HI`, `PS_TAA` and `PS_GATE_PASS` defines go through `EXTRA`, e.g.
-`EXTRA="-DPS_STUCK_BIT=18" sim/run.sh fast`.
+The `PS_STUCK_BIT`, `PS_STUCK_HI`, `PS_BRIDGE_BIT`, `PS_TAA` and `PS_GATE_PASS` defines go through `EXTRA`, e.g.
+`EXTRA="-DPS_STUCK_BIT=18" sim/run.sh fast`. `build.sh sim` runs `fast`, `sync`, `late`, the `PS_TAA` 110 (with
+`PS_GATE_PASS`) and 120 variants, `PS_STUCK_BIT` 16 and 18, `PS_BRIDGE_BIT` 16, `tb_div` and `tb_screen` (about 35 s), and
+exits non-zero unless every one prints `PASS`. `full` and `fullsync` are run by hand: they are the only runs where the
+fill and the random reads span 2 MiB, so a regression in that addressing shows only there.
+
+Simulated times on this page are what the core prints. Its cycle-to-ns constant (98.40625 ns per 10 cycles, against the true
+98.4252) reads up to 0.1 ns low: a 13-wait read is 177.2 ns and shows as 177.1. The default random read shows 137.8
+in `fast` and 137.7 in `full`, whose longer run spreads the start-up cycles thinner. The 180 ns gate compares the
+printed figure.
 
 What the full-size simulation reports (behavioural models at 101.6064 MHz; **not** hardware, shown to make the units
 and the expected shape of the results concrete):
@@ -337,6 +346,8 @@ Every cell needs a Pocket.
 - Datasheet figures for the SDRAM and PSRAM are from memory of the usual part families; the Pocket's exact part
   numbers were not looked up.
 - `cram*_wait` is not used.
+- `cram_a[21:19]` are never driven (2 MiB needs only `cram_a[18:16]`), and a swapped pair of address pins is a
+  consistent remap that no memory test, and no console, can see.
 
 ## Sources and licences
 

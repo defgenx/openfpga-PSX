@@ -30,6 +30,15 @@ module tb_core;
 `else
     localparam integer STUCK = -1;
 `endif
+`ifdef PS_BRIDGE_BIT
+    localparam integer BRIDGE = `PS_BRIDGE_BIT; // word address bits BRIDGE and BRIDGE+1 shorted in the PSRAM model
+    `define PS_ADDR_FAULT
+`else
+    localparam integer BRIDGE = -1;
+`endif
+`ifdef PS_STUCK_BIT
+    `define PS_ADDR_FAULT
+`endif
 `ifdef PS_STUCK_HI
     localparam STUCK_V = 1'b1;
 `else
@@ -79,10 +88,10 @@ module tb_core;
     // clock edge, held until 6.9 ns after the next one (tAC 6.4 + 4.2, tOH 3.2 + 3.7 as seen at the capture register)
     sdram_model #(.T_AC(10.6), .T_OH(6.9)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dram_dqm),
                        .ras_n(dram_ras_n), .cas_n(dram_cas_n), .we_n(dram_we_n));
-    psram_model #(.T_AA(PS_T_AA), .STUCK_BIT(STUCK), .STUCK_VAL(STUCK_V)) pr0 (.a(cram_a), .dq(cram0_dq), .wait_o(), .clk(cram_clk), .adv_n(cram_adv_n), .cre(cram_cre),
+    psram_model #(.T_AA(PS_T_AA), .STUCK_BIT(STUCK), .STUCK_VAL(STUCK_V), .BRIDGE_BIT(BRIDGE)) pr0 (.a(cram_a), .dq(cram0_dq), .wait_o(), .clk(cram_clk), .adv_n(cram_adv_n), .cre(cram_cre),
                      .ce0_n(cram_ce0_n), .ce1_n(cram_ce1_n), .oe_n(cram_oe_n), .we_n(cram_we_n),
                      .ub_n(cram0_ub_n), .lb_n(cram0_lb_n));
-    psram_model #(.T_AA(PS_T_AA), .STUCK_BIT(STUCK), .STUCK_VAL(STUCK_V)) pr1 (.a(cram_a), .dq(cram1_dq), .wait_o(), .clk(cram_clk), .adv_n(cram_adv_n), .cre(cram_cre),
+    psram_model #(.T_AA(PS_T_AA), .STUCK_BIT(STUCK), .STUCK_VAL(STUCK_V), .BRIDGE_BIT(BRIDGE)) pr1 (.a(cram_a), .dq(cram1_dq), .wait_o(), .clk(cram_clk), .adv_n(cram_adv_n), .cre(cram_cre),
                      .ce0_n(cram_ce0_n), .ce1_n(cram_ce1_n), .oe_n(cram_oe_n), .we_n(cram_we_n),
                      .ub_n(cram1_ub_n), .lb_n(cram1_lb_n));
     sram_model sram (.a(sram_a), .dq(sram_dq), .oe_n(sram_oe_n), .we_n(sram_we_n), .ub_n(sram_ub_n), .lb_n(sram_lb_n));
@@ -241,8 +250,8 @@ module tb_core;
         expect_eq("PSRAM sweep min wait", `R_PS_SWEEP, 8);
         expect_eq("PSRAM sweep run wait", `R_PS_SWEEP + 2, 9);
 `endif
-`ifdef PS_STUCK_BIT
-        expect_range("PSRAM address walk errors (stuck bit injected)", `R_PS_AW + 1, 1, 1000000);
+`ifdef PS_ADDR_FAULT
+        expect_range("PS walk errors, addr fault", `R_PS_AW + 1, 1, 1000000);
 `else
         expect_eq("PSRAM address walk errors", `R_PS_AW + 1, 0);
 `endif
@@ -270,8 +279,8 @@ module tb_core;
 `else
         expect_eq("gate scan-out", `R_GATE + 2, 1);
 `endif
-`ifdef PS_STUCK_BIT
-        expect_eq("gate psram fails with a stuck address bit", `R_GATE + 0, 2);
+`ifdef PS_ADDR_FAULT   // with PS_BRIDGE_BIT only the walk sees the fault: the random reads stay clean
+        expect_eq("gate psram fails, addr fault", `R_GATE + 0, 2);
 `elsif PS_TAA
   `ifdef PS_GATE_PASS
         expect_eq("gate psram passes at 177 ns wall clock", `R_GATE + 0, 1);

@@ -33,16 +33,29 @@ package() {
 	echo "packaged $CORE.zip - unzip it onto the root of the Pocket SD card"
 }
 
+# vvp exits 0 whatever the result: a testbench passes only if it prints PASS on a line of its own
+vvp_pass() {
+	local log=sim/out/$(basename "$1" .vvp).log
+	vvp "$1" | grep -v '^|' | tee "$log"
+	grep -qx PASS "$log"
+}
+
 simulate() {
 	python3 tools/gen_font.py
 	python3 tools/gen_screen.py
 	sim/run.sh fast
 	sim/run.sh sync
 	sim/run.sh late
+	# 180NS gate and address walk; each run asserts its expected gate value (MEMTEST.md, Verification)
+	EXTRA="-DPS_TAA=110 -DPS_GATE_PASS" sim/run.sh fast
+	EXTRA="-DPS_TAA=120" sim/run.sh fast
+	EXTRA="-DPS_STUCK_BIT=16" sim/run.sh fast
+	EXTRA="-DPS_STUCK_BIT=18" sim/run.sh fast
+	EXTRA="-DPS_BRIDGE_BIT=16" sim/run.sh fast
 	iverilog -g2012 -o sim/out/div.vvp sim/tb_div.v fpga/core/div32.v
-	vvp sim/out/div.vvp
+	vvp_pass sim/out/div.vvp
 	iverilog -g2012 -o sim/out/screen.vvp -I fpga/core sim/tb_screen.v fpga/core/{res_ram,report_fmt,video_text}.v
-	vvp sim/out/screen.vvp | grep -v '^|'
+	vvp_pass sim/out/screen.vvp
 }
 
 case "${1:-all}" in

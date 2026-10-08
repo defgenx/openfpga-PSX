@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Whole-core simulation (Icarus Verilog). Usage: [EXTRA="-D…"] sim/run.sh [fast|sync|late|full|fullsync]
+# Exits non-zero unless the testbench prints PASS (vvp itself exits 0 either way).
 # late: scan-out line period shortened below what one line needs, the late-line counter must fire
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,4 +18,5 @@ mkdir -p sim/out
 iverilog -g2012 -o sim/out/core_$mode.vvp -I fpga/core $defs ${EXTRA:-} -DMAXC=${MAXC:-60000000} \
   sim/tb_core.v sim/sdram_model.v sim/psram_model.v sim/sram_model.v \
   fpga/core/{memtest_core,res_ram,sdram_ctl,sdram_arb,sd_traffic,sd_scan,psram32,ps_traffic,sram_test,dma_eng,div32}.v
-vvp sim/out/core_$mode.vvp
+vvp sim/out/core_$mode.vvp | tee sim/out/core_$mode.log
+grep -qx PASS sim/out/core_$mode.log

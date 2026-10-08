@@ -14,7 +14,8 @@ module psram_model #(
     parameter real T_KHQV = 7.0,    // clock to data valid (sync)
     parameter real T_KHQX = 2.0,    // clock to data invalid (sync)
     parameter integer STUCK_BIT = -1,  // fault injection: word address bit forced to STUCK_VAL on array accesses, -1 = none
-    parameter STUCK_VAL = 1'b0
+    parameter STUCK_VAL = 1'b0,
+    parameter integer BRIDGE_BIT = -1  // fault injection: word address bits BRIDGE_BIT and BRIDGE_BIT+1 shorted (wired-OR), -1 = none
 ) (
     input  wire [21:16] a,
     inout  wire [15:0]  dq,
@@ -53,6 +54,10 @@ module psram_model #(
         begin
             addr = {a, dq};
             if (STUCK_BIT >= 0 && !cre) addr[STUCK_BIT] = STUCK_VAL;
+            if (BRIDGE_BIT >= 0 && !cre) begin
+                addr[BRIDGE_BIT] = addr[BRIDGE_BIT] | addr[BRIDGE_BIT + 1];
+                addr[BRIDGE_BIT + 1] = addr[BRIDGE_BIT];
+            end
         end
     endtask
 
