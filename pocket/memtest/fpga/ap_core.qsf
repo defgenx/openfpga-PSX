@@ -744,6 +744,7 @@ set_global_assignment -name VERILOG_FILE core/div32.v
 set_global_assignment -name VERILOG_FILE core/res_ram.v
 set_global_assignment -name VERILOG_FILE core/report_fmt.v
 set_global_assignment -name VERILOG_FILE core/video_text.v
+set_global_assignment -name VERILOG_FILE core/slot_bench.v
 
 # build with the same effort the other Pocket cores use
 set_global_assignment -name NUM_PARALLEL_PROCESSORS 2

@@ -15,75 +15,82 @@ module report_fmt (
 );
     `include "memtest_defs.vh"
 
-    localparam K_NONE = 3'd0, K_INT = 3'd1, K_X10 = 3'd2, K_ERR = 3'd3, K_PASS = 3'd4, K_STATE = 3'd5;
+    localparam K_NONE = 3'd0, K_INT = 3'd1, K_X10 = 3'd2, K_ERR = 3'd3, K_PASS = 3'd4, K_STATE = 3'd5,
+               K_SLKB = 3'd6;   // integer, or the text NO FILE for 32'hFFFFFFFF (slot bench)
 
     // field f = row * 3 + slot -> {kind, result index}
     function [9:0] field;
         input [6:0] f;
         begin
             case (f)
-                7'd6:  field = {K_X10,   `R_SD_BE + 7'd0};
-                7'd7:  field = {K_ERR,   `R_SD_BE + 7'd1};
-                7'd8:  field = {K_INT,   `R_SD_BE + 7'd2};
-                7'd3:  field = {K_STATE, `R_STATUS + 7'd0};
-                7'd4:  field = {K_INT,   `R_STATUS + 7'd1};
-                7'd5:  field = {K_INT,   `R_STATUS + 7'd2};
-                7'd12: field = {K_X10,   `R_SD_SW + 7'd0};
-                7'd14: field = {K_INT,   `R_SD_SW + 7'd2};
-                7'd15: field = {K_X10,   `R_SD_SR + 7'd0};
-                7'd16: field = {K_ERR,   `R_SD_SR + 7'd1};
-                7'd17: field = {K_INT,   `R_SD_SR + 7'd2};
-                7'd18: field = {K_X10,   `R_SD_RR + 7'd0};
-                7'd19: field = {K_ERR,   `R_SD_RR + 7'd1};
-                7'd20: field = {K_INT,   `R_SD_RR + 7'd2};
-                7'd21: field = {K_X10,   `R_SD_MX + 7'd0};
-                7'd22: field = {K_ERR,   `R_SD_MX + 7'd1};
-                7'd23: field = {K_INT,   `R_SD_MX + 7'd2};
-                7'd27: field = {K_ERR,   `R_SC_ALONE + 7'd0};
-                7'd28: field = {K_X10,   `R_SC_ALONE + 7'd1};
-                7'd29: field = {K_INT,   `R_SC_ALONE + 7'd2};
-                7'd30: field = {K_ERR,   `R_SC_MIX + 7'd0};
-                7'd31: field = {K_X10,   `R_SC_MIX + 7'd1};
-                7'd32: field = {K_INT,   `R_SC_MIX + 7'd2};
-                7'd33: field = {K_X10,   `R_SD_MXS + 7'd0};
-                7'd34: field = {K_ERR,   `R_SD_MXS + 7'd1};
-                7'd35: field = {K_INT,   `R_SD_MXS + 7'd2};
-                7'd36: field = {K_ERR,   `R_SC_ERR + 7'd0};
-                7'd37: field = {K_ERR,   `R_SC_ERR + 7'd1};
-                7'd42: field = {K_X10,   `R_PS_WR + 7'd0};
-                7'd44: field = {K_X10,   `R_PS_WR + 7'd2};
-                7'd45: field = {K_X10,   `R_PS_RR + 7'd0};
-                7'd46: field = {K_ERR,   `R_PS_RR + 7'd1};
-                7'd47: field = {K_X10,   `R_PS_RR + 7'd2};
-                7'd48: field = {K_X10,   `R_PS_RW + 7'd0};
-                7'd50: field = {K_X10,   `R_PS_RW + 7'd2};
-                7'd51: field = {K_X10,   `R_PS_SR + 7'd0};
-                7'd52: field = {K_ERR,   `R_PS_SR + 7'd1};
-                7'd53: field = {K_X10,   `R_PS_SR + 7'd2};
-                7'd54: field = {K_INT,   `R_PS_SWEEP + 7'd0};
-                7'd55: field = {K_INT,   `R_PS_SWEEP + 7'd1};
-                7'd56: field = {K_INT,   `R_PS_SWEEP + 7'd2};
-                7'd57: field = {K_X10,   `R_PS_SYR + 7'd0};
-                7'd58: field = {K_ERR,   `R_PS_SYR + 7'd1};
-                7'd59: field = {K_X10,   `R_PS_SYR + 7'd2};
-                7'd60: field = {K_X10,   `R_PS_SYN + 7'd0};
-                7'd61: field = {K_ERR,   `R_PS_SYN + 7'd1};
-                7'd62: field = {K_X10,   `R_PS_SYN + 7'd2};
-                7'd64: field = {K_ERR,   `R_PS_AW + 7'd1};
-                7'd69: field = {K_X10,   `R_SR_WR + 7'd0};
-                7'd71: field = {K_INT,   `R_SR_WR + 7'd2};
-                7'd72: field = {K_X10,   `R_SR_RD + 7'd0};
-                7'd73: field = {K_ERR,   `R_SR_RD + 7'd1};
-                7'd74: field = {K_INT,   `R_SR_RD + 7'd2};
-                7'd75: field = {K_INT,   `R_SR_SWEEP + 7'd0};
-                7'd76: field = {K_INT,   `R_SR_SWEEP + 7'd1};
-                7'd77: field = {K_INT,   `R_SR_SWEEP + 7'd2};
-                7'd81: field = {K_X10,   `R_DMA_A + 7'd0};
-                7'd82: field = {K_ERR,   `R_DMA_A + 7'd1};
-                7'd83: field = {K_INT,   `R_DMA_A + 7'd2};
-                7'd84: field = {K_X10,   `R_DMA_S + 7'd0};
-                7'd85: field = {K_ERR,   `R_DMA_S + 7'd1};
-                7'd86: field = {K_INT,   `R_DMA_S + 7'd2};
+                7'd0:  field = {K_STATE, `R_STATUS + 7'd0};
+                7'd1:  field = {K_INT,   `R_STATUS + 7'd1};
+                7'd2:  field = {K_INT,   `R_STATUS + 7'd2};
+                7'd3:  field = {K_X10,   `R_SD_BE + 7'd0};
+                7'd4:  field = {K_ERR,   `R_SD_BE + 7'd1};
+                7'd5:  field = {K_INT,   `R_SD_BE + 7'd2};
+                7'd9:  field = {K_X10,   `R_SD_SW + 7'd0};
+                7'd11: field = {K_INT,   `R_SD_SW + 7'd2};
+                7'd12: field = {K_X10,   `R_SD_SR + 7'd0};
+                7'd13: field = {K_ERR,   `R_SD_SR + 7'd1};
+                7'd14: field = {K_INT,   `R_SD_SR + 7'd2};
+                7'd15: field = {K_X10,   `R_SD_RR + 7'd0};
+                7'd16: field = {K_ERR,   `R_SD_RR + 7'd1};
+                7'd17: field = {K_INT,   `R_SD_RR + 7'd2};
+                7'd18: field = {K_X10,   `R_SD_MX + 7'd0};
+                7'd19: field = {K_ERR,   `R_SD_MX + 7'd1};
+                7'd20: field = {K_INT,   `R_SD_MX + 7'd2};
+                7'd24: field = {K_ERR,   `R_SC_ALONE + 7'd0};
+                7'd25: field = {K_X10,   `R_SC_ALONE + 7'd1};
+                7'd26: field = {K_INT,   `R_SC_ALONE + 7'd2};
+                7'd27: field = {K_ERR,   `R_SC_MIX + 7'd0};
+                7'd28: field = {K_X10,   `R_SC_MIX + 7'd1};
+                7'd29: field = {K_INT,   `R_SC_MIX + 7'd2};
+                7'd30: field = {K_X10,   `R_SD_MXS + 7'd0};
+                7'd31: field = {K_ERR,   `R_SD_MXS + 7'd1};
+                7'd32: field = {K_INT,   `R_SD_MXS + 7'd2};
+                7'd33: field = {K_ERR,   `R_SC_ERR + 7'd0};
+                7'd34: field = {K_ERR,   `R_SC_ERR + 7'd1};
+                7'd39: field = {K_X10,   `R_PS_WR + 7'd0};
+                7'd41: field = {K_X10,   `R_PS_WR + 7'd2};
+                7'd42: field = {K_X10,   `R_PS_RR + 7'd0};
+                7'd43: field = {K_ERR,   `R_PS_RR + 7'd1};
+                7'd44: field = {K_X10,   `R_PS_RR + 7'd2};
+                7'd45: field = {K_X10,   `R_PS_RW + 7'd0};
+                7'd46: field = {K_ERR,   `R_PS_AW + 7'd1};
+                7'd47: field = {K_X10,   `R_PS_RW + 7'd2};
+                7'd48: field = {K_X10,   `R_PS_SR + 7'd0};
+                7'd49: field = {K_ERR,   `R_PS_SR + 7'd1};
+                7'd50: field = {K_X10,   `R_PS_SR + 7'd2};
+                7'd51: field = {K_INT,   `R_PS_SWEEP + 7'd0};
+                7'd52: field = {K_INT,   `R_PS_SWEEP + 7'd1};
+                7'd53: field = {K_INT,   `R_PS_SWEEP + 7'd2};
+                7'd54: field = {K_X10,   `R_PS_SYR + 7'd0};
+                7'd55: field = {K_ERR,   `R_PS_SYR + 7'd1};
+                7'd56: field = {K_X10,   `R_PS_SYR + 7'd2};
+                7'd57: field = {K_X10,   `R_PS_SYN + 7'd0};
+                7'd58: field = {K_ERR,   `R_PS_SYN + 7'd1};
+                7'd59: field = {K_X10,   `R_PS_SYN + 7'd2};
+                7'd63: field = {K_X10,   `R_SR_WR + 7'd0};
+                7'd65: field = {K_INT,   `R_SR_WR + 7'd2};
+                7'd66: field = {K_X10,   `R_SR_RD + 7'd0};
+                7'd67: field = {K_ERR,   `R_SR_RD + 7'd1};
+                7'd68: field = {K_INT,   `R_SR_RD + 7'd2};
+                7'd69: field = {K_INT,   `R_SR_SWEEP + 7'd0};
+                7'd70: field = {K_INT,   `R_SR_SWEEP + 7'd1};
+                7'd71: field = {K_INT,   `R_SR_SWEEP + 7'd2};
+                7'd75: field = {K_X10,   `R_DMA_A + 7'd0};
+                7'd76: field = {K_ERR,   `R_DMA_A + 7'd1};
+                7'd77: field = {K_INT,   `R_DMA_A + 7'd2};
+                7'd78: field = {K_X10,   `R_DMA_S + 7'd0};
+                7'd79: field = {K_ERR,   `R_DMA_S + 7'd1};
+                7'd80: field = {K_INT,   `R_DMA_S + 7'd2};
+                7'd81: field = {K_SLKB,  `R_SL_SEQ + 7'd0};
+                7'd82: field = {K_INT,   `R_SL_SEQ + 7'd1};
+                7'd83: field = {K_ERR,   `R_SL_SEQ + 7'd2};
+                7'd84: field = {K_SLKB,  `R_SL_RND + 7'd0};
+                7'd85: field = {K_INT,   `R_SL_RND + 7'd1};
+                7'd86: field = {K_ERR,   `R_SL_RND + 7'd2};
                 7'd87: field = {K_PASS,  `R_GATE + 7'd0};
                 7'd88: field = {K_PASS,  `R_GATE + 7'd1};
                 7'd89: field = {K_PASS,  `R_GATE + 7'd2};
@@ -106,6 +113,7 @@ module report_fmt (
             3'd3: text8 = "   PASS ";
             3'd4: text8 = "   FAIL ";
             3'd5: text8 = "    --- ";
+            3'd7: text8 = "NO FILE ";
             default: text8 = "      - ";
         endcase
     endfunction
@@ -210,6 +218,10 @@ module report_fmt (
                             use_text <= 1'b1; st <= S_PUT;
                             tid <= (res_rq[1:0] == 2'd0) ? 3'd0 : (res_rq[1:0] == 2'd1) ? 3'd1 : 3'd2;
                             attr <= (res_rq[1:0] == 2'd2) ? 2'd1 : 2'd3;
+                        end
+                        K_SLKB: begin
+                            if (res_rq[31:0] == 32'hFFFFFFFF) begin use_text <= 1'b1; tid <= 3'd7; st <= S_PUT; end
+                            else begin bin <= (res_rq[31:0] > 32'd9999999) ? 24'd9999999 : res_rq[23:0]; st <= S_DD; end
                         end
                         default: begin
                             bin <= (kind == K_X10) ? ((res_rq[31:0] > 32'd999999) ? 24'd999999 : res_rq[23:0])

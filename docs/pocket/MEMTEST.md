@@ -53,6 +53,7 @@ for SDRAM and DMA the wall-clock time of the whole test.
 | `100M` (second field) | DMA path ≥ 100 MB/s | DMA MB/s ≥ 100.0 with no verify errors; the best of async and sync counts |
 | `SCAN` (third field) | Scan-out never misses its deadline | no late line alone or under mixed traffic, no data errors anywhere in SDRAM (the byte-mask readback included) |
 | SDRAM MB/s rows | SDRAM sustains the Phase 2 worst trace | raw MB/s only; the bandwidth figure is supplied by phase 2 |
+| `SLOT SEQ` / `SLOT RND` rows | APF bridge sustains the CD path: 2 × 75 sectors/s × 2,352 bytes | sequential ≥ 352.8 kB/s (decimal) and worst request latency ≤ 6.67 ms (one sector period at 2×) on both rows, no bad requests; read from the screen, not part of the `180NS 100M SCAN` row (pending hardware, see [Bridge throughput bench](#bridge-throughput-bench-slot_benchv)) |
 
 The 180 ns gate judges wall-clock time because the console's ~177 ns is the time between successive
 random accesses as the CPU sees it, and a requester pays the hand-off cycles around each command as well; busy time
@@ -73,27 +74,26 @@ Numbers are right-aligned, `-` means "not run (yet)", green/red marks error coun
 
 | Row (from 0) | Label | Field 1 | Field 2 | Field 3 |
 |---|---|---|---|---|
-| 0 | header | `SYS CLK` | clock in MHz (`101.6` or `135.5`) | |
-| 1 | state step runs | `INIT` / `RUN` / `DONE` | last finished step (26 = all) | runs completed |
-| 2 | SDRAM BYTE MASK | write-pass MB/s | readback errors | readback cycles |
-| 4 | SDRAM SEQ WRITE | MB/s | | cycles |
-| 5–7 | SDRAM SEQ READ, RANDOM READ, MIXED RD/WR | MB/s | errors | cycles |
-| 9 | SCAN ALONE | late lines | worst line time µs | lines |
-| 10 | SCAN UNDER MIXED | late lines | worst line time µs | lines |
-| 11 | MIXED UNDER SCAN | MB/s | errors | cycles |
-| 12 | SCAN DATA ERR | alone | under mixed | |
-| 13, 22, 26 | PSRAM, SRAM, DMA headers | | | in the 135 variant they read `@135.5MHZ` |
-| 14 | PSRAM WRITE 32B | ns | | MB/s |
-| 15 | PSRAM RANDOM READ 32B | busy ns | errors | MB/s |
-| 16 | WALL CLOCK | wall-clock ns per random read (the 180NS figure) | | MB/s |
-| 17 | CHAINED READ | ns | errors | MB/s |
-| 18 | RD WAIT MIN/USE | smallest safe wait (21 = none, 28 at 135.5 MHz) | sweep errors (expected > 0) | wait used |
-| 19–20 | SYNC BURST RD16, SYNC RANDOM RD | ns | errors | MB/s |
-| 21 | ADDR LINE WALK | | errors | |
-| 23 | SRAM RANDOM WRITE | ns | | cycles |
-| 24 | SRAM RANDOM READ | ns | errors | cycles |
-| 25 | WAIT MIN RD/WR | smallest safe read wait | smallest safe write wait | sweep errors (expected > 0) |
-| 27–28 | DMA ASYNC, SYNC BURST | MB/s | errors | cycles |
+| 0 | header `MEMTEST <clock>MHZ` (`101.6` or `135.5`) | `INIT` / `RUN` / `DONE` | last finished step (26 = all) | runs completed |
+| 1 | SDRAM BYTE MASK | write-pass MB/s | readback errors | readback cycles |
+| 3 | SDRAM SEQ WRITE | MB/s | | cycles |
+| 4–6 | SDRAM SEQ READ, RANDOM READ, MIXED RD/WR | MB/s | errors | cycles |
+| 8 | SCAN ALONE | late lines | worst line time µs | lines |
+| 9 | SCAN UNDER MIXED | late lines | worst line time µs | lines |
+| 10 | MIXED UNDER SCAN | MB/s | errors | cycles |
+| 11 | SCAN DATA ERR | alone | under mixed | |
+| 12, 20, 24 | PSRAM, SRAM, DMA headers | | | in the 135 variant they read `@135.5MHZ` |
+| 13 | PSRAM WRITE 32B | ns | | MB/s |
+| 14 | PSRAM RANDOM READ 32B | busy ns | errors | MB/s |
+| 15 | WALL CLK/WALKERR | wall-clock ns per random read (the 180NS figure) | address-line walk errors | MB/s |
+| 16 | CHAINED READ | ns | errors | MB/s |
+| 17 | RD WAIT MIN/USE | smallest safe wait (21 = none, 28 at 135.5 MHz) | sweep errors (expected > 0) | wait used |
+| 18–19 | SYNC BURST RD16, SYNC RANDOM RD | ns | errors | MB/s |
+| 21 | SRAM RANDOM WRITE | ns | | cycles |
+| 22 | SRAM RANDOM READ | ns | errors | cycles |
+| 23 | WAIT MIN RD/WR | smallest safe read wait | smallest safe write wait | sweep errors (expected > 0) |
+| 25–26 | DMA ASYNC, SYNC BURST | MB/s | errors | cycles |
+| 27–28 | SLOT SEQ KB US, SLOT RND KB US | kB/s (`NO FILE` if the slot holds no file) | worst request latency µs, issue to last byte | bad requests |
 | 29 | 180NS 100M SCAN | gate | gate | gate |
 
 ![example screen](../../pocket/memtest/screen-example.png)
@@ -115,7 +115,8 @@ The PSRAM stays in synchronous mode until the core is reloaded. **After a sync r
 that no longer answers them and show errors.
 
 Results can also be read over the APF bridge: word *i* at `0x10000000 + 4·i` is result *i*,
-and `0x10000200 + 4·i` is 1 when it is valid. Result numbers are in `fpga/core/memtest_defs.vh`.
+and `0x10000200 + 4·i` is 1 when it is valid. Result numbers are in `fpga/core/memtest_defs.vh`. Results 75 … 89 belong to the
+[bridge bench](#bridge-throughput-bench-slot_benchv); a run of the memory tests does not clear them.
 
 ## How the controllers work
 
@@ -290,6 +291,59 @@ pixels at 60.1 Hz with 320 × 240 active, one scaler mode, 4:3. One line period 
 more every third line), which is the scan-out deadline. Pin assignments and I/O standards are the template's.
 The APF framework files in `fpga/apf/` and `core_bridge_cmd.v` are unchanged.
 
+## Bridge throughput bench (`slot_bench.v`)
+
+The CD path of the PSX core will pull 2,352-byte sectors through the APF bridge; nothing in the repository had a measured
+sustained bridge rate. `slot_bench` measures it with `target_dataslot_read` on the bridge clock `clk_74a` (74.25 MHz).
+
+**Data slot.** `dist/Cores/defgenx.PSXMemTest/data.json` has one slot, `Bench file` (id 1, extension `bin`, not required, `deferload`, no
+fixed filename). Put any file of 8 MB or more (the test has no content check) in `Assets/psxmemtest/common/` on the SD card and pick it in the
+core's menu. Without a file the core loads as before and the rows show `NO FILE`.
+
+**Test.** After reset release plus 0.1 s, and again on every *Restart tests*, the bench reads the slot size from the APF data table, then
+issues `N_REQ` = 256 requests per mode, one at a time, each `target_dataslot_read` of slot 1, 2,352 bytes, to bridge address
+`0x20000000`:
+
+| Mode | Offsets |
+|---|---|
+| sequential | 0, 2,352, 4,704, … contiguous; wraps to 0 before the end of the file |
+| random | sector aligned (multiples of 2,352), uniform in the first 2^k sectors where 2^k ≤ file size / 2,352 (at least half the file; a fixed xorshift sequence) |
+
+The sink counts every bridge write whose address top byte is `0x20` as 4 bytes (the data is dropped; `core_top` decodes only this window and
+the `0x8xxxxxxx` settings). A request is **bad** when it ends with a nonzero `target_dataslot_err`, with other than 2,352 bytes counted, or
+after a 1 s timeout (which also ends the test: state 4). Per request the bench records two times, both from the cycle
+`target_dataslot_read` is raised: **last byte** (the cycle the counter reaches 2,352; for a short request its done time) and **done**
+(the cycle `target_dataslot_done` is seen). Bytes that trail the done flag are counted for 16 cycles.
+
+kB/s = bytes received × 1000 / (Σ request time to done) = bytes × 74,250 / Σ cycles, floor (1 kB = 1,000 bytes); the idle cycles between
+requests are not in it. Latency µs = cycles × 4 / 297, floor. The conversion runs on `clk_74a` in a 64 / 32 serial divider.
+
+| Results (`memtest_defs.vh`) | Value 0 | Value 1 | Value 2 |
+|---|---|---|---|
+| `R_SL_SEQ` 75, `R_SL_RND` 78 (screen rows 27, 28) | kB/s (`FFFFFFFF` = no file) | worst issue-to-last-byte µs | bad requests |
+| `R_SL_SEQX` 81, `R_SL_RNDX` 84 (bridge only) | worst issue-to-done µs | requests done | bytes received |
+| `R_SL_FILE` 87 (bridge only) | file size in bytes | state: 0 idle, 1 running, 2 done, 3 no file, 4 timeout | expected bytes per mode (N × 2,352) |
+
+The bench writes results one word at a time, held for 9 `clk_74a` cycles with a toggle; `memtest_core` samples the toggle after two flip-flops
+and writes the word into `res_ram` in a cycle in which its sequencer does not. All slot results are invalidated (state word 1) at the start of
+every run and written together at the end. The `ST_INIT` clear of the memory tests stops below result 75.
+
+**Assumptions about the APF** (nothing here was checked against Analogue's documents or a Pocket; the repository only holds `core_bridge_cmd.v`):
+
+1. The data table readable through `datatable_addr` / `datatable_q` (bridge `0xF8001000`) holds two words per slot in the order of `data.json`,
+   the slot size in bytes in the second (word 1 for the only slot) and 0 for a slot without a file. The bench reads word 1.
+2. A `target_dataslot_read` delivers `length` bytes as consecutive 32-bit bridge writes from `bridgeaddr`, all before `target_dataslot_done`,
+   and accepts an offset and length that are multiples of 4 but not of 512 or of the 2,352-byte sector.
+3. `core_bridge_cmd` clears `target_dataslot_done` within a few cycles of the command's rising edge and keeps it set until the next command,
+   so the bench raises the command for 4 cycles and ignores `done` for 8.
+4. A `deferload` slot is not pushed to the core at load time, and the data table is filled once the user has picked a file.
+5. Bridge address `0x20000000` is free for data writes.
+
+A wrong assumption 1 shows as `NO FILE` with a file present; a wrong 2 or 3 as bad requests or the 1 s timeout (state 4).
+
+The gate and its Hardware results rows are in [Gate criteria](#gate-criteria-this-core-measures) and [Hardware results](#hardware-results). If the
+sequential rate or the latency fails, the CD phase reads 2,048-byte user data and synthesises the sector headers.
+
 ## Clock variants
 
 | Variant | Revision | Define | System / SDRAM clock | Role |
@@ -300,7 +354,7 @@ The APF framework files in `fpga/apf/` and `core_bridge_cmd.v` are unchanged.
 `fpga/ap_core_135.qsf` sources `ap_core.qsf` and adds the macro, so the two revisions differ in nothing else. The define selects, in
 one place (`memtest_defs.vh`): the clock constants, the `sdram_ctl` cycle counts (`SDT_135_*` instead of `SDT_101_*`), the
 scan-out line period, the screen text (`screen_text_135.vh`) and, in `pll_mem.v`, the PLL outputs and the two SDRAM phases. `clk_vid` is
-6.3504 MHz in both. The whole `memtest_core` has one `clk`, so there is no clock crossing in either.
+6.3504 MHz in both. The whole `memtest_core` has one `clk`; the only crossing into it is the result writes of the bridge bench (a toggle plus a held address and value).
 
 ## Build
 
@@ -347,9 +401,11 @@ requirements not met", 4 critical warnings). The failing path is `dram_dq[*]` �
 setup in the slow 0 °C model (−0.421 ns; slow 85 °C −0.416 ns), hold in the fast 0 °C model (−0.378 ns; fast 85 °C −0.225 ns). The
 data window at 135.5 MHz (T − (tAC − tOH) = 4.48 ns) is narrower than the spread of the slow and fast models (5.28 ns, including
 setup, hold and clock uncertainty), so no phase closes it; see [SDRAM](#sdram-sdram_ctlv). The closest phases are in
-`pll_mem.v`. What could still close it, none tried: a faster or stronger output buffer on `dram_clk` (the pin has series
-termination and the template's drive settings, whose delay is the largest part of the spread), a speed grade better than the table's
--7 figures (tAC, tOH), or a measurement on the Pocket that shows the real window is wider than the static one.
+`pll_mem.v`. A faster `dram_clk` output buffer was tried and does not close it: no series termination, maximum current (12 mA) and
+slew rate 1 (assignments need `-entity apf_top`) give read setup −0.326 / −0.307 ns and hold −0.265 / −0.406 ns, a spread of 5.21 ns
+instead of 5.28, and the unterminated 12 mA clock is an overshoot risk on the board, so it is not kept. A delay chain on `dram_dq`
+moves setup against hold without shrinking their sum. What could still close it: a speed grade better than the table's -7
+figures (tAC, tOH), or a measurement on the Pocket showing the real window is wider than the static one.
 
 | Resource | default (`ap_core`) | 135 (`ap_core_135`) |
 |---|---|---|
@@ -377,6 +433,12 @@ as the analyser does.
 | `clk_vid_90` | no register paths | | no register paths | |
 | `clk_74a` | +6.248 ns :17 | +0.169 ns (fast 0 °C) :277 | +6.348 ns :17 | +0.171 ns (fast 0 °C) :285 |
 | `bridge_spiclk` | +10.603 ns :21 | +0.170 ns (fast 0 °C) :281 | +10.033 ns :21 | +0.162 ns (fast 0 °C) :281 |
+
+With `slot_bench` added, the default variant compiled alone (the table above is without it): 5,635 ALMs (30%), 7,996 registers, the same
+45,936 block memory bits, no critical warning, and it meets timing on every clock in all four models. Worst slack per clock, setup / hold:
+`clk_sys` +1.786 ns / +0.147 ns, `clk_cap` +0.825 / +0.846, `dram_clk_pin` +2.783 / +2.308, `clk_vid` +148.95 / +0.153,
+`clk_74a` +2.693 / +0.125, `bridge_spiclk` +10.198 / +0.173. The bench is a 64-bit accumulator and divider block on `clk_74a`; the 135 variant
+was not recompiled with it.
 
 Minimum pulse width is positive on every clock (smallest +0.615 ns, on the VCO). PSRAM and SRAM pins are false
 paths by design. The audio clock dividers from the APF template have no clock assignment (analyser warning, unchanged from the template).
@@ -407,6 +469,7 @@ register write and the synchronous burst; SRAM access time and write pulse width
 | `sync` | same plus the synchronous PSRAM tests and DMA | PASS, 177,680 cycles |
 | `late` | scan-out line period shortened below what a line needs: late lines must be counted, the gate must fail | PASS: 4 of 4 and 5 of 5 lines late, scan gate FAIL |
 | `sd135` | the 135.4752 MHz variant (`-DSDRAM_135`): the full SDRAM and scan-out sizes (1 MiB; 65,536 random bursts, mixed and mixed under scan-out; the 1 MiB byte-mask test; 96 lines), reduced PSRAM / SRAM / DMA sizes; the datasheet model with no folded pad delay, capture clock 0.26 ns after the system clock (the middle of the data window). PASS needs: every SDRAM row 0 errors, byte-mask readback included, no late line, the scan-out data errors 0, no model violation, and every reported MB/s equal to the bench's own count of bytes × clock / cycles | PASS, 6.49 M cycles (47.9 ms) |
+| `slot` | `-DSLOT`: `slot_bench` on a 74.25 MHz clock against a host model in `tb_core.v` that answers `target_dataslot_read` at a fixed rate (16 requests per mode; 550 cycles to the first word, 4,500 for a non-contiguous offset, 30 cycles per 32-bit word, 270 from the last word to done), and the whole `fast` check list of the core. Four runs: the normal one with a restart in the middle (results invalidated, then reproduced), `-DSLOT_NOFILE` (data table 0: both kB/s fields `FFFFFFFF`, state 3, no request issued), `-DSLOT_SHORT` (every random request one word short: 16 bad requests, last byte = done), and `-DSDRAM_135`. PASS needs the reported kB/s within 0.3% (+2) of the model's, both latencies within 1 µs of the model's own `$realtime` stamps, the request count, bytes received and bad requests, and every request's id, length, window and offset | PASS in all four: sequential 9,457 kB/s, worst 244 µs to last byte / 248 µs to done, random 7,791 kB/s, 297 / 301 µs, all equal to the model's; short run 7,788 kB/s, 16 bad requests; about 3 min for the four |
 | `be`, `be101`, `be135` | `tb_be.v`: `sdram_ctl` against the model with a shadow memory: 40,000 requests, reads and writes mixed, 25,091 writes of which 9,390 with a partial mask and 1,942 with every byte masked (52,866 masked bytes), a hot set of 64 bursts hit again and again and 25% of the requests spread over 512 rows; every read burst is compared with the shadow, and at the end every word of the model's array (40,040 words) is compared byte by byte | PASS at 101.6064 and at 135.4752 MHz, 0 mismatches, 0 model violations |
 | `be` with `-DBE_FAULT` | the lane-0 DQM bit inverted between controller and model; the test must report mismatches | PASS = the fault is caught: 14,909 read bursts and 40,038 words wrong |
 | `full`, `fullsync` | the sizes the hardware runs (1 MiB SDRAM, 2 MiB per PSRAM die, 65,536 words, …), default variant | both PASS: 24.10 M cycles (237 ms) with sync, 23.37 M (230 ms) without; all errors 0, no model violations; about 12 min of Icarus time each |
@@ -418,8 +481,8 @@ register write and the synchronous burst; SRAM access time and write pulse width
 
 The `PS_STUCK_BIT`, `PS_STUCK_HI`, `PS_BRIDGE_BIT`, `PS_TAA` and `PS_GATE_PASS` defines go through `EXTRA`, e.g.
 `EXTRA="-DPS_STUCK_BIT=18" sim/run.sh fast`. `build.sh sim` runs `fast`, `sync`, `late`, the `PS_TAA` 110 (with
-`PS_GATE_PASS`) and 120 variants, `PS_STUCK_BIT` 16 and 18, `PS_BRIDGE_BIT` 16, `sd135`, `be` (both clocks and the fault), `tb_div` and
-`tb_screen` (about 5 min), and exits non-zero unless every one prints `PASS`. `full` and `fullsync` are run by hand: they are the only runs where the
+`PS_GATE_PASS`) and 120 variants, `PS_STUCK_BIT` 16 and 18, `PS_BRIDGE_BIT` 16, `sd135`, `be` (both clocks and the fault), `slot` (four whole-core runs), `tb_div` and
+`tb_screen` (about 8 min), and exits non-zero unless every one prints `PASS`. `full` and `fullsync` are run by hand: they are the only runs where the
 fill and the random reads span 2 MiB, so a regression in that addressing shows only there. A deliberately wrong DQM in the whole core
 (`dram_dqm | 2'b10` into the model, run by hand) makes the byte-mask readback report 2,048 errors in the fast sizes and the SCAN gate fail.
 
@@ -488,10 +551,14 @@ result is the one that matters for the PSX core.
 | SDRAM errors on every row: seq read, random read, mixed, mixed under scan-out, scan data, byte-mask readback | pending — needs a Pocket | 0 |
 | Scan-out late lines, alone / under mixed, and worst line time | pending — needs a Pocket | 0, < 63 µs |
 | SDRAM seq write / seq read / random read / mixed MB/s | pending — needs a Pocket | |
-| MIXED UNDER SCAN MB/s against the bandwidth model's mixed-random prediction | pending — needs a Pocket | within about 10% (the lead compares it with the simulated 105.8 MB/s) |
+| MIXED UNDER SCAN MB/s against the bandwidth model's mixed-random prediction | pending — needs a Pocket | within about 10% (simulated: 105.8 MB/s, and the model predicts 105.8) |
 | SDRAM read capture at the closest phases (static timing fails by 0.42 / 0.38 ns) | pending — needs a Pocket | no errors |
 | Byte-mask (DQM) readback errors | pending — needs a Pocket | 0 (first look at DQM timing at 135.5 MHz) |
 | PSRAM, SRAM and DMA rows, labelled `@135.5MHZ` (180NS and 100M gates, smallest safe waits, sync burst at 67.7 MHz) | pending — needs a Pocket | as in the table above |
+| APF bridge, `target_dataslot_read` in 2,352-byte requests: sequential kB/s | pending — needs a Pocket and a file of 8 MB or more in the slot | ≥ 352.8 kB/s (2 × 75 sectors/s × 2,352 bytes) |
+| APF bridge: random-offset kB/s | pending — needs a Pocket and a file | none; the figure for seek-heavy access |
+| APF bridge: worst request latency, issue to last byte (screen) and issue to done (bridge result 81 / 84), sequential and random | pending — needs a Pocket and a file | ≤ 6,670 µs (one sector period at 2×); otherwise Phase 5 reads 2,048-byte user data and synthesises headers |
+| APF bridge: bad requests, `NO FILE` with a file present | pending — needs a Pocket and a file | 0, never `NO FILE` (assumptions 1 to 3 of the bench hold) |
 
 ## Not verified
 
@@ -505,6 +572,8 @@ result is the one that matters for the PSX core.
 - The SDRAM speed grade (see the SDRAM timing table): the Pocket's chip marking was not checked, so the -7 column
   is assumed. PSRAM datasheet figures are from memory of the usual part family; its exact part number was not
   looked up.
+- The APF side of the bridge bench: the data table layout, the `target_dataslot_read` semantics and the free bridge window, see
+  [Bridge throughput bench](#bridge-throughput-bench-slot_benchv) (five assumptions, none checked on a Pocket).
 - `cram*_wait` is not used.
 - `cram_a[21:19]` are never driven (2 MiB needs only `cram_a[18:16]`), and a swapped pair of address pins is a
   consistent remap that no memory test, and no console, can see.

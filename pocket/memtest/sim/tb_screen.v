@@ -95,6 +95,8 @@ module tb_screen;
         put(`R_DMA_A + 0, 394);   put(`R_DMA_A + 1, 0);   put(`R_DMA_A + 2, 2636);
         put(`R_GATE + 0, 1);      put(`R_GATE + 1, 2);    put(`R_GATE + 2, 1);
         put(`R_PS_SYR + 0, 9999999); put(`R_PS_SYR + 1, 12345678);
+        put(`R_SL_SEQ + 0, 412);  put(`R_SL_SEQ + 1, 5870); put(`R_SL_SEQ + 2, 0);
+        put(`R_SL_RND + 0, 32'hFFFFFFFF);
         #300000;   // several formatter sweeps
 
         $display("---------------- text screen ----------------");
@@ -110,20 +112,21 @@ module tb_screen;
             $write("|\n");
         end
 
-        // number formats
-        check_field(5, 0, "  197.8 ");  check_field(5, 1, "      0 ");  check_field(5, 2, "   8415 ");
-        check_field(7, 1, "      3 ");
-        check_field(9, 1, "    6.5 ");
-        check_field(15, 0, "  118.0 "); check_field(15, 2, "   33.8 ");
-        check_field(16, 0, "  137.8 "); check_field(16, 2, "   29.0 ");
-        check_field(21, 1, "      0 ");
-        check_field(18, 0, "      8 "); check_field(18, 2, "      9 ");
+        // number formats (row numbers: MEMTEST.md, Screen)
+        check_field(4, 0, "  197.8 ");  check_field(4, 1, "      0 ");  check_field(4, 2, "   8415 ");
+        check_field(6, 1, "      3 ");
+        check_field(8, 1, "    6.5 ");
+        check_field(14, 0, "  118.0 "); check_field(14, 2, "   33.8 ");
+        check_field(15, 0, "  137.8 "); check_field(15, 1, "      0 "); check_field(15, 2, "   29.0 ");
+        check_field(17, 0, "      8 "); check_field(17, 2, "      9 ");
         check_field(29, 0, "   PASS "); check_field(29, 1, "   FAIL "); check_field(29, 2, "   PASS ");
-        check_field(1, 0, "   DONE ");  check_field(1, 1, "     26 ");
-        check_field(2, 0, "  195.0 ");  check_field(2, 1, "      0 ");  check_field(2, 2, "   8470 ");
-        check_field(19, 0, "99999.9 "); check_field(19, 1, "9999999 ");
-        check_field(19, 2, "      - ");
-        check_field(20, 0, "      - ");
+        check_field(0, 0, "   DONE ");  check_field(0, 1, "     26 ");
+        check_field(1, 0, "  195.0 ");  check_field(1, 1, "      0 ");  check_field(1, 2, "   8470 ");
+        check_field(18, 0, "99999.9 "); check_field(18, 1, "9999999 ");
+        check_field(18, 2, "      - ");
+        check_field(19, 0, "      - ");
+        check_field(27, 0, "    412 ");  check_field(27, 1, "   5870 ");  check_field(27, 2, "      0 ");
+        check_field(28, 0, "NO FILE ");  check_field(28, 1, "      - ");  check_field(28, 2, "      - ");
 
         // wait for the next frame and dump it
         @(posedge vs); @(posedge vs); #1000;

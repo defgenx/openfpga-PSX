@@ -1,6 +1,15 @@
 {
   "data": {
     "magic": "APF_VER_1",
-    "data_slots": []
+    "data_slots": [
+      {
+        "name": "Bench file",
+        "id": 1,
+        "required": false,
+        "parameters": 0,
+        "deferload": true,
+        "extensions": ["bin"]
+      }
+    ]
   }
 }

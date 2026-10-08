@@ -21,35 +21,35 @@ def row(label, h0="", h1="", h2="", head=False):
 def rows(mhz, psram, sram, dma):
     """psram, sram and dma are the header labels of those blocks (the 135 variant says which clock they ran at)."""
     r = [
-        row("PSX MEMTEST", "SYS CLK", mhz, "MHZ", HEAD),                   # 0
-        row("STATE STEP RUNS"),                                            # 1
-        row("SDRAM BYTE MASK"),                                            # 2
-        row("SDRAM 16B CL3", "MB/S", "ERR", "CYCLES", HEAD),               # 3
-        row("SEQ WRITE"),                                                  # 4
-        row("SEQ READ"),                                                   # 5
-        row("RANDOM READ"),                                                # 6
-        row("MIXED RD/WR"),                                                # 7
-        row("SCAN 640X16 US", "LATE", "WORST", "LINES", HEAD),             # 8
-        row("  ALONE"),                                                    # 9
-        row("  UNDER MIXED"),                                              # 10
-        row("MIXED UNDER SCAN", "MB/S", "ERR", "CYCLES"),                  # 11
-        row("SCAN DATA ERR"),                                              # 12
-        row(psram, "NS/OP", "ERR", "MB/S", HEAD),                          # 13
-        row("WRITE 32B"),                                                  # 14
-        row("RANDOM READ 32B"),                                            # 15
-        row("  WALL CLOCK"),                                               # 16
-        row("CHAINED READ"),                                               # 17
-        row("RD WAIT MIN/USE", "MIN", "ERRSUM", "USED"),                   # 18
-        row("SYNC BURST RD16"),                                            # 19
-        row("SYNC RANDOM RD"),                                             # 20
-        row("ADDR LINE WALK"),                                             # 21
-        row(sram, "NS/OP", "ERR", "CYCLES", HEAD),                         # 22
-        row("RANDOM WRITE"),                                               # 23
-        row("RANDOM READ"),                                                # 24
-        row("WAIT MIN RD/WR", "RD", "WR", "ERRSUM"),                       # 25
-        row(dma, "MB/S", "ERR", "CYCLES", HEAD),                           # 26
-        row("ASYNC"),                                                      # 27
-        row("SYNC BURST"),                                                 # 28
+        row("MEMTEST " + mhz + "MHZ", head=HEAD),                          # 0   state, step, runs
+        row("SDRAM BYTE MASK"),                                            # 1
+        row("SDRAM 16B CL3", "MB/S", "ERR", "CYCLES", HEAD),               # 2
+        row("SEQ WRITE"),                                                  # 3
+        row("SEQ READ"),                                                   # 4
+        row("RANDOM READ"),                                                # 5
+        row("MIXED RD/WR"),                                                # 6
+        row("SCAN 640X16 US", "LATE", "WORST", "LINES", HEAD),             # 7
+        row("  ALONE"),                                                    # 8
+        row("  UNDER MIXED"),                                              # 9
+        row("MIXED UNDER SCAN", "MB/S", "ERR", "CYCLES"),                  # 10
+        row("SCAN DATA ERR"),                                              # 11
+        row(psram, "NS/OP", "ERR", "MB/S", HEAD),                          # 12
+        row("WRITE 32B"),                                                  # 13
+        row("RANDOM READ 32B"),                                            # 14
+        row("WALL CLK/WALKERR"),                                           # 15  wall-clock ns, address-line walk errors, MB/s
+        row("CHAINED READ"),                                               # 16
+        row("RD WAIT MIN/USE", "MIN", "ERRSUM", "USED"),                   # 17
+        row("SYNC BURST RD16"),                                            # 18
+        row("SYNC RANDOM RD"),                                             # 19
+        row(sram, "NS/OP", "ERR", "CYCLES", HEAD),                         # 20
+        row("RANDOM WRITE"),                                               # 21
+        row("RANDOM READ"),                                                # 22
+        row("WAIT MIN RD/WR", "RD", "WR", "ERRSUM"),                       # 23
+        row(dma, "MB/S", "ERR", "CYCLES", HEAD),                           # 24
+        row("ASYNC"),                                                      # 25
+        row("SYNC BURST"),                                                 # 26
+        row("SLOT SEQ KB US"),                                           # 27  kB/s, worst request us, bad requests
+        row("SLOT RND KB US"),                                           # 28
         row("180NS 100M SCAN"),                                            # 29
     ]
     assert len(r) == 30

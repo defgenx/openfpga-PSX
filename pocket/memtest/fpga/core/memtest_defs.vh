@@ -73,6 +73,13 @@
 `define R_GATE      7'd57   // PSRAM random read wall clock <= 180 ns and no PSRAM address errors, DMA >= 100 MB/s, scan-out never late (0 pending, 1 pass, 2 fail)
 `define R_STATUS    7'd60   // state (0 init, 1 running, 2 done), step number, run count
 `define R_CFG       7'd63   // sync enabled, sync latency, timeout flags (63..65)
+// APF bridge throughput bench (slot_bench.v, written from the clk_74a domain; the INIT clear leaves these alone)
+`define R_SL_BASE   7'd75   // first slot-bench result
+`define R_SL_SEQ    7'd75   // sequential: kB/s (FFFFFFFF = no file), worst issue-to-last-byte us, bad requests
+`define R_SL_RND    7'd78   // random: same
+`define R_SL_SEQX   7'd81   // sequential: worst issue-to-done us, requests done, bytes received
+`define R_SL_RNDX   7'd84   // random: same
+`define R_SL_FILE   7'd87   // file size in bytes, state (0 idle, 1 running, 2 done, 3 no file, 4 timeout), expected bytes per mode
 `define R_COUNT     7'd128
 
 // engine mode codes

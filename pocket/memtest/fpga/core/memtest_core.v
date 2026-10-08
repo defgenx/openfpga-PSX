@@ -35,6 +35,10 @@ module memtest_core #(
     input  wire        res_clk_b,
     input  wire [6:0]  res_rb,
     output wire [32:0] res_rq_b,
+    // writes from the clk_74a domain (slot_bench.v): a change of slot_tog announces one, slot_wa / slot_wd are held stable
+    input  wire        slot_tog,
+    input  wire [6:0]  slot_wa,
+    input  wire [32:0] slot_wd,
     output reg  [1:0]  run_state,     // 0 init, 1 running, 2 done
 
     // SDRAM
@@ -270,8 +274,19 @@ module memtest_core #(
     reg         res_we;
     reg  [6:0]  res_wa;
     reg  [32:0] res_wd;
+    // slot_bench writes wait for a cycle in which the sequencer does not write
+    reg  [2:0]  slot_s = 3'd0;
+    reg         slot_pend = 1'b0;
+    reg  [6:0]  slot_pa;
+    reg  [32:0] slot_pd;
+    always @(posedge clk) begin
+        slot_s <= {slot_s[1:0], slot_tog};
+        if (slot_s[2] != slot_s[1]) begin slot_pend <= 1'b1; slot_pa <= slot_wa; slot_pd <= slot_wd; end
+        else if (slot_pend && !res_we) slot_pend <= 1'b0;
+    end
+    wire slot_wr = slot_pend && !res_we;
     res_ram rres (
-        .clk(clk), .we(res_we), .wa(res_wa), .wd(res_wd), .ra(res_ra), .rq(res_rq),
+        .clk(clk), .we(res_we | slot_wr), .wa(res_we ? res_wa : slot_pa), .wd(res_we ? res_wd : slot_pd), .ra(res_ra), .rq(res_rq),
         .clk_b(res_clk_b), .rb(res_rb), .rq_b(res_rq_b)
     );
 
@@ -463,7 +478,7 @@ module memtest_core #(
                         so[ST_INIT]: begin
                             if (sub == 3'd0) begin
                                 // clear the result store, then wait for the SDRAM
-                                res_we <= 1'b1; res_wa <= clr; res_wd <= 33'd0; clr <= clr + 1'b1;
+                                res_we <= (clr < `R_SL_BASE); res_wa <= clr; res_wd <= 33'd0; clr <= clr + 1'b1;
                                 if (clr == 7'd127) sub <= 3'd1;
                                 run_state <= 2'd1;
                             end

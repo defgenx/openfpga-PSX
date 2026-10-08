@@ -340,7 +340,7 @@ pll_mem pll (
 // bridge target commands
 // synchronous to clk_74a
 
-    reg             target_dataslot_read;       
+    wire            target_dataslot_read;       // driven by slot_bench
     reg             target_dataslot_write;
     reg             target_dataslot_getfile;    // require additional param/resp structs to be mapped
     reg             target_dataslot_openfile;   // require additional param/resp structs to be mapped
@@ -349,10 +349,10 @@ pll_mem pll (
     wire            target_dataslot_done;
     wire    [2:0]   target_dataslot_err;
 
-    reg     [15:0]  target_dataslot_id;
-    reg     [31:0]  target_dataslot_slotoffset;
-    reg     [31:0]  target_dataslot_bridgeaddr;
-    reg     [31:0]  target_dataslot_length;
+    wire    [15:0]  target_dataslot_id;
+    wire    [31:0]  target_dataslot_slotoffset;
+    wire    [31:0]  target_dataslot_bridgeaddr;
+    wire    [31:0]  target_dataslot_length;
     
     wire    [31:0]  target_buffer_param_struct; // to be mapped/implemented when using some Target commands
     wire    [31:0]  target_buffer_resp_struct;  // to be mapped/implemented when using some Target commands
@@ -457,6 +457,7 @@ core_bridge_cmd icb (
 //   0x80000000 restart the tests      0x80000004 PSRAM synchronous burst tests (0 off, 1 on)
 //   0x80000008 latency counter code   0x8000000C sync read sample phase
 //   0x80000010 loop (0 off, 1 on)
+// the sink window of slot_bench is 0x20xxxxxx (bridge writes of target_dataslot_read data)
 // results are readable at 0x10000000 + 4 * index (value) and 0x10000200 + 4 * index (valid flag)
 reg        restart_tog;
 reg        cfg_sync_en;
@@ -475,6 +476,34 @@ always @(posedge clk_74a) begin
         endcase
     end
 end
+
+///////////////////////////////////////////////////////////////////////////////
+// APF bridge throughput bench (clk_74a): reads the data slot, counts what lands in 0x20xxxxxx, times each request
+wire        sb_tog;
+wire [6:0]  sb_wa;
+wire [32:0] sb_wd;
+slot_bench sb (
+    .clk        ( clk_74a ),
+    .reset_n    ( reset_n ),
+    .go_tog     ( restart_tog ),
+    .bridge_wr  ( bridge_wr ),
+    .bridge_addr( bridge_addr ),
+    .dt_addr    ( datatable_addr ),
+    .dt_q       ( datatable_q ),
+    .tgt_read   ( target_dataslot_read ),
+    .tgt_id     ( target_dataslot_id ),
+    .tgt_off    ( target_dataslot_slotoffset ),
+    .tgt_baddr  ( target_dataslot_bridgeaddr ),
+    .tgt_len    ( target_dataslot_length ),
+    .tgt_ack    ( target_dataslot_ack ),
+    .tgt_done   ( target_dataslot_done ),
+    .tgt_err    ( target_dataslot_err ),
+    .res_tog    ( sb_tog ),
+    .res_wa     ( sb_wa ),
+    .res_wd     ( sb_wd )
+);
+assign datatable_wren = 1'b0;
+assign datatable_data = 32'd0;
 
 wire [7:0] cfg_s;
 synch_3 #(.WIDTH(8)) s_cfg ({cfg_loop, cfg_phase, cfg_lc, cfg_sync_en}, cfg_s, clk_sys);
@@ -519,6 +548,9 @@ memtest_core mt (
     .res_clk_b  ( clk_74a ),
     .res_rb     ( bridge_addr[8:2] ),
     .res_rq_b   ( res_rq_b ),
+    .slot_tog   ( sb_tog ),
+    .slot_wa    ( sb_wa ),
+    .slot_wd    ( sb_wd ),
     .run_state  ( run_state ),
     .dram_a     ( dram_a ),
     .dram_ba    ( dram_ba ),

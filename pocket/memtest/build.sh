@@ -85,6 +85,8 @@ simulate() {
 	sim/run.sh sd135
 	# random byte-enable masks against the model with a shadow memory, both clocks, plus an injected fault that must be caught
 	sim/run.sh be
+	# APF bridge throughput bench against a host model: normal, no file, short reads, 135 variant (MEMTEST.md, Bridge throughput bench)
+	sim/run.sh slot
 	iverilog -g2012 -o sim/out/div.vvp sim/tb_div.v fpga/core/div32.v
 	vvp_pass sim/out/div.vvp
 	iverilog -g2012 -o sim/out/screen.vvp -I fpga/core sim/tb_screen.v fpga/core/{res_ram,report_fmt,video_text}.v
