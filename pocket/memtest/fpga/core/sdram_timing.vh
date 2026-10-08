@@ -26,6 +26,14 @@
 `define SDT_135_TMRD 2
 `define SDT_135_INIT 27502
 `define SDT_135_REF 934
+// system clock of the variant `SDRAM_135 selects: frequency in Hz, period in ps
+`ifdef SDRAM_135
+  `define MT_CLK_HZ 135475200
+  `define MT_TCK_PS 7381
+`else
+  `define MT_CLK_HZ 101606400
+  `define MT_TCK_PS 9842
+`endif
 // datasheet figures in ns, for the simulation model
 `define SDT_TCK_NS 7.0
 `define SDT_TAC_NS 5.4

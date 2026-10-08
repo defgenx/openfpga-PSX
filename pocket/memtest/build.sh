@@ -3,7 +3,8 @@
 #   pocket/memtest/build.sh              compile both variants + package the release variant
 #   pocket/memtest/build.sh compile      compile the 101.6064 MHz variant (revision ap_core), 3-8 minutes under x86 emulation
 #   pocket/memtest/build.sh compile135   compile the 135.4752 MHz variant (revision ap_core_135, macro SDRAM_135)
-#   pocket/memtest/build.sh package [101|135]   package an existing fpga/output_files/<revision>.rbf (default: $RELEASE)
+#   pocket/memtest/build.sh package [101|135]   package an existing fpga/output_files/<revision>.rbf (default: $RELEASE);
+#                                        refuses if its .sta.summary is missing or has a negative slack, unless ALLOW_TIMING_FAIL=1
 #   pocket/memtest/build.sh timing [101|135]    print the worst slack per clock and model of a finished compile
 #   pocket/memtest/build.sh sim          run the simulations (Icarus Verilog)
 # Variants and the release choice: docs/pocket/MEMTEST.md, "Build".
@@ -40,17 +41,41 @@ compile() {
 	fi
 }
 
-# worst slack per clock and model, from the analyser's summary
-timing() {
+# "slack<TAB>clock and model" per entry of the analyser's summary, worst first
+slacks() {
 	local f=fpga/output_files/$(revision "$1").sta.summary
 	[ -f "$f" ] || { echo "missing $f - compile first" >&2; exit 1; }
-	awk '/^Type/ {t=$0; sub(/^Type  : /,"",t)} /^Slack/ {print $3 "\t" t}' "$f" | sort -n | head -${LINES_SHOWN:-40}
+	awk '/^Type/ {t=$0; sub(/^Type  : /,"",t)} /^Slack/ {print $3 "\t" t}' "$f" | sort -n
+}
+
+# worst slack per clock and model, from the analyser's summary
+timing() {
+	slacks "$1" | head -${LINES_SHOWN:-40}
+}
+
+# refuse a variant whose timing summary is missing or has a negative slack (ALLOW_TIMING_FAIL=1 overrides)
+timing_gate() {
+	local rev; rev=$(revision "$1")
+	local worst
+	if ! worst=$(slacks "$1" 2>&1 | head -1) || [ -z "$worst" ] || [[ $worst == missing* ]]; then
+		echo "no timing summary for $rev: ${worst:-empty fpga/output_files/$rev.sta.summary}" >&2
+		[ "${ALLOW_TIMING_FAIL:-}" = 1 ] || { echo "refusing to package; ALLOW_TIMING_FAIL=1 overrides" >&2; exit 1; }
+		return
+	fi
+	if awk -F'\t' '{exit !($1 < 0)}' <<<"$worst"; then
+		echo "$rev fails timing, worst slack ${worst%%$'\t'*} ns (${worst#*$'\t'})" >&2
+		[ "${ALLOW_TIMING_FAIL:-}" = 1 ] || { echo "refusing to package; ALLOW_TIMING_FAIL=1 overrides" >&2; exit 1; }
+		echo "ALLOW_TIMING_FAIL=1: packaging with a failing timing summary" >&2
+	else
+		echo "$rev timing met, worst slack ${worst%%$'\t'*} ns (${worst#*$'\t'})"
+	fi
 }
 
 package() {
 	local rev; rev=$(revision "$1")
 	local rbf=fpga/output_files/$rev.rbf
 	[ -f "$rbf" ] || { echo "missing $rbf - compile first" >&2; exit 1; }
+	timing_gate "$1"
 	python3 tools/reverse_bits.py "$rbf" "dist/Cores/$CORE/memtest.rbf_r"
 	# the Pocket refuses the whole core if any definition file breaks an APF limit
 	python3 tools/check_json.py

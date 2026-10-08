@@ -5,11 +5,13 @@
     tools/sdram_timing.py --check   exit 1 if a committed file differs from what the table generates
 
 Every SDRAM timing constant used by sdram_ctl.v, sim/sdram_model.v, core_constraints.sdc and
-sim/gpu_diff/bwmodel.py comes from TABLE below; docs/pocket/MEMTEST.md ("SDRAM timing table") gives
+sim/gpu_diff/bwmodel.py comes from TABLE below, and the system clock (MT_CLK_HZ, MT_TCK_PS) from
+CLOCKS; --check also compares the PLL_SYS_MHZ values in pll_mem.v with CLOCKS; docs/pocket/MEMTEST.md ("SDRAM timing table") gives
 the source of each figure and says which ones are not confirmed for the Pocket's part.
 """
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -48,6 +50,8 @@ TABLE = {
 
 # Clocks the core and the bandwidth model use, in MHz.
 CLOCKS = {"101": 101.6064, "135": 135.4752}
+# Variant selected by `SDRAM_135; the default build is the other one.
+DEFINE_135 = "135"
 
 
 def cycles(name, mhz):
@@ -76,6 +80,12 @@ def gen_vh():
         out.append(f"// {mhz} MHz")
         for k, v in derived(mhz).items():
             out.append(f"`define SDT_{key}_{k.upper()} {v}")
+    out.append("// system clock of the variant `SDRAM_135 selects: frequency in Hz, period in ps")
+    for cond, key in (("`ifdef SDRAM_135", DEFINE_135), ("`else", next(k for k in CLOCKS if k != DEFINE_135))):
+        out.append(cond)
+        out.append(f"  `define MT_CLK_HZ {round(CLOCKS[key] * 1e6)}")
+        out.append(f"  `define MT_TCK_PS {round(1e6 / CLOCKS[key])}")
+    out.append("`endif")
     out.append("// datasheet figures in ns, for the simulation model")
     for k, (ns, _, _) in TABLE.items():
         out.append(f"`define SDT_{k.upper()}_NS {ns!r}")
@@ -117,6 +127,16 @@ OUTPUTS = {
 }
 
 
+def pll_problems():
+    """Differences between the PLL_SYS_MHZ defines of pll_mem.v (`SDRAM_135 branch first) and CLOCKS."""
+    text = (CORE / "pll_mem.v").read_text()
+    found = re.findall(r'`define\s+PLL_SYS_MHZ\s+"([0-9.]+) MHz"', text)
+    want = [CLOCKS[DEFINE_135], *(v for k, v in CLOCKS.items() if k != DEFINE_135)]
+    if len(found) != len(want) or any(abs(float(f) - w) > 1e-9 for f, w in zip(found, want)):
+        return [f"pll_mem.v PLL_SYS_MHZ {found} MHz does not match CLOCKS {want} MHz"]
+    return []
+
+
 def main(argv):
     if argv not in ([], ["--check"]):
         sys.exit("usage: sdram_timing.py [--check]")
@@ -130,6 +150,8 @@ def main(argv):
             path.write_text(text)
     if stale:
         sys.exit(f"stale generated SDRAM timing files: {', '.join(stale)} (run tools/sdram_timing.py)")
+    if argv and pll_problems():
+        sys.exit("; ".join(pll_problems()))
 
 
 if __name__ == "__main__":
