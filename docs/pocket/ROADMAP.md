@@ -124,8 +124,9 @@ engine is an estimate. The SPU's remaining-lever sum counts that estimate at its
 `psx_top_pocket` (golden SPU/CPU/CD/DMA/MDEC, `gte_serial`, `gpu_pocket`, every savestate driver tied
 inactive) fits in **19,569.8 ALMs and 295 M10K** on 5CSEBA6U23I7, against 26,226.3 and 289 for `psx_min_a6`.
 That fit predates the reset sequencer. On reset release the sequencer pulses `SS_reset` for 2 clk1x cycles
-with `reset_intern` low, loading every module's power-on defaults as `savestates.vhd` does, then holds
-`reset_intern` for 61 cycles. It adds a few registers, unmeasured.
+with `reset_intern` low, loading every module's power-on defaults, then holds `reset_intern` for 61 cycles.
+Unlike `savestates.vhd`, it does not zero-load scratchpad and SPU RAM (`resetMode`, `SS_wren` is tied 0):
+after reset they keep whatever they held, as on real hardware. It adds a few registers, unmeasured.
 The blocks other than the GTE and GPU shrink by 3,812.7 ALMs in context, the savestate removal: SPU 855, CPU
 818, CD 633, DMA 409, the `savestates` module 569, the rest 528.6 (FEASIBILITY priced it at 500). `NO_MDEC`
 saves 583 ALMs, 17 M10K and 9 DSP.
@@ -185,7 +186,7 @@ Record each gate's measured numbers here when its phase ends.
 |---|---|---|---|---|---|---|
 | 0 — sizing | measured | 26,135 (options off) | 83 | ~1.9 Mbit | n/a | 2026-10-07 |
 | 1 — GTE | **PASS** | 2,490.8 needed (golden 3,917.6) | 3 (golden 15) | 9 blocks, 49,841 bits | clk2x +2.025 ns slow 85 °C, +1.599 ns slow 0 °C; hold ≥ +0.125 ns | 2026-10-07 |
-| 2 — GPU | **FAIL**: area, and worst synthetic trace 99.9% of SDRAM at 101.6 MHz (`make bw`, table-driven model); bit-exact, setup within reference. At the re-plan's 135.5 MHz the gate figure is **81.3%**, FAIL against 80% (sliding 1 ms window, SPU as random 8-byte bursts; 79.9–81.3% over the three seeds). 135.5 MHz also did not close timing in Phase 3. The bandwidth gate fails at both clocks, and the GPU is re-planned before Phase 5 | 4,785.3 needed (golden 5,481.4) | 10 (golden 32) | 27 (golden 27) | clk2x +0.763 ns slow 85 °C, +0.411 ns slow 0 °C; hold ≥ +0.079 ns | 2026-10-08 |
+| 2 — GPU | **FAIL**: area, and worst synthetic trace 99.9% of SDRAM at 101.6 MHz (`make bw`, table-driven model); bit-exact, setup within reference. At the re-plan's 135.5 MHz the gate figure is **91.2%**, FAIL against 80% (sliding 1 ms window, the SPU's 48 voice reads per sample as BL4 bursts; 90.2–91.2% over the three seeds, 75.9% without the SPU). 135.5 MHz also did not close timing in Phase 3. The bandwidth gate fails at both clocks, and the GPU is re-planned before Phase 5 | 4,785.3 needed (golden 5,481.4) | 10 (golden 32) | 27 (golden 27) | clk2x +0.763 ns slow 85 °C, +0.411 ns slow 0 °C; hold ≥ +0.079 ns | 2026-10-08 |
 | 3 — memory test core | built, **pending hardware**. 135.5 MHz variant: **timing not met**; simulation passes, and the model matches the simulation (MIXED UNDER SCAN 105.8 MB/s vs 105.8) | 5,635 (101.6 MHz, with the bridge bench of Unit 3B; 4,097 without), whole core | — | — | 101.6 MHz: met on every clock, all four corners. 135.5 MHz: SDRAM read capture −0.42 ns setup, −0.38 ns hold, no phase closes it | 2026-10-08 |
 | 4 — 4.0 baselines | **stop before 4A**: the CPU (991 to find vs 304 of levers) and SPU (1,680 vs ≤ 1,464) rules fire | `psx_top_pocket` 19,569.8 (5CSEBA6); SPU 3,079.6 / CPU 2,291.1 / CD 2,400.1 standalone | 47 | 295 | not gating | 2026-10-08 |
 

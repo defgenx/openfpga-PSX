@@ -7,9 +7,10 @@ Model and assumptions: docs/pocket/GPU.md ("SDRAM bandwidth").
   bwmodel.py --mixed [--scan] [--rnd-read] [options]
 Timings come from pocket/memtest/fpga/core/sdram_timing.json (generated from the datasheet table);
 they are converted per clock, so --mhz alone changes the clock.
-The peak is over a sliding window (any start cycle, complete windows only). SPU traffic is interleaved as
-random 8-byte BL4 read bursts at --spu-mbps. Each trace is replayed a second time with every byte enable
-forced to 0xFF and must produce identical busy intervals (partial writes are free).
+The peak is over a sliding window (any start cycle, complete windows only). SPU traffic is interleaved on
+spu.vhd's per-sample schedule, one BL4 burst per 16-bit access (--spu-voices, --spu-reverb, --spu-dma).
+Each trace is replayed a second time with every byte enable forced to 0xFF and must produce identical busy
+intervals (partial writes are free).
 Exit status 1 when --max-util is given and any trace's peak window utilisation exceeds it; 2 when a trace
 has no accesses or is shorter than one window.
 """
@@ -31,6 +32,9 @@ SC_BURSTS = 160
 SC_LINE_US = 400 / 6.3504
 SC_Y_WRAP = 480
 SPU_ROW0 = 128             # first row past VRAM's 128 rows per bank
+CLK1X_MHZ = 33.8688
+SPU_SAMPLE = 768           # clk1x cycles per 44.1 kHz sample (spu.vhd sampleticks)
+SPU_SLOT = 23              # clk1x cycles per voice slot with useSDRAM = '1' (spu.vhd RAM_WAIT)
 
 
 def load_table():
@@ -69,7 +73,13 @@ def parse_args(argv):
         p.add_argument('--' + n.lower(), type=int, default=None, help=f'override the table\'s {n}, cycles (what-if)')
     p.add_argument('--cl', type=int, default=None, help='override the table\'s CAS latency, cycles (what-if)')
     p.add_argument('--refresh-us', type=float, default=None, help='override the refresh interval (what-if)')
-    p.add_argument('--spu-mbps', type=float, default=5.0, help='SPU RAM traffic sharing the SDRAM, as random 8-byte reads')
+    p.add_argument('--spu-voices', type=int, default=24, choices=range(25), metavar='0..24',
+                   help='voices whose ADPCM data is in SDRAM: 2 halfword reads each per sample (0: no SPU traffic)')
+    p.add_argument('--spu-reverb', choices=('onchip', 'sdram'), default='onchip',
+                   help='reverb work area in the on-chip top 64 KiB, or in SDRAM: 10 reads + 4 writes per sample')
+    p.add_argument('--spu-dma', type=int, default=0, choices=range(25), metavar='0..24',
+                   help='SPU RAM transfer accesses per sample (one per voice slot at most)')
+    p.add_argument('--spu-dma-write', action='store_true', help='with --spu-dma: transfers are writes')
     p.add_argument('--window-us', type=float, default=1000.0, help='sliding utilisation window')
     p.add_argument('--max-util', type=float, default=None, help='fail if any window exceeds this (0..1)')
     p.add_argument('--mixed', action='store_true', help="predict memtest's SDRAM mixed test instead of replaying traces")
@@ -207,25 +217,60 @@ def vram_bank_row(byte_addr):
     return y % 4, y // 4
 
 
+def spu_sample(a):
+    """One sample's SPU RAM accesses that reach SDRAM: (clk1x offset, write, kind), in spu.vhd's order.
+    Voice slot i (from 23 i): header read, then a data read in the same 16-byte block, then the slot's
+    transfer access; reverb after the 24 slots. Capture writes and the top 64 KiB are on-chip (spu_ram.vhd)."""
+    acc = []
+    for i in range(24):
+        if i < a.spu_voices:
+            acc += [(SPU_SLOT * i, False, 'hdr'), (SPU_SLOT * i, False, 'data')]
+        if i < a.spu_dma:
+            acc.append((SPU_SLOT * i, a.spu_dma_write, 'dma'))
+    if a.spu_reverb == 'sdram':
+        rv = 24 * SPU_SLOT
+        acc += [(rv, False, 'rev')] * 4 + [(rv, True, 'rev')] * 2 + [(rv, False, 'rev')] * 6 + [(rv, True, 'rev')] * 2
+    return acc
+
+
+def spu_rate(a):
+    """SPU SDRAM accesses per second: (reads, writes)."""
+    acc = spu_sample(a)
+    w = sum(1 for _, wr, _ in acc if wr)
+    return (len(acc) - w) * 44100.0, w * 44100.0
+
+
 def replay(path, a, table, full_mask=False):
-    """Replay one trace (open loop) with the SPU bursts interleaved by time. full_mask forces every BE to 0xFF."""
+    """Replay one trace (open loop) with the SPU accesses interleaved by time. full_mask forces every BE to 0xFF."""
     ratio = a.mhz / CLK2X_MHZ
     sd = Sdram(a, table)
-    spu_period = 8 * a.mhz / a.spu_mbps if a.spu_mbps > 0 else None   # one 8-byte burst per period, cycles
-    spu_next = 0.0
+    sample = spu_sample(a)
+    spu_cyc = a.mhz / CLK1X_MHZ                             # SDRAM cycles per clk1x cycle
+    spu_n = 0                                               # next access, counted over all samples
+    spu_ready = 0                                           # one SPU request outstanding at a time
     spu_rnd = 0x2545F491
+    spu_word = 0
     scan_lat = []
     wait = 0
     last = 0
     n_acc = n_partial = 0
 
     def spu_until(t):
-        nonlocal spu_next, spu_rnd
-        while spu_period is not None and spu_next <= t:
-            word = (spu_rnd & 0xFFFF) << 2                  # random burst in a 512 KiB region above VRAM's rows
+        nonlocal spu_n, spu_ready, spu_rnd, spu_word
+        while sample:
+            k, i = divmod(spu_n, len(sample))
+            off, write, kind = sample[i]
+            due = max(math.ceil((k * SPU_SAMPLE + off) * spu_cyc), spu_ready)
+            if due > t:
+                return
+            if kind == 'data':
+                spu_word += 1 + (spu_rnd & 6)                   # same 16-byte block as the header
+            else:
+                spu_word = (spu_rnd & 0x3FFF8) if kind == 'hdr' else spu_rnd & 0x3FFFF   # random, 512 KiB
             spu_rnd = xs32(spu_rnd)
-            sd.access(sd.accept_time(math.ceil(spu_next)), False, (word >> 10) & 3, SPU_ROW0 + (word >> 12))
-            spu_next += spu_period
+            c, e = sd.access(sd.accept_time(due), write, (spu_word >> 10) & 3, SPU_ROW0 + (spu_word >> 12))
+            spu_ready = (c + sd.bl if write else e) + 1
+            spu_n += 1
 
     with open(path) as f:
         for line in f:
@@ -235,9 +280,10 @@ def replay(path, a, table, full_mask=False):
             n_acc += 1
             write = rw == 'W'
             beats = int(beats)
+            n_partial += write and int(be, 16) != 0xFF
+            if full_mask:
+                be = 'FF'
             partial = write and int(be, 16) != 0xFF
-            n_partial += partial
-            partial = partial and not full_mask
             t = math.ceil(int(cyc) * ratio)
             spu_until(t)
             base = int(addr, 16)
@@ -346,6 +392,9 @@ def main(argv):
         print(f"BW {name} @ {a.mhz:g} MHz: {r['ops']} bursts in {r['cycles']} cycles "
               f"= {r['mbps']:.1f} MB/s (bench bytes only){extra}  refreshes {r['refreshes']}")
         return 0
+    rd, wr = spu_rate(a)
+    print(f"BW SPU: {a.spu_voices} voices, reverb {a.spu_reverb}, {a.spu_dma} transfers per sample"
+          f" = {rd / 1e6:.2f} M reads/s + {wr / 1e6:.2f} M writes/s, one BL4 burst each")
     worst = 0.0
     for t in a.traces:
         try:

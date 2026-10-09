@@ -177,14 +177,22 @@ which follows the command timing of `pocket/memtest/fpga/core/sdram_ctl.v`:
 - Utilisation is the fraction of cycles from a request's decode to the end of its data slot, plus
   refresh. The peak is the maximum over all window start cycles (the exact maximum, from prefix sums
   over the busy intervals), complete windows only.
-- **SPU traffic is simulated, not a uniform add-on.** `sdram_ctl` serves only BL4 bursts and SPU RAM
-  accesses are random, so the SPU's 5 MB/s (`--spu-mbps`) is replayed as 8-byte BL4 reads (4 words on
-  the 16-bit bus), one every 1.6 µs, at random addresses of a 512 KiB region in the rows above VRAM's
-  (same four banks). They go through the same controller as the trace, so each pays its row misses
-  and read-to-write turnarounds and also closes rows the GPU had open. A 5 MB/s random-read stream
-  alone costs 8.74 cycles per burst at 135.4752 MHz (`--mixed --rnd-read`: 572,581 cycles for 65,536
-  bursts), 4.0 points; interleaved, it adds 5.2 to 5.7 points to the peak. Smaller accesses would cost
-  more; the SPU's real access size and mix are an assumption.
+- **SPU traffic is simulated on `spu.vhd`'s own schedule.** With `useSDRAM = '1'` every SPU RAM
+  access is one 16-bit halfword (`spu_ram.vhd:220-226`, `sdram_be "0011"`), so each costs one BL4
+  burst. Per 44.1 kHz sample (768 clk1x cycles):
+  - Each of the 24 voices reads its ADPCM header and one data halfword, whatever its pitch or key
+    state (`spu.vhd:1504-1506`, `:1542-1547`, `:1594-1598`): 48 reads. A voice slot lasts at least 23
+    clk1x cycles (`:1931`); the two reads are in one 16-byte block.
+  - Reverb, when enabled, reads 10 and writes 4 halfwords (`:1985-2221`). Capture writes
+    (`:2261-2302`) and every access in the top 64 KiB stay on-chip (`spu_ram.vhd:144`, `:165`). The
+    standard reverb presets' work areas (≤ 63,168 bytes) end at the top of SPU RAM, so they are
+    on-chip.
+  - A RAM transfer takes at most one access per voice slot (`spu.vhd:1884-1896`): 24.
+  The gate charges the 48 voice reads: 2.12 M bursts/s, random in a 512 KiB region in the rows above
+  VRAM's (same four banks), one outstanding at a time. `--spu-voices`, `--spu-reverb sdram` and
+  `--spu-dma` change the charge. The accesses go through the same controller as the trace, so each
+  pays its row misses and read-to-write turnarounds and closes rows the GPU had open. Interleaved,
+  they add 15.3 to 16.9 points to the peak at 135.4752 MHz.
 
 Against the previous model (every read paid its full CAS before the next command, no decode
 overlap, tRCD/tRP/tRC fixed for 101.6 MHz at both clocks) this is closer to `sdram_ctl`: the
@@ -219,9 +227,9 @@ hardware, a trace-replay check replaces it before the 80% is trusted.
 
 ## Measurements
 
-Measured 2026-10-08. Gate result: **FAIL**, on area and on SDRAM bandwidth at the 101.6 MHz the gate was
+Measured 2026-10-08, bandwidth 2026-10-09. Gate result: **FAIL**, on area and on SDRAM bandwidth at the 101.6 MHz the gate was
 written for. The re-plan (ROADMAP Phase 4) accepted it with the SDRAM at 135.4752 MHz, where the
-bandwidth gate figure is 81.3% (FAIL against 80%; see Bandwidth). That clock also does not close static
+bandwidth gate figure is 91.2% (FAIL against 80%; see Bandwidth). That clock also does not close static
 timing on the Pocket's SDRAM read capture (MEMTEST.md), and the bandwidth gate is FAIL at 101.6 MHz
 too, so the GPU is re-planned before Phase 5.
 
@@ -231,7 +239,7 @@ too, so the GPU is re-planned before Phase 5.
 | DSP | ≤ 10 | 32 | 10 | pass |
 | M10K | — | 27 | 27 | |
 | Setup vs reference (per triangle) | ≤ max(golden, reference) | — | 4,094 checked, 0 over | pass |
-| Worst trace, sliding 1 ms peak with simulated SPU traffic, SDRAM at 135.4752 MHz (the gate figure `make bw` prints) | ≤ 80% | 81.3% | 80.7% | FAIL |
+| Worst trace, sliding 1 ms peak with simulated SPU traffic, SDRAM at 135.4752 MHz (the gate figure `make bw` prints) | ≤ 80% | 91.2% | 91.0% | FAIL |
 | Same, SDRAM at 101.6064 MHz (report only) | ≤ 80% | 99.9% | 99.9% | FAIL |
 | Bit-exact (VRAM, GPUREAD, GPUSTAT data, spans) | 0 mismatches | — | 0 over 12,825 commands | pass |
 
@@ -252,30 +260,33 @@ Average setup in clk2x, golden → `gpu_pocket`: flat 62.6 → 57.0, gouraud 129
 under the reference (334 / 496).
 
 **Bandwidth** (`make bw SEEDS="1 2 3"`, game-like traces, sliding-window peak over any complete 1 ms
-window, SPU 5 MB/s as random 8-byte BL4 reads interleaved, golden / `gpu_pocket`):
+window, the SPU's 48 voice reads per sample interleaved as BL4 bursts, golden / `gpu_pocket`):
 
 | SDRAM clock | seed 1 | seed 2 | seed 3 |
 |---|---|---|---|
-| 135.4752 MHz (4 × clk1x, gating) | 81.1% / 80.7% | 81.3% / 80.1% | 79.9% / 79.4% |
+| 135.4752 MHz (4 × clk1x, gating) | 91.2% / 91.0% | 91.2% / 90.8% | 90.9% / 90.2% |
 | 101.6064 MHz (3 × clk1x, report) | 99.9% / 99.9% | 99.9% / 99.9% | 99.9% / 99.9% |
 
-At 135.4752 MHz four of the six traces (both sides of seeds 1 and 2) are above 80%: the gate is not met with the SPU charged as random bursts. The same traces without SPU traffic
-(`--spu-mbps 0`) peak at 75.4% / 75.1%, 75.9% / 74.7%, 74.0% / 73.4% at 135.4752 MHz and 98.0% / 97.3%,
-96.7% / 96.2%, 97.1% / 96.5% at 101.6064 MHz. Mean utilisation at 135.4752 MHz is 48 to 50%.
+At 135.4752 MHz all six traces are above 80%. The same traces without SPU traffic (`--spu-voices 0`)
+peak at 75.4% / 75.1%, 75.9% / 74.7%, 74.0% / 73.4% at 135.4752 MHz and 98.0% / 97.3%, 96.7% / 96.2%,
+97.1% / 96.5% at 101.6064 MHz. Mean utilisation at 135.4752 MHz is 57 to 59%. On the same busy
+intervals, the peak over aligned, non-overlapping 1 ms windows is 2.0 to 4.8 points lower than the
+sliding peak.
 
-The earlier figures (74.7% / 74.4%, 74.7% / 74.6%, 71.0% / 71.7% at 135.4752 MHz) were the peak over
-aligned, non-overlapping 1 ms windows with the SPU added as a uniform 1.8 points; the sliding window
-alone raises them by about 0.7 to 1.9 points and the SPU model by a further 4 to 5.
+Heavier SPU charges, worst trace at 135.4752 MHz: reverb work area in SDRAM (`--spu-reverb sdram`, 2.56 M
+reads + 0.18 M writes/s) 95.7%; a RAM transfer in every voice slot (`--spu-dma 24`, 3.18 M reads/s)
+98.2%, as writes (`--spu-dma-write`) 97.7%; both 99.1%. With 16 voices in SDRAM (`--spu-voices 16`,
+1.41 M reads/s) 86.6%.
 
 How far these figures overstate a game:
 - The generator issues primitives back to back with no CPU or GTE time between them, so it draws
   at the GPU's full fill rate for the whole trace. A game interleaves other work.
 - The model charges every `sdram_ctl` overhead (see above). Seed 1, golden / `gpu_pocket`,
-  no tRCD, tRP, tRAS, tRC or tRRD (`--trcd 0 --trp 0 --tras 0 --trc 0 --trrd 0`): 70.3% / 69.8%
-  at 135.4752 MHz, 94.5% / 93.7% at 101.6064 MHz. Every overhead off (also `--twr 0 --trfc 0
+  no tRCD, tRP, tRAS, tRC or tRRD (`--trcd 0 --trp 0 --tras 0 --trc 0 --trrd 0`): 78.9% / 78.1%
+  at 135.4752 MHz, 97.5% / 97.4% at 101.6064 MHz. Every overhead off (also `--twr 0 --trfc 0
   --refresh-us 1e9 --cl -2`, which removes the read-to-write turnaround), data beats and the SPU
-  bursts only: 66.5% / 66.0% and 88.0% / 87.3%; without the SPU traffic (`--spu-mbps 0`) 64.5% / 64.1%
+  bursts only: 71.1% / 70.7% and 93.7% / 93.1%; without the SPU traffic (`--spu-voices 0`) 64.5% / 64.1%
   and 85.5% / 84.8%. At 101.6064 MHz the FAIL holds even for an ideal controller.
 - `bwmodel.py` also prints a peak per scanline (`peak/line`). For an open-loop trace it only shows
-  that some line-length window is saturated: it reads 100% plus the SPU term at either clock and
-  says nothing about how long the GPU would stall.
+  that some line-length window is saturated: it reads 99.9% at either clock and says nothing about
+  how long the GPU would stall.
