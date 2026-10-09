@@ -11,7 +11,7 @@ end entity;
 
 architecture sim of tb_mixed is
    constant T : time := 1230229 fs;  -- 1 / 812.8512 MHz, all clocks are exact multiples
-   signal clk1x, clk2x, clk3x, clk_sys, clk_sd, clk_cap, clkvid : std_logic := '0';
+   signal clk1x, clk2x, clk3x, clk_sys, clk_sd, clk_dq, clkvid : std_logic := '0';
    signal reset : std_logic := '1';
 
    signal c_isPaused : std_logic;
@@ -641,7 +641,10 @@ architecture sim of tb_mixed is
    signal g_ddr3_dout : std_logic_vector(63 downto 0);
    signal g_ram_data_read, g_spuram_data_read : std_logic_vector(31 downto 0);
    signal g_memcard1_data_in : std_logic_vector(15 downto 0);
-   signal a_valid, a_ready, a_we, b_valid, b_ready, a_rvalid, b_rvalid, sd_init_done : std_logic;
+   signal a_valid, a_ready, a_we, b_valid, b_ready, a_rvalid, b_rvalid, sd_init_done, cal_ok : std_logic;
+   signal cal_width, cal_centre : std_logic_vector(6 downto 0);
+   signal cal_moves : std_logic_vector(15 downto 0);
+   signal cal_flags : std_logic_vector(3 downto 0);
    signal a_addr, b_addr : std_logic_vector(24 downto 0);
    signal a_wdata, r_data : std_logic_vector(63 downto 0);
    signal a_be : std_logic_vector(7 downto 0);
@@ -729,8 +732,12 @@ architecture sim of tb_mixed is
 
    component sdram_bench is
       port (
-         clk, clk_cap, clk_sd, rst : in std_logic;
+         clk, clk_sd, clk_dq, rst : in std_logic;
          init_done : out std_logic;
+         cal_ok : out std_logic;
+         cal_width, cal_centre : out std_logic_vector(6 downto 0);
+         cal_moves : out std_logic_vector(15 downto 0);
+         cal_flags : out std_logic_vector(3 downto 0);
          req_valid : in std_logic; req_ready : out std_logic; req_we : in std_logic;
          req_addr : in std_logic_vector(24 downto 0);
          req_wdata : in std_logic_vector(63 downto 0);
@@ -746,8 +753,8 @@ begin
    clk3x   <= not clk3x   after 4 * T;
    clk_sys <= not clk_sys after 3 * T;
    clkvid  <= not clkvid  after 64 * T;
-   clk_sd  <= transport clk_sys after 4767 ps;
-   clk_cap <= transport clk_sys after 2614 ps;
+   clk_sd  <= transport clk_sys after 4459 ps;
+   clk_dq  <= transport clk_sd after 1520 ps;
    reset   <= '0' after 40 * 24 * T;
    -- the real core stays in reset with stopped clocks: it is bound and elaborated, not run
    core_clk1x <= '0'; core_clk2x <= '0'; core_clk3x <= '0'; core_clkvid <= '0';
@@ -1358,7 +1365,8 @@ begin
 
    bench : sdram_bench
       port map (
-         clk => clk_sys, clk_cap => clk_cap, clk_sd => clk_sd, rst => rst_sys, init_done => sd_init_done,
+         clk => clk_sys, clk_sd => clk_sd, clk_dq => clk_dq, rst => rst_sys, init_done => sd_init_done,
+         cal_ok => cal_ok, cal_width => cal_width, cal_centre => cal_centre, cal_moves => cal_moves, cal_flags => cal_flags,
          req_valid => c_valid, req_ready => c_ready, req_we => c_we, req_addr => c_addr,
          req_wdata => c_wdata, req_be => c_be, req_tag => c_tag,
          rd_valid => c_rvalid, rd_data => c_rdata, rd_tag => c_rtag);
@@ -1379,10 +1387,14 @@ begin
 
    check : process
    begin
-      wait for 260 us;
-      report "sdram init_done=" & std_logic'image(sd_init_done) & " ram_ena pulses=" & integer'image(ram_ena_count)
+      wait for 1500 us;
+      report "sdram init_done=" & std_logic'image(sd_init_done) & " cal_ok=" & std_logic'image(cal_ok)
+         & " eye width=" & integer'image(to_integer(unsigned(cal_width))) & " centre=" & integer'image(to_integer(unsigned(cal_centre)))
+         & " moves=" & integer'image(to_integer(unsigned(cal_moves))) & " flags=" & integer'image(to_integer(unsigned(cal_flags)))
+         & "," & " ram_ena pulses=" & integer'image(ram_ena_count)
          & " sdram requests accepted=" & integer'image(sdram_cmd_count);
-      assert sd_init_done = '1' report "SDRAM controller did not initialise" severity failure;
+      assert sd_init_done = '1' report "SDRAM controller did not initialise and calibrate" severity failure;
+      assert cal_ok = '1' report "SDRAM capture calibration found no eye" severity failure;
       assert sdram_cmd_count > 0 report "no SDRAM request went through the Verilog controllers" severity failure;
       report "PASS";
       std.env.finish;

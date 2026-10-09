@@ -1,8 +1,10 @@
 `timescale 1ns/1ps
 // Untimed-checks SDRAM model for the mixed-language spike: ACT, READ, WRITE, mode register, 4 banks, BL4/CL from the mode
-// register; read data leaves 2 ns after the clock edge. Plain Verilog-2001 that nvc accepts (no arrays of real).
+// register; read data is put on dq at the clk_dq edge that follows the (CL+1)-th clock edge, because nvc ignores
+// intra-assignment delays. Plain Verilog-2001 that nvc accepts (no arrays of real).
 module sdram_simple (
     input  wire        clk,
+    input  wire        clk_dq,           // clk delayed by the data path (access time plus pad delay) less whole cycles
     input  wire [12:0] a,
     input  wire [1:0]  ba,
     inout  wire [15:0] dq,
@@ -16,6 +18,8 @@ module sdram_simple (
     reg [15:0] sd0 [0:15];
     reg [15:0] dq_r;
     reg        dq_oe;
+    reg        nx_oe;
+    reg [15:0] nx_dq;
     reg [1:0]  wr_beat;
     reg        wr_on;
     reg [18:0] wr_addr;
@@ -44,8 +48,8 @@ module sdram_simple (
                     endcase
             3'b101: begin
                         for (i = 0; i < 4; i = i + 1) begin
-                            sv[cl - 1 + i] = 1'b1;
-                            sd0[cl - 1 + i] = mem[{caddr[18:2], 2'd0} + i];
+                            sv[cl + 1 + i] = 1'b1;
+                            sd0[cl + 1 + i] = mem[{caddr[18:2], 2'd0} + i];
                         end
                     end
             3'b100: begin
@@ -54,7 +58,12 @@ module sdram_simple (
                     end
             default: ;
         endcase
-        dq_oe <= #2.0 sv[0];
-        dq_r  <= #2.0 sd0[0];
+        nx_oe = sv[0];
+        nx_dq = sd0[0];
+    end
+
+    always @(posedge clk_dq) begin
+        dq_oe <= nx_oe;
+        dq_r  <= nx_dq;
     end
 endmodule

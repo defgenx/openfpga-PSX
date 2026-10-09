@@ -1,90 +1,40 @@
-// Clocks from the 74.25 MHz reference, one 812.8512 MHz VCO (fractional): the core clocks clk1x /24, clk2x /12,
-// clk3x /8, the SDRAM system clock /6 with its pin and read-capture phases, and a placeholder 6.3504 MHz
-// pixel clock with its 90 degree copy. The 53.693 MHz pixel clock is not an integer division of the VCO.
-// Phase shifts are multiples of 1/8 VCO period (153.8 ps). See docs/pocket/POCKET_TOP.md.
-`timescale 1ns/10ps
+// Port names of the generated PLL (pll_psx_dps.v, from tools/gen_pll.sh). One 812.8512 MHz fractional VCO:
+// clk_sys, clk_sd, clk_cap /6; clk1x /24; clk2x /12; clk3x /8; placeholder pixel clock /128 and its 90 degree copy.
+// clk_cap is counter 2 and the calibration moves it; clk1x is its scan clock. docs/pocket/POCKET_TOP.md, "Clocks".
 module pll_psx (
 	input  wire refclk,
 	input  wire rst,
-	output wire clk1x,
-	output wire clk2x,
-	output wire clk3x,
 	output wire clk_sys,
 	output wire clk_sd,
 	output wire clk_cap,
+	output wire clk1x,
+	output wire clk2x,
+	output wire clk3x,
 	output wire clk_vid,
 	output wire clk_vid_90,
-	output wire locked
+	output wire locked,
+	input  wire phase_en,       // clk1x domain
+	input  wire updn,           // 1: delay clk_cap by one step
+	output wire phase_done      // clk1x domain
 );
 
-	altera_pll #(
-		.fractional_vco_multiplier("true"),
-		.reference_clock_frequency("74.25 MHz"),
-		.operation_mode("direct"),
-		.number_of_clocks(8),
-		.output_clock_frequency0("33.8688 MHz"),
-		.phase_shift0("0 ps"),
-		.duty_cycle0(50),
-		.output_clock_frequency1("67.7376 MHz"),
-		.phase_shift1("0 ps"),
-		.duty_cycle1(50),
-		.output_clock_frequency2("101.6064 MHz"),
-		.phase_shift2("0 ps"),
-		.duty_cycle2(50),
-		.output_clock_frequency3("135.4752 MHz"),
-		.phase_shift3("0 ps"),
-		.duty_cycle3(50),
-		.output_clock_frequency4("135.4752 MHz"),
-		.phase_shift4("4767 ps"),
-		.duty_cycle4(50),
-		.output_clock_frequency5("135.4752 MHz"),
-		.phase_shift5("2614 ps"),
-		.duty_cycle5(50),
-		.output_clock_frequency6("6.3504 MHz"),
-		.phase_shift6("0 ps"),
-		.duty_cycle6(50),
-		.output_clock_frequency7("6.3504 MHz"),
-		.phase_shift7("39368 ps"),
-		.duty_cycle7(50),
-		.output_clock_frequency8("0 MHz"),
-		.phase_shift8("0 ps"),
-		.duty_cycle8(50),
-		.output_clock_frequency9("0 MHz"),
-		.phase_shift9("0 ps"),
-		.duty_cycle9(50),
-		.output_clock_frequency10("0 MHz"),
-		.phase_shift10("0 ps"),
-		.duty_cycle10(50),
-		.output_clock_frequency11("0 MHz"),
-		.phase_shift11("0 ps"),
-		.duty_cycle11(50),
-		.output_clock_frequency12("0 MHz"),
-		.phase_shift12("0 ps"),
-		.duty_cycle12(50),
-		.output_clock_frequency13("0 MHz"),
-		.phase_shift13("0 ps"),
-		.duty_cycle13(50),
-		.output_clock_frequency14("0 MHz"),
-		.phase_shift14("0 ps"),
-		.duty_cycle14(50),
-		.output_clock_frequency15("0 MHz"),
-		.phase_shift15("0 ps"),
-		.duty_cycle15(50),
-		.output_clock_frequency16("0 MHz"),
-		.phase_shift16("0 ps"),
-		.duty_cycle16(50),
-		.output_clock_frequency17("0 MHz"),
-		.phase_shift17("0 ps"),
-		.duty_cycle17(50),
-		.pll_type("General"),
-		.pll_subtype("General")
-	) altera_pll_i (
-		.rst      (rst),
-		.outclk   ({clk_vid_90, clk_vid, clk_cap, clk_sd, clk_sys, clk3x, clk2x, clk1x}),
-		.locked   (locked),
-		.fboutclk (),
-		.fbclk    (1'b0),
-		.refclk   (refclk)
+	pll_psx_dps pll (
+		.refclk     (refclk),
+		.rst        (rst),
+		.outclk_0   (clk_sys),
+		.outclk_1   (clk_sd),
+		.outclk_2   (clk_cap),
+		.outclk_3   (clk1x),
+		.outclk_4   (clk2x),
+		.outclk_5   (clk3x),
+		.outclk_6   (clk_vid),
+		.outclk_7   (clk_vid_90),
+		.locked     (locked),
+		.phase_en   (phase_en),
+		.scanclk    (clk1x),
+		.updn       (updn),
+		.cntsel     (5'd2),
+		.phase_done (phase_done)
 	);
 
 endmodule

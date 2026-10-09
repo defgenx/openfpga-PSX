@@ -311,7 +311,7 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_RETIMING ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
-set_global_assignment -name FITTER_EFFORT "AUTO FIT"
+set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 set_global_assignment -name ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION ON
 
 # Assembler Assignments
@@ -724,6 +724,9 @@ set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_dq[*]
 set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to dram_dq[*]
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq[*]
 
+# generated PLL (tools/gen_pll.sh); the IP generator's own assignments
+set_instance_assignment -name PLL_COMPENSATION_MODE DIRECT -to "*pll_psx_dps*|altera_pll:altera_pll_i*|*"
+set_instance_assignment -name UNFORCE_MERGE_PLL_OUTPUT_COUNTER ON -to "*pll_psx_dps*|altera_pll:altera_pll_i*|*"
 
 # ---- PSX shell sources
 set_global_assignment -name VERILOG_MACRO "SDRAM_135=1"
@@ -733,8 +736,10 @@ set_global_assignment -name QIP_FILE ../../common/apf/apf.qip
 set_global_assignment -name VERILOG_FILE core/core_top.v
 set_global_assignment -name VERILOG_FILE core/core_bridge_cmd.v
 set_global_assignment -name VERILOG_FILE core/pll_psx.v
+set_global_assignment -name VERILOG_FILE core/pll_psx_dps.v
 set_global_assignment -name VERILOG_FILE ../../common/mem/sd_clk_out.v
 set_global_assignment -name VERILOG_FILE ../../common/mem/sdram_ctl.v
+set_global_assignment -name VERILOG_FILE ../../common/mem/sdram_cal.v
 set_global_assignment -name VERILOG_FILE ../../common/mem/sdram_arb.v
 set_global_assignment -name VERILOG_FILE ../../common/mem/psram32.v
 set_global_assignment -name VERILOG_FILE ../../common/mem/sram_ctl.v
@@ -743,5 +748,7 @@ set_global_assignment -name VERILOG_FILE core/mem_glue_placeholder.v
 set_global_assignment -name VERILOG_FILE core/psx_top_stub.v
 
 # build with the same effort the other Pocket cores use
+# the fit that meets sdram_cal's centre -> cmax path (seed 1 misses it by 0.19 ns, slow 0 C)
+set_global_assignment -name SEED 2
 set_global_assignment -name NUM_PARALLEL_PROCESSORS 2
 set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:../../common/apf/build_id_gen.tcl"

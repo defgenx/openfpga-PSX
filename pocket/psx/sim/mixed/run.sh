@@ -35,7 +35,7 @@ $NVC --work=work:$OUT/work -L $OUT -a --relaxed $MEMS $FILES "$P/psx/fpga/core/p
 # the stub and the flat wrapper share one name; rename the stub copy so both live in one library
 sed 's/^module psx_top_pocket_flat /module psx_top_stub_sim /' "$P/psx/fpga/core/psx_top_stub.v" > psx_top_stub_sim.v
 $NVC --work=work:$OUT/work -L $OUT -a --relaxed -D SDRAM_135=1 -I "$P/common/mem" \
-	"$OUT/psx_top_stub_sim.v" "$P/psx/fpga/core/mem_glue_placeholder.v" "$P/common/mem/sdram_arb.v" "$P/common/mem/sdram_ctl.v" \
+	"$OUT/psx_top_stub_sim.v" "$P/psx/fpga/core/mem_glue_placeholder.v" "$P/common/mem/sdram_arb.v" "$P/common/mem/sdram_ctl.v" "$P/common/mem/sdram_cal.v" "$HERE/pll_dps_nvc.v" \
 	"$HERE/sdram_simple.v" "$HERE/sdram_bench.v" "$HERE/tb_mixed.vhd"
 $NVC --work=work:$OUT/work -L $OUT -e tb_mixed
 $NVC --work=work:$OUT/work -L $OUT -r --ieee-warnings=off tb_mixed 2>&1 | tee "$OUT/run.log" | grep -v 'metavalue\|^ *Function\|^ *Port conversion\|^ *Process\|^ *Procedure\|^$'

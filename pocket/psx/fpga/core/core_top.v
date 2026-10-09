@@ -266,8 +266,10 @@ assign vpll_feed = 1'bZ;
 
 ///////////////////////////////////////////////////////////////////////////////
 // clocks: 74.25 MHz in; clk1x/clk2x/clk3x 33.8688/67.7376/101.6064 MHz, clk_sys 135.4752 MHz with the SDRAM
-// pin clock clk_sd and the read capture clock clk_cap, and the placeholder pixel clock pair
+// pin clock clk_sd and the read capture clock clk_cap (moved by the calibration, scan clock clk1x), and the
+// placeholder pixel clock pair
 wire clk1x, clk2x, clk3x, clk_sys, clk_sd, clk_cap, clk_vid, clk_vid_90;
+wire ps_en, ps_up, ps_done;
 wire pll_core_locked;
 wire pll_core_locked_s;
 synch_3 s01(pll_core_locked, pll_core_locked_s, clk_74a);
@@ -283,7 +285,10 @@ pll_psx pll (
     .clk_cap    ( clk_cap ),
     .clk_vid    ( clk_vid ),
     .clk_vid_90 ( clk_vid_90 ),
-    .locked     ( pll_core_locked )
+    .locked     ( pll_core_locked ),
+    .phase_en   ( ps_en ),
+    .updn       ( ps_up ),
+    .phase_done ( ps_done )
 );
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -429,6 +434,17 @@ always @(posedge clk_sys) begin
 end
 reg rst_sys;
 always @(posedge clk_sys) rst_sys <= (rst_cnt != 0);
+wire pll_locked_sys;
+synch_3 s_pl (pll_core_locked, pll_locked_sys, clk_sys);
+
+// SDRAM capture tracking window: one pulse per 16 frames at 59.94 Hz. The core's vertical blank replaces it.
+localparam [25:0] CAL_PERIOD = 26'd36_162_880;
+reg [25:0] cal_cnt = 26'd0;
+reg        cal_tick;
+always @(posedge clk_sys) begin
+    cal_tick <= (cal_cnt == 26'd0);
+    cal_cnt  <= (rst_sys || cal_cnt == 26'd0) ? CAL_PERIOD - 26'd1 : cal_cnt - 26'd1;
+end
 
 ///////////////////////////////////////////////////////////////////////////////
 // the PSX core (stub until the VHDL entity replaces it)
@@ -1039,6 +1055,10 @@ wire         sr_start, sr_we, sr_busy, sr_done;
 wire [17:0]  sr_addr;
 wire [7:0]   sr_wdata, sr_rdata;
 wire         sd_init_done;
+wire         cal_done, cal_ok;
+wire [6:0]   cal_width, cal_boot, cal_centre, cal_min, cal_max;
+wire [15:0]  cal_moves;
+wire [3:0]   cal_flags;
 
 mem_glue_placeholder glue (
     .clk_sys ( clk_sys ), .clk3x ( clk3x ), .clk2x ( clk2x ), .clk1x ( clk1x ),
@@ -1082,6 +1102,9 @@ sdram_arb arb (
 
 sdram_ctl sdc (
     .clk(clk_sys), .clk_cap(clk_cap), .rst(rst_sys), .init_done(sd_init_done),
+    .pll_locked(pll_locked_sys), .cal_tick(cal_tick), .clk_scan(clk1x), .ps_en(ps_en), .ps_up(ps_up), .ps_done(ps_done),
+    .cal_done(cal_done), .cal_ok(cal_ok), .cal_width(cal_width), .cal_boot(cal_boot), .cal_centre(cal_centre),
+    .cal_min(cal_min), .cal_max(cal_max), .cal_moves(cal_moves), .cal_flags(cal_flags),
     .req_valid(c_valid), .req_ready(c_ready), .req_we(c_we), .req_addr(c_addr),
     .req_wdata(c_wdata), .req_be(c_be), .req_tag(c_tag),
     .rd_valid(c_rvalid), .rd_data(c_rdata), .rd_tag(c_rtag),
@@ -1151,9 +1174,22 @@ assign video_hs           = vid_hs;
 // bridge reads: command handler, and the stub's memory-card stream for the slot windows
 wire [31:0] rd_pool;
 synch_3 #(.WIDTH(32)) s_rd ({psx_memcard1_dataOut, psx_memcard1_dataOut} ^ {psx_cd_hps_lba[15:0], psx_cd_hps_lba[31:16]}, rd_pool, clk_74a);
+
+// SDRAM calibration status, read-only words at 0x80000100 + 4*i (quasi-static, crossed without a handshake):
+//   0: [0] init_done [1] cal_done [2] cal_ok [3] PLL locked [7:4] cal_flags
+//   1: [6:0] cal_width [14:8] cal_boot [22:16] cal_centre    2: [6:0] cal_min [14:8] cal_max
+//   3: [15:0] cal_moves                                       4: [15:0] tracking windows started
+reg [15:0] cal_ticks;
+always @(posedge clk_sys) if (cal_tick && !rst_sys) cal_ticks <= cal_ticks + 16'd1; else if (rst_sys) cal_ticks <= 16'd0;
+wire [159:0] cal_st_sys = {16'd0, cal_ticks, 16'd0, cal_moves, 17'd0, cal_max, 1'b0, cal_min, 9'd0, cal_centre, 1'b0, cal_boot, 1'b0, cal_width,
+                           24'd0, cal_flags, pll_locked_sys, cal_ok, cal_done, sd_init_done};
+wire [159:0] cal_st;
+synch_3 #(.WIDTH(160)) s_cal (cal_st_sys, cal_st, clk_74a);
+
 always @(*) begin
     casex (bridge_addr)
     32'h4xxxxxxx: bridge_rd_data <= rd_pool ^ datatable_q;
+    32'h800001xx: bridge_rd_data <= (bridge_addr[7:2] < 6'd5) ? cal_st[{bridge_addr[4:2], 5'd0} +: 32] : 32'd0;
     32'hF8xxxxxx: bridge_rd_data <= cmd_bridge_rd_data;
     default:      bridge_rd_data <= 0;
     endcase
