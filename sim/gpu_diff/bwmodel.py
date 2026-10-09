@@ -5,7 +5,7 @@ memtest's closed-loop MIXED / MIXED UNDER SCAN throughput with the same controll
 Model and assumptions: docs/pocket/GPU.md ("SDRAM bandwidth").
   bwmodel.py [options] TRACE...
   bwmodel.py --mixed [--scan] [--rnd-read] [options]
-Timings come from pocket/memtest/fpga/core/sdram_timing.json (generated from the datasheet table);
+Timings come from pocket/common/mem/sdram_timing.json (generated from the datasheet table);
 they are converted per clock, so --mhz alone changes the clock.
 The peak is over a sliding window (any start cycle, complete windows only). SPU traffic is interleaved on
 spu.vhd's per-sample schedule, one BL4 burst per 16-bit access (--spu-voices, --spu-reverb, --spu-dma).
@@ -27,9 +27,7 @@ import sys
 CLK2X_MHZ = 67.7376
 LINE_US = 63.5555          # NTSC scanline
 HERE = os.path.dirname(os.path.abspath(__file__))
-TIMING_JSON = next((p for p in (os.path.join(HERE, '..', '..', 'pocket', *d, 'sdram_timing.json')
-                                for d in (('common', 'mem'), ('memtest', 'fpga', 'core'))) if os.path.exists(p)),
-                   os.path.join(HERE, '..', '..', 'pocket', 'common', 'mem', 'sdram_timing.json'))
+TIMING_JSON = os.path.join(HERE, '..', '..', 'pocket', 'common', 'mem', 'sdram_timing.json')
 NAMES = ('tRCD', 'tRP', 'tRAS', 'tRC', 'tWR', 'tRRD', 'tRFC')
 
 # memtest scan-out: 640 x 16-bit pixels = 160 bursts per line, 400 pixels at 6.3504 MHz per line
