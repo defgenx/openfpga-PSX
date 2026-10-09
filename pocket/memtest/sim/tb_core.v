@@ -98,7 +98,7 @@ module tb_core;
     // fault runs (each also checks the whole `fast` list): SLOT_SHORT every random request one word short, SLOT_ADDR
     // every 4th request clean and the others with a repeated word / a write just past the window / one word 588 times,
     // SLOT_TRAIL the last 3 words after done on every 4th request and a word 40 cycles late on the last, SLOT_ERR err = 3
-    // on every 4th request, SLOT_TMO the host never raises done
+    // on every 4th request, SLOT_TMO the host delivers every word and never raises done (only the timeout marks it bad)
 `ifdef SLOT_SHORT
     localparam integer SL_BAD0 = 0, SL_BAD1 = SL_N;
 `elsif SLOT_ADDR
@@ -177,7 +177,6 @@ module tb_core;
 `endif
         repeat (3) @(posedge clk74);
         sl_done <= 0; sl_ack <= 0;
-`ifndef SLOT_TMO
         // sequential after the previous one: the short latency
         repeat ((sl_off == sl_prev_end) ? SL_L_SEQ : SL_L_RND) @(posedge clk74);
         sl_ack <= 1;
@@ -195,6 +194,7 @@ module tb_core;
             sl_put(SL_WIN + 4 * sl_w, 1);
             repeat (SL_WORD - 2) @(posedge clk74);
         end
+`ifndef SLOT_TMO
 `ifdef SLOT_ADDR
         if (sl_r % 4 == 2) begin sl_put(SL_WIN + 2352, 1); repeat (SL_LAG - 2) @(posedge clk74); end
         else
@@ -438,11 +438,11 @@ module tb_core;
             expect_eq("slot file size", `R_SL_FILE, 0);
             if (sl_req != 0) begin fails = fails + 1; $display("  CHECK FAILED: %0d requests issued without a file", sl_req); end
 `elsif SLOT_TMO
-            $display("slot bench, the host never answers (timeout %0d cycles):", SL_TMO_CYC);
+            $display("slot bench, the host never raises done (timeout %0d cycles):", SL_TMO_CYC);
             slot_wait_done(1);
             expect_eq("slot state = timeout", `R_SL_FILE + 1, 4);
             expect_eq("slot seq requests", `R_SL_SEQX + 1, 1);
-            expect_eq("slot seq bytes", `R_SL_SEQX + 2, 0);
+            expect_eq("slot seq bytes", `R_SL_SEQX + 2, 2352);
             expect_eq("slot seq bad", `R_SL_SEQ + 2, 1);
             expect_eq("slot rnd requests", `R_SL_RNDX + 1, 0);
             expect_eq("slot rnd bad", `R_SL_RND + 2, 0);
