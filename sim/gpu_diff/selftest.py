@@ -1,12 +1,9 @@
-#!/usr/bin/env python3
-"""Fault-injection self-test for tb_diff: golden vs golden with one injected fault per run.
-
-usage: selftest.py LIBDIR BUILDDIR RUNDIR     (LIBDIR: nvc work library of the golden flavour, BUILDDIR holds mem/)
-"""
 import os
 import re
-import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+import selftest_lib as st  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DBG = ["R:\\\\debug_gpufifo_sim.txt", "R:\\\\debug_pixel_sim.txt", "R:\\\\debug_vram2cpu_sim.txt"]
@@ -15,34 +12,21 @@ RES = re.compile(r"^RESULT commands=(\d+) prims=(\d+) words=(\d+) wr_mismatches=
                  r"timing_maxdelta=(\d+) cycles=(\d+) (PASS|FAIL)", re.M)
 KEYS = ["commands", "prims", "words", "wr", "span", "vram", "rd", "stim", "tdiff", "sdiff", "tmax", "cycles"]
 STREAM = re.compile(r"^STREAM .*?writes_gold=(\d+)", re.M)
+SETUPCHK = re.compile(r"^SETUPCHK checked=(\d+) violations=(\d+)", re.M)
 
 
 def run(lib, build, rundir, name, gens):
-    d = os.path.join(rundir, name)
-    os.makedirs(d, exist_ok=True)
-    for n in DBG:
-        link = os.path.join(d, n)
-        if not os.path.lexists(link):
-            os.symlink("/dev/null", link)
-    cmd = ["nvc", "--std=2008", "--ieee-warnings=off", "-H", "256m", "--work=work:" + lib, "-L", build, "-e", "--no-save",
-           "-g", "G_VECFILE=../smoke.txt"]
-    for k, v in gens.items():
-        cmd += ["-g", "%s=%s" % (k, v)]
-    cmd += ["tb_diff", "-r"]
-    p = subprocess.run(cmd, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    open(os.path.join(d, "run.log"), "w").write(p.stdout)
-    m = RES.search(p.stdout)
-    s = STREAM.search(p.stdout)
+    out, rc = st.run_tb(lib, rundir, name, gens, "../smoke.txt", DBG, libdirs=[build],
+                        nvc_args=["--ieee-warnings=off", "-H", "256m"])
+    m = RES.search(out)
+    s = STREAM.search(out)
     if not m or not s:
         return None
     r = dict(zip(KEYS, (int(m.group(i)) for i in range(1, 13))))
-    c = SETUPCHK.search(p.stdout)
-    r.update(verdict=m.group(13), rc=p.returncode, writes=int(s.group(1)), checked=int(c.group(1)) if c else 0,
+    c = SETUPCHK.search(out)
+    r.update(verdict=m.group(13), rc=rc, writes=int(s.group(1)), checked=int(c.group(1)) if c else 0,
              viol=int(c.group(2)) if c else -1)
     return r
-
-
-SETUPCHK = re.compile(r"^SETUPCHK checked=(\d+) violations=(\d+)", re.M)
 
 
 def only(r, **want):
@@ -57,8 +41,7 @@ def main():
     lib, build, rundir = (os.path.abspath(a) for a in sys.argv[1:4])
     os.makedirs(rundir, exist_ok=True)
     smoke = os.path.join(rundir, "smoke.txt")
-    subprocess.run([sys.executable, os.path.join(HERE, "gen_vectors.py"), "--suite", "smoke", "--seed", "1", "--out", smoke],
-                   check=True, stderr=subprocess.DEVNULL)
+    st.gen_vectors(os.path.join(HERE, "gen_vectors.py"), smoke)
     base = run(lib, build, rundir, "base", {})
     if not base:
         print("SELFTEST FAIL (base run produced no RESULT)")
@@ -93,14 +76,7 @@ def main():
          lambda r: r["verdict"] == "PASS" and r["rc"] == 0 and only(r, tdiff=1) and r["tmax"] == 37,
          "same with G_TIMING_STRICT=false: still reported, run passes"),
     ]
-    ok = True
-    for name, gens, chk, desc in tests:
-        r = base if name == "base" else run(lib, build, rundir, name, gens)
-        good = bool(r) and chk(r)
-        ok &= good
-        print("selftest %-18s %s  %s  %s" % (name, "ok  " if good else "FAIL", desc, r if (r and not good) else ""))
-    print("SELFTEST " + ("PASS" if ok else "FAIL"))
-    sys.exit(0 if ok else 1)
+    st.run_tests(tests, lambda name, gens: run(lib, build, rundir, name, gens), base=base)
 
 
 if __name__ == "__main__":

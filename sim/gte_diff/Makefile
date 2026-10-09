@@ -14,8 +14,10 @@
 # SUITES  directed edge reset cpu random boundary
 # KEEP=1  keep the generated vector files
 
-HERE := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-RTL  := $(abspath $(HERE)../../rtl)
+HERE    := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+BUILD   := $(HERE)build
+RUNROOT := $(HERE)run
+include $(HERE)../common/nvc.mk
 
 -include $(HERE)serial.mk
 -include $(HERE)div.mk
@@ -28,9 +30,6 @@ GENARGS ?=
 NVCGEN ?=
 KEEP   ?=
 
-NVC     := nvc --std=2008
-BUILD   := $(HERE)build
-RUNROOT := $(HERE)run
 # gte.vhd opens this literal name (two backslashes) in the current directory; each run
 # links it to /dev/null so its per-command debug output is discarded.
 DBGNAME := R:\\debug_gte_sim.txt

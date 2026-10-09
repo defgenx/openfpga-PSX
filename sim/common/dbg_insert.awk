@@ -1,4 +1,4 @@
-# Copies a gpu unit and adds concurrent statements after the architecture's first "begin" (see Makefile).
+# Copies a gpu unit and adds concurrent statements after the architecture's first "begin" (see nvc.mk).
 # -v poly=1 additionally adds the polygon state decodes read by span_probe_gold.vhd / span_dut_golden.vhd.
 BEGIN { q = "\047" }
 /^architecture/ { a = 1 }

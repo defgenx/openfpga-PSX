@@ -5,8 +5,7 @@
 #   make diff                  golden vs gpu_pocket (needs POCKET_SRCS, see pocket.mk)
 #   make trace SEED=n          VRAM access trace of the game-like suite: golden -> run/trace_sN.txt,
 #                              gpu_pocket (when POCKET_SRCS is set) -> run/trace_pocket_sN.txt; fails if a run has no RESULT
-#   make bw SEEDS="1 2 3"      trace each seed, then bwmodel.py on every trace: a report at 101.6064 MHz that never fails,
-#                              then the gate, --max-util 0.8 at BW_MHZ (default 135.4752); BWARGS: extra bwmodel options
+#   make bw SEEDS="1 2 3"      bandwidth model over the traces (rule and options in bw.mk)
 #   make clean
 #
 # SEEDS   one job per (suite, seed); each job runs in its own directory under run/
@@ -16,9 +15,11 @@
 # NVCGEN  extra nvc -g generics, e.g. NVCGEN="-g G_REPRODUCIBLEGPUTIMING=1 -g G_TIMING_STRICT=false"
 # KEEP=1  keep the generated vector files
 
-HERE := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-RTL  := $(abspath $(HERE)../../rtl)
-MEMD := $(abspath $(HERE)../system/src/mem)
+HERE    := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+BUILD   := $(HERE)build
+RUNROOT := $(HERE)run
+NVC     := nvc --std=2008 --ieee-warnings=off
+include $(HERE)../common/nvc.mk
 
 -include $(HERE)pocket.mk
 POCKET_SRCS ?=
@@ -32,16 +33,11 @@ NVCGEN ?=
 KEEP   ?=
 TRACE_TAIL ?= 600000   # idle clk1x cycles after the game-like stream so video scan-out reads appear in the trace
 
-NVC     := nvc --std=2008 --ieee-warnings=off
-BUILD   := $(HERE)build
-RUNROOT := $(HERE)run
 # The GPU opens these literal names (two backslashes) in the current directory; each run
 # links them to /dev/null so the per-event debug output is discarded.
 DBGNAMES := 'R:\\debug_gpufifo_sim.txt' 'R:\\debug_pixel_sim.txt' 'R:\\debug_vram2cpu_sim.txt'
 
-# VRAM-side memories (library mem, and again in work for the entity work.dpram instances).
-# The simulation dpram uses shared variables of non-protected type.
-MEM_SRCS  := $(MEMD)/dpram.vhd $(MEMD)/RamMLAB.vhd $(MEMD)/SyncFifo.vhd $(RTL)/SyncFifoFallThrough.vhd
+# VRAM-side memories: library mem and, via NVC_MEM_WORK, work (MEM_SRCS, nvc.mk).
 # gpu_poly.vhd and gpu_line.vhd are analysed as build/*_dbg.vhd: the same files plus concurrent statements.
 #  - both: the divN ports are inout records of which the unit drives only start/dividend/divisor; the done/quotient/
 #    remainder elements get a 'Z' driver so the port does not contribute its initial 'U' (a simulator that creates a
@@ -62,24 +58,13 @@ FLGEN_pocket := -g G_TIMING_STRICT=false
 .PHONY: golden diff selftest trace bw clean FORCE
 .DEFAULT_GOAL := golden
 
-$(BUILD)/gpu_line_dbg.vhd: $(RTL)/gpu_line.vhd $(HERE)dbg_insert.awk
-	mkdir -p $(BUILD)
-	awk -f $(HERE)dbg_insert.awk $< > $@
-
-$(BUILD)/gpu_poly_dbg.vhd: $(RTL)/gpu_poly.vhd $(HERE)dbg_insert.awk
-	mkdir -p $(BUILD)
-	awk -v poly=1 -f $(HERE)dbg_insert.awk $< > $@
-
-$(BUILD)/mem/stamp: $(MEM_SRCS)
-	rm -rf $(BUILD)/mem; mkdir -p $(BUILD)
-	$(NVC) -H 256m --work=mem:$(BUILD)/mem -a --relaxed $(MEM_SRCS)
-	touch $@
+$(BUILD)/gpu_poly_dbg.vhd: AWKFLAGS := -v poly=1
 
 # $(1) flavour, $(2) DUT architecture file, $(3) extra sources, $(4) DUT span probe architecture
 define BUILDFLAVOUR
 $(BUILD)/$(1)/stamp: $(BUILD)/mem/stamp $(MEM_SRCS) $(GPU_SRCS) $(TB_SRCS) $(2) $(4) $(3)
 	rm -rf $(BUILD)/$(1); mkdir -p $(BUILD)
-	$(NVC) -H 256m --work=work:$(BUILD)/$(1) -L $(BUILD) -a --relaxed $(MEM_SRCS)
+	$(call NVC_MEM_WORK,$(BUILD)/$(1))
 	$(NVC) -H 256m --work=work:$(BUILD)/$(1) -L $(BUILD) -a $(GPU_SRCS) $(3) $(HERE)gpu_diff_pkg.vhd $(HERE)gpu_span_pkg.vhd $(HERE)gpu_dut.vhd $(2) \
 	       $(HERE)vram_model.vhd $(HERE)gpu_side.vhd $(HERE)span_probe.vhd $(HERE)span_probe_gold.vhd $(4) $(HERE)tb_diff.vhd
 	touch $$@
@@ -145,16 +130,11 @@ trace-pocket: $(BUILD)/pocket/stamp
 	$(call TRACEJOB,pocket,pocket_,G_TRACEFILE_DUT)
 endif
 
-BWSEEDS := $(SEEDS)
-BW_MHZ  ?= 135.4752
-BWTRACES = $(foreach s,$(BWSEEDS),$(RUNROOT)/trace_s$(s).txt $(if $(strip $(POCKET_ABS)),$(RUNROOT)/trace_pocket_s$(s).txt))
-bw:
-	@set -e; for s in $(BWSEEDS); do $(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) trace SEED=$$s; done; \
-	python3 $(HERE)bwmodel.py --mhz 101.6064 $(BWARGS) $(BWTRACES) || true; \
-	python3 $(HERE)bwmodel.py --mhz $(BW_MHZ) --max-util 0.8 $(BWARGS) $(BWTRACES)
-
 selftest: $(BUILD)/golden/stamp
 	@python3 $(HERE)selftest.py $(BUILD)/golden $(BUILD) $(RUNROOT)/selftest
 
 clean:
 	rm -rf $(BUILD) $(RUNROOT)
+
+# Included last: everything above (variables, flavour/run rules, trace) is visible to them.
+-include $(HERE)bw.mk $(HERE)traces.mk

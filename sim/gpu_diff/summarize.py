@@ -14,49 +14,22 @@ import os
 import re
 import sys
 
-RES = re.compile(r"^RESULT commands=(\d+) prims=(\d+) words=(\d+) wr_mismatches=(\d+) span_mismatches=(\d+) "
-                 r"vram_mismatches=(\d+) rd_mismatches=(\d+) stim_errors=(\d+) timing_diffs=(\d+) stat_diffs=(\d+) "
-                 r"timing_maxdelta=(\d+) cycles=(\d+) (PASS|FAIL)")
-FIELDS = ["commands", "prims", "words", "wr_mismatches", "span_mismatches", "vram_mismatches", "rd_mismatches",
-          "stim_errors", "timing_diffs", "stat_diffs", "timing_maxdelta", "cycles"]
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+import diffsum  # noqa: E402
+
 STREAM = re.compile(r"^STREAM .*?writes_gold=(\d+)")
 TIMING = re.compile(r"^TIMING (\S+) n=(\d+) gold=(\d+) dut=(\d+) maxdelta=(\d+) diffs=(\d+)")
 SETUP = re.compile(r"^SETUP (\S+) gold_n=(\d+) gold_sum=(\d+) gold_max=(\d+) dut_n=(\d+) dut_sum=(\d+) dut_max=(\d+)")
 COV = re.compile(r"^COV (\S+) (\S+) (\d+)$")
 SETUPCHK = re.compile(r"^SETUPCHK checked=(\d+) violations=(\d+) worst_excess=(\d+) dut_max=(\d+)")
-DETAIL = ("MISMATCH", "TIMING DIFF", "TIMEOUT", "ERROR")
-SIMERR = re.compile(r"^\*\* (Error|Failure|Fatal)")
 REQ_CLASS = ["poly_wrote", "poly_nowrite", "line_wrote", "rect_wrote", "fill_wrote", "copy_wrote", "upload_wrote"]
 REQ_TAGS = ["tag_tri", "tag_quad", "tag_flat", "tag_gouraud", "tag_textured", "tag_raw", "tag_modulated", "tag_semi",
             "tag_tex4", "tag_tex8", "tag_tex15", "tag_dither", "tag_cull_expect", "tag_line", "tag_polyline",
             "tag_rect", "tag_fill", "tag_copy", "tag_upload", "tag_download"]
 
 
-def usage(msg):
-    sys.stderr.write("summarize.py: %s\nusage: %s" % (msg, __doc__.split("usage: ")[1]))
-    sys.exit(2)
-
-
 def main():
-    argv = sys.argv[1:]
-    mins = {}
-    args = []
-    quiet = need_cov = False
-    while argv:
-        a = argv.pop(0)
-        if a == "--min":
-            m = re.fullmatch(r"(\w+)=(\d+)", argv.pop(0) if argv else "")
-            if not m:
-                usage("--min takes SUITE=N")
-            mins[m.group(1)] = int(m.group(2))
-        elif a == "--quiet":
-            quiet = True
-        elif a == "--require-coverage":
-            need_cov = True
-        elif a.startswith("-"):
-            usage("unknown option " + a)  # an unknown option must not silently turn a check off
-        else:
-            args.append(a)
+    cli = diffsum.parse_cli(__doc__)
     tot = collections.Counter()
     per_suite = collections.Counter()
     timing = collections.defaultdict(lambda: [0, 0, 0, 0, 0])
@@ -65,22 +38,9 @@ def main():
     sc = [0, 0, 0]                                   # setup criterion: checked, violations, worst excess
     cov = collections.Counter()
     fail = False
-    for d in args:
-        name = os.path.basename(d.rstrip("/"))
-        try:
-            lines = open(os.path.join(d, "run.log"), errors="replace").read().splitlines()
-        except OSError:
-            print("%-22s NO LOG" % name)
-            fail = True
-            continue
-        res = None
-        extra, simerr = [], []
-        for ln in lines:
-            if SIMERR.match(ln):
-                simerr.append(ln)
-            m = RES.match(ln)
-            if m:
-                res = m
+    for d in cli.dirs:
+        run = diffsum.Run(d)
+        for ln in run.lines or []:
             m = STREAM.match(ln)
             if m:
                 tot["writes"] += int(m.group(1))
@@ -103,39 +63,25 @@ def main():
             m = COV.match(ln)
             if m:
                 cov[m.group(2)] += int(m.group(3))
-            if ln.startswith(DETAIL):
-                extra.append(ln)
-        if not res:
-            print("%-22s NO RESULT (crash or elaboration error)" % name)
-            for ln in lines[-8:]:
-                print("    " + ln)
+        if diffsum.report_run(run, cli.quiet):
             fail = True
-            continue
-        vals = dict(zip(FIELDS, (int(res.group(i)) for i in range(1, 13))))
-        for k, v in vals.items():
-            if k == "timing_maxdelta":
-                tot[k] = max(tot[k], v)
-            else:
-                tot[k] += v
-        per_suite[re.sub(r"_s\d+$", "", name)] += vals["commands"]
-        bad = res.group(13) != "PASS" or bool(simerr)
-        fail |= bad
-        print("%-22s %s%s" % (name, res.group(0)[7:], " (simulator errors: %d)" % len(simerr) if simerr else ""))
-        extra = simerr[:5] + extra
-        if bad and not quiet:
-            for ln in extra[:20]:
-                print("    " + ln)
+        if run.result:
+            vals = run.fields()
+            for k, v in vals.items():
+                if k == "timing_maxdelta":
+                    tot[k] = max(tot[k], v)
+                else:
+                    tot[k] += v
+            per_suite[diffsum.suite_of(run.name)] += vals["commands"]
     checks = []
-    if not args:
+    if not cli.dirs:
         checks.append("no runs")
     elif tot["commands"] == 0:
         checks.append("no commands ran")
     elif tot["writes"] == 0:
         checks.append("no VRAM writes on the golden side")
-    for suite, n in sorted(mins.items()):
-        if per_suite[suite] < n:
-            checks.append("suite %s ran %d commands, minimum %d" % (suite, per_suite[suite], n))
-    if need_cov:
+    diffsum.check_mins(per_suite, cli.mins, checks)
+    if cli.need_cov:
         if not cov:
             checks.append("coverage required but no COV lines")
         else:
@@ -143,28 +89,26 @@ def main():
             zeros = sorted(k for k in set(req) if cov[k] == 0)
             if zeros:
                 checks.append("coverage counters zero over all suites: " + ", ".join(zeros))
-    for c in checks:
-        print("CHECK FAIL: " + c)
-    fail |= bool(checks)
+    fail = diffsum.finish(checks, fail)
     print("TOTAL commands=%d prims=%d wr_mismatches=%d span_mismatches=%d vram_mismatches=%d rd_mismatches=%d stim_errors=%d "
           "timing_diffs=%d stat_diffs=%d timing_maxdelta=%d writes=%d cycles=%d %s" % (
               tot["commands"], tot["prims"], tot["wr_mismatches"], tot["span_mismatches"], tot["vram_mismatches"],
               tot["rd_mismatches"], tot["stim_errors"], tot["timing_diffs"], tot["stat_diffs"], tot["timing_maxdelta"],
               tot["writes"], tot["cycles"], "FAIL" if fail else "PASS"))
-    if not quiet and timing:
+    if not cli.quiet and timing:
         print("TIMING per class (clk2x from last command word to GPUSTAT idle; golden vs DUT totals)")
         for c, (n, g, du, mx, df) in timing.items():
             if n:
                 print("  %-9s n=%-6d gold=%-10d dut=%-10d maxdelta=%-4d prims_with_delta=%d" % (c, n, g, du, mx, df))
-    if not quiet and setup:
+    if not cli.quiet and setup:
         print("POLY SETUP (clk2x from ISSUE to first drawn span; per triangle)")
         for c, s in setup.items():
             print("  %-17s gold n=%-6d avg=%-7.1f max=%-5d | dut n=%-6d avg=%-7.1f max=%d" % (
                 c, s[0], s[1] / s[0] if s[0] else 0.0, setup_max[c][0], s[3], s[4] / s[3] if s[3] else 0.0, setup_max[c][1]))
-    if not quiet and sc[0]:
+    if not cli.quiet and sc[0]:
         print("SETUP CRITERION (per triangle: DUT <= max(golden, reference), docs/pocket/GPU.md) checked=%d "
               "violations=%d worst_excess=%d" % tuple(sc))
-    if not quiet and cov:
+    if not cli.quiet and cov:
         zeros = sorted(k for k, v in cov.items() if v == 0 and (k.startswith("op_") or k in REQ_CLASS))
         print("COVERAGE zero counters: %s" % (", ".join(zeros) if zeros else "none"))
         print("  commands: " + " ".join("%s=%d" % (k[4:], cov[k]) for k in sorted(cov) if k.startswith("tag_")))

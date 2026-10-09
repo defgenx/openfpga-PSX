@@ -5,8 +5,10 @@ usage: selftest.py LIBDIR RUNDIR     (LIBDIR: nvc work library holding the golde
 """
 import os
 import re
-import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+import selftest_lib as st  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DBG = "R:\\\\debug_gte_sim.txt"
@@ -15,33 +17,22 @@ ASR = re.compile(r"^ASSERTS mul=(\d+) divshift=(\d+) divrange=(\d+)", re.M)
 
 
 def run(lib, rundir, name, gens):
-    d = os.path.join(rundir, name)
-    os.makedirs(d, exist_ok=True)
-    link = os.path.join(d, DBG)
-    if not os.path.lexists(link):
-        os.symlink("/dev/null", link)
-    cmd = ["nvc", "--std=2008", "--work=work:" + lib, "-e", "--no-save", "-g", "G_VECFILE=../smoke.txt"]
-    for k, v in gens.items():
-        cmd += ["-g", "%s=%s" % (k, v)]
-    cmd += ["tb_diff", "-r"]
-    p = subprocess.run(cmd, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    open(os.path.join(d, "run.log"), "w").write(p.stdout)
-    m = RES.search(p.stdout)
-    a = ASR.search(p.stdout)
+    out, rc = st.run_tb(lib, rundir, name, gens, "../smoke.txt", [DBG])
+    m = RES.search(out)
+    a = ASR.search(out)
     if not m or not a:
         return None
     mm, bd, af, cmds = (int(m.group(i)) for i in range(1, 5))
     return dict(mm=mm, bd=bd, af=af, cmds=cmds, verdict=m.group(5), mul=int(a.group(1)), shift=int(a.group(2)),
-                rng=int(a.group(3)), rc=p.returncode)
+                rng=int(a.group(3)), rc=rc)
 
 
 def main():
     lib, rundir = os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[2])
     os.makedirs(rundir, exist_ok=True)
     smoke = os.path.join(rundir, "smoke.txt")
-    p = subprocess.run([sys.executable, os.path.join(HERE, "gen_vectors.py"), "--suite", "smoke", "--seed", "1", "--out", smoke],
-                       stderr=subprocess.PIPE, text=True)
-    m = re.search(r"seq_cmds=(\d+) total_cmds=(\d+)", p.stderr)
+    err = st.gen_vectors(os.path.join(HERE, "gen_vectors.py"), smoke)
+    m = re.search(r"seq_cmds=(\d+) total_cmds=(\d+)", err)
     seq, total = int(m.group(1)), int(m.group(2))
     kcpu = seq + 2
 
@@ -68,14 +59,7 @@ def main():
          lambda r: r["verdict"] == "FAIL" and (r["mm"], r["bd"]) == (0, 0) and (r["mul"], r["shift"], r["rng"]) == (0, 0, 1),
          "out-of-range divider value: only the range check fires, once"),
     ]
-    ok = True
-    for name, gens, chk, desc in tests:
-        r = run(lib, rundir, name, gens)
-        good = bool(r) and chk(r)
-        ok &= good
-        print("selftest %-16s %s  %s  %s" % (name, "ok  " if good else "FAIL", desc, r if (r and not good) else ""))
-    print("SELFTEST " + ("PASS" if ok else "FAIL"))
-    sys.exit(0 if ok else 1)
+    st.run_tests(tests, lambda name, gens: run(lib, rundir, name, gens))
 
 
 if __name__ == "__main__":
