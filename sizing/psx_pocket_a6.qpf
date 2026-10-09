@@ -28,7 +28,6 @@ DATE = "15:35:43  October 09, 2026"
 
 # Revisions
 
-PROJECT_REVISION = "psx_pocket_a6"
 PROJECT_REVISION = "psx_pocket_a6_nomdec"
 PROJECT_REVISION = "psx_pocket_a6_spu"
 PROJECT_REVISION = "psx_pocket_a6_cd"
@@ -37,3 +36,4 @@ PROJECT_REVISION = "psx_pocket_a6_dma"
 PROJECT_REVISION = "psx_pocket_a6_bus"
 PROJECT_REVISION = "psx_pocket_a6_gpu"
 PROJECT_REVISION = "psx_pocket_a6_mdec"
+PROJECT_REVISION = "psx_pocket_a6"

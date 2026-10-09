@@ -198,7 +198,8 @@ memory model sit behind one Verilog bench module that keeps the `inout` buses in
 cannot analyse memtest's `sdram_model.v` (arrays of `real`), so `sim/mixed/sdram_simple.v` replaces it.
 
 `build.sh sim` runs the stub and bridge testbenches and the mixed bench: the stub drives the glue, the
-arbiter and `sdram_ctl` for 260 µs and SDRAM init completes. The real core elaborates under nvc but does not
+arbiter and `sdram_ctl` for 260 µs, SDRAM init completes and one request is accepted. It proves
+the tool flow, not the controller (memtest's `build.sh sim` does that). The real core elaborates under nvc but does not
 run yet: `cd_top`'s `positionInIndex` (patched in the sim copy), the `Gun1X` expression in the top
 (sticks tied to −1) and `gpu_videoout_async.vhd:684` (`lineMax - 1 = -1` at 236 ns) fail range checks at
 initialisation.

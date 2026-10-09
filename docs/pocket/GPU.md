@@ -330,7 +330,8 @@ traces are game-derived and never committed: outputs go under the gitignored `si
 - **Record** a GPU dump of a few frames in DuckStation (its GPU frame capture; the file is `.psxgpu`, or
   `.psxgpu.zst`/`.psxgpu.xz`). Format `PSXGPUDUMPv1`: DuckStation `src/core/gpu_dump.cpp`, spec ps1dev/standards
   `GPUDUMP.md`.
-- **Convert and trace:** `make -C sim/gpu_diff trace-game TRACES="a.psxgpu b.psxgpu.zst" GAMEARGS="--first-frame 100 --frames 3"`
+- **Convert and trace:** `make -C sim/gpu_diff trace-game TRACES="$PWD/a.psxgpu $PWD/b.psxgpu.zst" GAMEARGS="--first-frame 100 --frames 3"`
+  (absolute paths: `make -C` changes directory before the paths are read)
   writes `run/game_<name>/vec.txt` and `run/trace_game_<name>.txt` (golden), plus `run/trace_pocket_game_<name>.txt`
   when gpu_pocket is configured. `make bw-game TRACES=...` then runs `bwmodel.py` at 101.6064 MHz (report) and
   `--max-util 0.8` at 135.4752 MHz (report-only unless `GAME_GATE=1`). `gpudump2vec.py --selftest` and

@@ -32,7 +32,7 @@ The shell estimate (~2,350) replaces the earlier reservations (APF 1,000 + contr
 Units P1a and P1d fit the real shell; the core budget is re-derived from that fit, and this table is updated.
 
 Starting point: 26,135 ALMs with every option tied off (`sizing/psx_min_wrap.vhd`); `psx_top_pocket` with
-the savestates removed is 19,569.8 in context (Unit 4.0). Each phase below has a **gate**. If a gate fails,
+the savestates removed is 19,569.8 in context at Unit 4.0, 19,191.0 on the current tree (re-fit 2026-10-09). Each phase below has a **gate**. If a gate fails,
 the measured result is recorded here and the project stops or is re-planned. A later phase never starts on
 a failed gate.
 
@@ -121,6 +121,13 @@ in context ALMs. Several targets sit at or below the bottom of their range, so t
 | MDEC | 592.0 | **520** | 520–592 | savestate remnants, duplicated tables (B7, stretch; 520 only if B7 runs) |
 | GTE | 2,563.0 | 2,563 | 2,563 | done (Phase 1) |
 | **Core** | **19,567** | **~14,100** | **~14,200–15,800** (midpoint ~15,000) | |
+
+**Re-fit of the current tree (2026-10-09).** The "Now" column is the Unit 4.0 fit. The current tree fits
+`psx_top_pocket` in **19,191.0 ALMs** (295 M10K, 47 DSP; the reset sequencer and the commits since that fit
+included). Per block: SPU 3,243.3, CD 2,521.3, CPU 2,389.6, GPU 4,620.3, GTE 2,560.2, DMA 1,318.9, memorymux
+685.7, joypad 652.3, MDEC 600.3. The CPU's in-context gap over its standalone fit (2,291.1) falls from +383 to
++98, and the CD's (2,400.1) from +232 to +121. The targets are unchanged; the CPU's in-context range, derived
+from the +383 gap, is re-checked at its gate.
 
 **B4 field split.** `dmaRecord` (`dma.vhd:108-118`) mixes configuration and per-cycle state. `D_MADR`, `D_BCR`
 and `D_CHCR` of the 7 channels go to MLAB. The per-channel flags (`request`, `timeupPending`,
@@ -311,7 +318,7 @@ PLL clocks from the 812.8512 MHz VCO: clk1x 33.8688 MHz (/24), clk2x 67.7376 MHz
 
 If the gate misses on area: stretch levers first, then set A, then set B only on approval. Block designs:
 [GPU.md](GPU.md), [SPU.md](SPU.md), [CPU.md](CPU.md), [CD.md](CD.md), [CORE.md](CORE.md); the Pocket top
-level will be in POCKET_TOP.md.
+level and shell: [POCKET_TOP.md](POCKET_TOP.md).
 
 ### Phase 6 — Compatibility
 
@@ -335,7 +342,7 @@ disjoint files. "Pending hardware" marks a gate only a Pocket can measure.
 | R1 | 0 | this re-plan in the docs (ROADMAP, GPU, CPU, FEASIBILITY pointer, CORE stub) | none | docs recorded |
 | S0 | 0 | one shared `pocket/common/` tree (APF, memory controllers, timing tool) moved out of memtest | none | memtest sim green, memtest fit unchanged |
 | M0 | 0 | human runs the built 101 and 135 memtest cores on a Pocket; early error-rate read | none | pending hardware |
-| T1 | 0 | `G_<BLK>_IMPL` generics on `psx_top_pocket`, per-block fit revisions, init/idle contract | none | default revision still fits 19,569.8 |
+| T1 | 0 | `G_<BLK>_IMPL` generics on `psx_top_pocket`, per-block fit revisions, init/idle contract | none | default revision netlist-neutral (same fit as the tree without the generics) |
 | M1 | 1 | bandwidth model v2: SPU cache, texture lines, lookahead, closed loop, QoS; combined L1+L2+L3 run | R1 | self-test pins today's figures; decides L3 and L4 |
 | G2 | 1 | game trace path: emulator GPU dump to harness vectors (traces stay local) | none | converter and self-test |
 | P1a | 1 | `pocket/psx/` skeleton, PLL, stub top, shell size, mixed-language spike | R1, S0 | skeleton fits; spike decision |
@@ -377,14 +384,14 @@ Record each gate's measured numbers here when its phase ends. Each work unit edi
 | 3 — memory test core | built, **pending hardware**. 135.5 MHz variant: **timing not met**; simulation passes, and the model matches the simulation (MIXED UNDER SCAN 105.8 MB/s vs 105.8) | 5,635 (101.6 MHz, with the bridge bench of Unit 3B; 4,097 without), whole core | — | — | 101.6 MHz: met on every clock, all four corners. 135.5 MHz: SDRAM read capture −0.42 ns setup, −0.38 ns hold, no phase closes it | 2026-10-08 |
 | 4 — 4.0 baselines | **stop before 4A**: the CPU (991 to find vs 304 of levers) and SPU (1,680 vs ≤ 1,464) rules fire | `psx_top_pocket` 19,569.8 (5CSEBA6); SPU 3,079.6 / CPU 2,291.1 / CD 2,400.1 standalone | 47 | 295 | not gating | 2026-10-08 |
 | Unit R1 | re-plan: recorded | — | — | — | — | 2026-10-09 |
-| Unit S0 | pending | — | — | — | — | — |
+| Unit S0 | **done**: memtest builds from `pocket/common/`; `build.sh sim` green | memtest 5,607 (5,635 before; seed noise) | — | 14 | 101.6 MHz met on every clock | 2026-10-09 |
 | Unit M0 | pending hardware | — | — | — | — | — |
-| Unit T1 | pending | — | — | — | — | — |
-| Unit M1 | pending | — | — | — | — | — |
-| Unit G2 | pending | — | — | — | — | — |
-| Unit P1a | pending | — | — | — | — | — |
+| Unit T1 | **done**: `G_<BLK>_IMPL` generics, 7 block revisions; netlist-neutral (identical per-entity fit with and without them); a mistyped value fails elaboration | `psx_top_pocket` 19,191.0 (5CSEBA6) | 47 | 295 | fit only | 2026-10-09 |
+| Unit M1 | **done**: L1 + L2 + L3 at 4× pitch 72.9% at 135.4752 MHz (worst of s1–s3); L1 + L2 at 4× 76.2%, so L4 not needed at 135.5 MHz; L3 gains 3.3 points, so it is built; closed loop +3.2%; 0 SPU slot overruns and 0 late lines under QoS. At 116.12 MHz with SPU RAM off SDRAM: 81.8% after L2 + L3 (L4 needed) | — | — | — | — | 2026-10-09 |
+| Unit G2 | **done**: DuckStation `PSXGPUDUMPv1` dumps convert into harness vectors; synthetic dump passes golden and pocket. No real game trace yet, so Gate M (d) stays report-only | — | — | — | — | 2026-10-09 |
+| Unit P1a | **done**: `pocket/psx/` skeleton fits; nvc mixed-language top chosen (VHDL top, Verilog leaves) | shell 1,169.4 (~155 placeholders) + stub 365.1 = 1,534.5 (5CEBA4) | 0 | 2 | met except the static-phase capture hold −0.44 ns | 2026-10-09 |
 | Unit M2a | pending | — | — | — | — | — |
-| Unit H0 | pending | — | — | — | — | — |
+| Unit H0 | **done**: `sim/common/` scaffold; GTE gate and GPU diff green on it; SPU, CD, CPU, DMA, memorymux, joypad goldens run in nvc | — | — | — | — | 2026-10-09 |
 | Unit M2b | pending (conditional on M1) | — | — | — | — | — |
 | Unit G1 | pending | — | — | — | — | — |
 | Unit B1 | pending | — | — | — | — | — |
@@ -416,7 +423,7 @@ Nothing of the PSX has run on a Pocket. Four things stand in the way, and the re
 
 | Blocker | State | What the re-plan does |
 |---|---|---|
-| It does not fit | `psx_top_pocket` is 19,569.8 ALMs and 295 M10K in context (5CSEBA6) against a core budget of ~14,280 (16,632 − ~2,350 shell). With every planned lever and amputation the old plan projected ~14,640 against 13,550 | Rewrite targets for every block toward ~14,100 (planning case ~15,000 plus stretch levers and set A), gated in context, with stop rules and checkpoint C1; the shell is measured by P1a and P1d |
+| It does not fit | `psx_top_pocket` is 19,191.0 ALMs and 295 M10K in context (5CSEBA6, re-fit 2026-10-09) against a core budget of ~14,280 (16,632 − ~2,350 shell). With every planned lever and amputation the old plan projected ~14,640 against 13,550 | Rewrite targets for every block toward ~14,100 (planning case ~15,000 plus stretch levers and set A), gated in context, with stop rules and checkpoint C1; the shell is measured by P1a and P1d |
 | No Pocket top level | `psx_top_pocket` still has MiSTer's interfaces (DDR3 VRAM port, main-RAM bus, `cd_hps_*`, SNAC); no APF top, PLLs, BIOS or CD data slots, video modes | Units P1a–P1d build the shell in `pocket/psx/`, sharing the memory controllers with memtest |
 | Memory plan not proven | VRAM on the 16-bit SDRAM peaks at 91.2% at 135.5 MHz (gate 80%), and 135.5 MHz misses static timing on the read capture | Calibrated read capture at 135.4752 MHz (M2a), levers L1–L4 and Gate M, fallback 116.12 MHz (M4), Gate R for main RAM |
 | Nothing on hardware | the memory test core (Phase 3) is built and pending hardware | M0 (early read), M3 (memtest on hardware), P3 (bring-up) |
