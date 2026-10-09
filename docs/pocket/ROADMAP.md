@@ -191,5 +191,23 @@ Record each gate's measured numbers here when its phase ends.
 | 4 — 4.0 baselines | **stop before 4A**: the CPU (991 to find vs 304 of levers) and SPU (1,680 vs ≤ 1,464) rules fire | `psx_top_pocket` 19,569.8 (5CSEBA6); SPU 3,079.6 / CPU 2,291.1 / CD 2,400.1 standalone | 47 | 295 | not gating | 2026-10-08 |
 
 Phase 2 failed its gate and was re-planned. Unit 4.0 has measured the baselines, and the rewrites wait for
-the next re-plan. Details: [GPU.md](GPU.md#measurements), [MEMTEST.md](MEMTEST.md), [SPU.md](SPU.md),
+the next re-plan.
+
+### Can the core run on a Pocket today? No
+
+Nothing of the PSX has run on a Pocket. Four things stand in the way, in order:
+- **It does not fit the device.** `psx_top_pocket` needs 19,569.8 ALMs and 295 M10K (fitted on 5CSEBA6,
+  the device of `psx_min_a6`). The Pocket's 5CEBA4F23C8 has 18,480 ALMs and 308 M10K. The APF framework, the memory
+  controllers and the CD loader add ~3,050 ALMs and ~20 M10K, so the total is ~22,600 ALMs (122% of the device)
+  and ~315 M10K. Even with every planned rewrite and amputation, the projection is ~14,640 against the core's
+  13,550 (Unit 4.0).
+- **There is no Pocket top level.** `psx_top_pocket` still has MiSTer's interfaces: the DDR3 port (VRAM),
+  the main-RAM bus to MiSTer's SDRAM controller, the HPS CD sector port (`cd_hps_*`) and SNAC. Phase 5 has not started:
+  no APF top, no PLLs, no PSRAM/SDRAM controllers for the core, no BIOS or CD data slots, no video modes.
+- **The memory plan is not proven at full speed.** VRAM on the 16-bit SDRAM fails the bandwidth gate at
+  both clocks (91.2% at 135.5 MHz, 99.9% at 101.6 MHz, gate 80%). 135.5 MHz also misses timing. The GPU
+  would stall below the original speed.
+- **Nothing is measured on hardware.** The memory test core (Phase 3) is built and is pending hardware.
+
+The first PSX build that can be loaded on a Pocket is the Phase 5 gate, after the re-plan and Phase 4. Details: [GPU.md](GPU.md#measurements), [MEMTEST.md](MEMTEST.md), [SPU.md](SPU.md),
 [CPU.md](CPU.md), [CD.md](CD.md).
