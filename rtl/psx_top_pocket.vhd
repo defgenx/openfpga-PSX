@@ -10,7 +10,18 @@ entity psx_top_pocket is
    generic
    (
       is_simu               : std_logic := '0';
-      NO_MDEC               : boolean   := false
+      NO_MDEC               : boolean   := false;
+      -- Per-block implementation: "golden", or "pocket" for the *_pocket entity (GPU: "pocket"/"golden").
+      -- Contract in docs/pocket/POCKET_TOP.md.
+      G_GPU_IMPL            : string    := "pocket";
+      G_CPU_IMPL            : string    := "golden";
+      G_SPU_IMPL            : string    := "golden";
+      G_CD_IMPL             : string    := "golden";
+      G_DMA_IMPL            : string    := "golden";
+      G_BUS_IMPL            : string    := "golden";
+      G_JOYPAD_IMPL         : string    := "golden";
+      G_MEMCARD_IMPL        : string    := "golden";
+      G_MDEC_IMPL           : string    := "golden"
    );
    port 
    (
@@ -680,8 +691,19 @@ architecture arch of psx_top_pocket is
    
    signal debug_firstGTE         : std_logic;
    
-begin 
-   
+begin
+
+   -- a mistyped G_*_IMPL would elaborate neither branch and leave the block's outputs undriven
+   assert G_GPU_IMPL = "golden" or G_GPU_IMPL = "pocket" report "G_GPU_IMPL must be golden or pocket" severity failure;
+   assert G_CPU_IMPL = "golden" or G_CPU_IMPL = "pocket" report "G_CPU_IMPL must be golden or pocket" severity failure;
+   assert G_SPU_IMPL = "golden" or G_SPU_IMPL = "pocket" report "G_SPU_IMPL must be golden or pocket" severity failure;
+   assert G_CD_IMPL = "golden" or G_CD_IMPL = "pocket" report "G_CD_IMPL must be golden or pocket" severity failure;
+   assert G_DMA_IMPL = "golden" or G_DMA_IMPL = "pocket" report "G_DMA_IMPL must be golden or pocket" severity failure;
+   assert G_BUS_IMPL = "golden" or G_BUS_IMPL = "pocket" report "G_BUS_IMPL must be golden or pocket" severity failure;
+   assert G_JOYPAD_IMPL = "golden" or G_JOYPAD_IMPL = "pocket" report "G_JOYPAD_IMPL must be golden or pocket" severity failure;
+   assert G_MEMCARD_IMPL = "golden" or G_MEMCARD_IMPL = "pocket" report "G_MEMCARD_IMPL must be golden or pocket" severity failure;
+   assert G_MDEC_IMPL = "golden" or G_MDEC_IMPL = "pocket" report "G_MDEC_IMPL must be golden or pocket" severity failure;
+
    -- reset
    process (clk1x)
    begin
@@ -1040,99 +1062,282 @@ begin
    Gun1Y_scanlines <= resize(Gun1Y, 9) - resize(Gun1Y(7 downto 4), 9); -- Gun1Y * 240 / 256
    Gun2Y_scanlines <= resize(Gun2Y, 9) - resize(Gun2Y(7 downto 4), 9); -- Gun1Y * 240 / 256
 
-   ijoypad: entity work.joypad
-   port map 
-   (
-      clk1x                => clk1x,
-      clk2x                => clk2x,
-      clk2xIndex           => clk2xIndex,
-      ce                   => ce,   
-      reset                => reset_intern,
+   gjoypad_golden : if G_JOYPAD_IMPL = "golden" generate
+   begin
+      ijoypad: entity work.joypad
+      port map 
+      (
+         clk1x                => clk1x,
+         clk2x                => clk2x,
+         clk2xIndex           => clk2xIndex,
+         ce                   => ce,   
+         reset                => reset_intern,
 
-      isPal                => isPal, -- passed through for GunCon
+         isPal                => isPal, -- passed through for GunCon
       
-      DSAltSwitchMode      => DSAltSwitchMode,
-      joypad1              => joypad1,
-      joypad2              => joypad2,
-      joypad3              => joypad3,
-      joypad4              => joypad4,
-      multitap             => multitap,
-      multitapDigital      => multitapDigital,
-      multitapAnalog       => multitapAnalog,
-			neGconRumble         => neGconRumble,
-      joypad1_rumble       => joypad1_rumble,
-      joypad2_rumble       => joypad2_rumble,
-      joypad3_rumble       => joypad3_rumble,
-      joypad4_rumble       => joypad4_rumble,
-      padMode              => padMode,
+         DSAltSwitchMode      => DSAltSwitchMode,
+         joypad1              => joypad1,
+         joypad2              => joypad2,
+         joypad3              => joypad3,
+         joypad4              => joypad4,
+         multitap             => multitap,
+         multitapDigital      => multitapDigital,
+         multitapAnalog       => multitapAnalog,
+   			neGconRumble         => neGconRumble,
+         joypad1_rumble       => joypad1_rumble,
+         joypad2_rumble       => joypad2_rumble,
+         joypad3_rumble       => joypad3_rumble,
+         joypad4_rumble       => joypad4_rumble,
+         padMode              => padMode,
 
-      memcard1_available   => memcard1_available,
-      memcard2_available   => memcard2_available,
+         memcard1_available   => memcard1_available,
+         memcard2_available   => memcard2_available,
       
-      irqRequest           => irq_PAD,
+         irqRequest           => irq_PAD,
       
-      MouseEvent           => MouseEvent,
-      MouseLeft            => MouseLeft,
-      MouseRight           => MouseRight,
-      MouseX               => MouseX,
-      MouseY               => MouseY,
-      Gun1X                => Gun1X,
-      Gun2X                => Gun2X,
-      Gun1Y_scanlines      => Gun1Y_scanlines,
-      Gun2Y_scanlines      => Gun2Y_scanlines,
-      Gun1AimOffscreen     => Gun1AimOffscreen,
-      Gun2AimOffscreen     => Gun2AimOffscreen,
-      JustifierIrqEnable   => JustifierIrqEnable,
+         MouseEvent           => MouseEvent,
+         MouseLeft            => MouseLeft,
+         MouseRight           => MouseRight,
+         MouseX               => MouseX,
+         MouseY               => MouseY,
+         Gun1X                => Gun1X,
+         Gun2X                => Gun2X,
+         Gun1Y_scanlines      => Gun1Y_scanlines,
+         Gun2Y_scanlines      => Gun2Y_scanlines,
+         Gun1AimOffscreen     => Gun1AimOffscreen,
+         Gun2AimOffscreen     => Gun2AimOffscreen,
+         JustifierIrqEnable   => JustifierIrqEnable,
       
-      snacPort1_in         => snacport1,
-      snacPort2_in         => snacport2,      
-      selectedPort1Snac    => selectedPort1Snac,
-      selectedPort2Snac    => selectedPort2Snac,
-      transmitValueSnac    => transmitValueSnac,
-      clk9Snac             => clk9Snac,
-      receiveBufferSnac	   => receiveBufferSnac,
-      beginTransferSnac    => beginTransferSnac,
-      actionNextSnac       => actionNextSnac,
-      receiveValidSnac     => receiveValidSnac,
-      ackSnac              => ackSnac,
-      snacMC               => snacMC,
+         snacPort1_in         => snacport1,
+         snacPort2_in         => snacport2,      
+         selectedPort1Snac    => selectedPort1Snac,
+         selectedPort2Snac    => selectedPort2Snac,
+         transmitValueSnac    => transmitValueSnac,
+         clk9Snac             => clk9Snac,
+         receiveBufferSnac	   => receiveBufferSnac,
+         beginTransferSnac    => beginTransferSnac,
+         actionNextSnac       => actionNextSnac,
+         receiveValidSnac     => receiveValidSnac,
+         ackSnac              => ackSnac,
+         snacMC               => snacMC,
       
-      mem1_request         => memDDR3card1_request,   
-      mem1_BURSTCNT        => memDDR3card1_BURSTCNT,  
-      mem1_ADDR            => memDDR3card1_ADDR,      
-      mem1_DIN             => memDDR3card1_DIN,       
-      mem1_BE              => memDDR3card1_BE,        
-      mem1_WE              => memDDR3card1_WE,        
-      mem1_RD              => memDDR3card1_RD,       
-      mem1_ack             => memDDR3card1_ack,       
+         mem1_request         => memDDR3card1_request,   
+         mem1_BURSTCNT        => memDDR3card1_BURSTCNT,  
+         mem1_ADDR            => memDDR3card1_ADDR,      
+         mem1_DIN             => memDDR3card1_DIN,       
+         mem1_BE              => memDDR3card1_BE,        
+         mem1_WE              => memDDR3card1_WE,        
+         mem1_RD              => memDDR3card1_RD,       
+         mem1_ack             => memDDR3card1_ack,       
       
-      mem2_request         => memDDR3card2_request,   
-      mem2_BURSTCNT        => memDDR3card2_BURSTCNT,  
-      mem2_ADDR            => memDDR3card2_ADDR,      
-      mem2_DIN             => memDDR3card2_DIN,       
-      mem2_BE              => memDDR3card2_BE,        
-      mem2_WE              => memDDR3card2_WE,        
-      mem2_RD              => memDDR3card2_RD,       
-      mem2_ack             => memDDR3card2_ack,  
+         mem2_request         => memDDR3card2_request,   
+         mem2_BURSTCNT        => memDDR3card2_BURSTCNT,  
+         mem2_ADDR            => memDDR3card2_ADDR,      
+         mem2_DIN             => memDDR3card2_DIN,       
+         mem2_BE              => memDDR3card2_BE,        
+         mem2_WE              => memDDR3card2_WE,        
+         mem2_RD              => memDDR3card2_RD,       
+         mem2_ack             => memDDR3card2_ack,  
       
-      mem_DOUT             => ddr3_DOUT,      
-      mem_DOUT_READY       => ddr3_DOUT_READY,
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
       
-      bus_addr             => bus_pad_addr,     
-      bus_dataWrite        => bus_pad_dataWrite,
-      bus_read             => bus_pad_read,     
-      bus_write            => bus_pad_write,    
-      bus_writeMask        => bus_pad_writeMask,   
-      bus_dataRead         => bus_pad_dataRead,
+         bus_addr             => bus_pad_addr,     
+         bus_dataWrite        => bus_pad_dataWrite,
+         bus_read             => bus_pad_read,     
+         bus_write            => bus_pad_write,    
+         bus_writeMask        => bus_pad_writeMask,   
+         bus_dataRead         => bus_pad_dataRead,
       
-      SS_reset             => SS_reset,
-      SS_DataWrite         => SS_DataWrite,
-      SS_Adr               => SS_Adr(2 downto 0),      
-      SS_wren              => SS_wren(5),     
-      SS_rden              => SS_rden(5),     
-      SS_DataRead          => SS_DataRead_JOYPAD,
-      SS_idle              => SS_idle_pad
-   );
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(2 downto 0),      
+         SS_wren              => SS_wren(5),     
+         SS_rden              => SS_rden(5),     
+         SS_DataRead          => SS_DataRead_JOYPAD,
+         SS_idle              => SS_idle_pad
+      );
+   end generate;
+
+   gjoypad_pocket : if G_JOYPAD_IMPL = "pocket" generate
+      component joypad_pocket is
+      port
+      (
+         clk1x                : in  std_logic;
+         clk2x                : in  std_logic;
+         clk2xIndex           : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         isPal                : in  std_logic;
+         DSAltSwitchMode      : in  std_logic;
+         joypad1              : in  joypad_t;
+         joypad2              : in  joypad_t;
+         joypad3              : in  joypad_t;
+         joypad4              : in  joypad_t;
+         multitap             : in  std_logic;
+         multitapDigital      : in  std_logic;
+         multitapAnalog       : in  std_logic;
+         neGconRumble         : in  std_logic;
+         joypad1_rumble       : out std_logic_vector(15 downto 0) := (others => '0');
+         joypad2_rumble       : out std_logic_vector(15 downto 0) := (others => '0');
+         joypad3_rumble       : out std_logic_vector(15 downto 0) := (others => '0');
+         joypad4_rumble       : out std_logic_vector(15 downto 0) := (others => '0');
+         padMode              : out std_logic_vector(1 downto 0);
+         memcard1_available   : in  std_logic;
+         memcard2_available   : in  std_logic;
+         irqRequest           : out std_logic := '0';
+         MouseEvent           : in  std_logic;
+         MouseLeft            : in  std_logic;
+         MouseRight           : in  std_logic;
+         MouseX               : in  signed(8 downto 0);
+         MouseY               : in  signed(8 downto 0);
+         Gun1X                : in  unsigned(7 downto 0);
+         Gun2X                : in  unsigned(7 downto 0);
+         Gun1Y_scanlines      : in  unsigned(8 downto 0);
+         Gun2Y_scanlines      : in  unsigned(8 downto 0);
+         Gun1AimOffscreen     : in  std_logic;
+         Gun2AimOffscreen     : in  std_logic;
+         JustifierIrqEnable   : out std_logic_vector(1 downto 0);
+         snacPort1_in         : in  std_logic;
+         snacPort2_in         : in  std_logic;
+         actionNextSnac       : in  std_logic;
+         receiveValidSnac     : in  std_logic;
+         ackSnac              : in  std_logic;
+         snacMC               : in  std_logic;
+         receiveBufferSnac    : in  std_logic_vector(7 downto 0);
+         transmitValueSnac    : out std_logic_vector(7 downto 0);
+         selectedPort1Snac    : out std_logic;
+         selectedPort2Snac    : out std_logic;
+         clk9Snac             : out std_logic;
+         beginTransferSnac    : out std_logic;
+         mem1_request         : out std_logic;
+         mem1_BURSTCNT        : out std_logic_vector(7 downto 0) := (others => '0');
+         mem1_ADDR            : out std_logic_vector(19 downto 0) := (others => '0');
+         mem1_DIN             : out std_logic_vector(63 downto 0) := (others => '0');
+         mem1_BE              : out std_logic_vector(7 downto 0) := (others => '0');
+         mem1_WE              : out std_logic;
+         mem1_RD              : out std_logic;
+         mem1_ack             : in  std_logic;
+         mem2_request         : out std_logic;
+         mem2_BURSTCNT        : out std_logic_vector(7 downto 0) := (others => '0');
+         mem2_ADDR            : out std_logic_vector(19 downto 0) := (others => '0');
+         mem2_DIN             : out std_logic_vector(63 downto 0) := (others => '0');
+         mem2_BE              : out std_logic_vector(7 downto 0) := (others => '0');
+         mem2_WE              : out std_logic;
+         mem2_RD              : out std_logic;
+         mem2_ack             : in  std_logic;
+         mem_DOUT             : in  std_logic_vector(63 downto 0);
+         mem_DOUT_READY       : in  std_logic;
+         bus_addr             : in  unsigned(3 downto 0);
+         bus_dataWrite        : in  std_logic_vector(31 downto 0);
+         bus_read             : in  std_logic;
+         bus_write            : in  std_logic;
+         bus_writeMask        : in  std_logic_vector(3 downto 0);
+         bus_dataRead         : out std_logic_vector(31 downto 0);
+         SS_reset             : in  std_logic;
+         SS_DataWrite         : in  std_logic_vector(31 downto 0);
+         SS_Adr               : in  unsigned(2 downto 0);
+         SS_wren              : in  std_logic;
+         SS_rden              : in  std_logic;
+         SS_DataRead          : out std_logic_vector(31 downto 0);
+         SS_idle              : out std_logic
+      );
+      end component;
+   begin
+      ijoypad: joypad_pocket
+      port map 
+      (
+         clk1x                => clk1x,
+         clk2x                => clk2x,
+         clk2xIndex           => clk2xIndex,
+         ce                   => ce,   
+         reset                => reset_intern,
+
+         isPal                => isPal, -- passed through for GunCon
+      
+         DSAltSwitchMode      => DSAltSwitchMode,
+         joypad1              => joypad1,
+         joypad2              => joypad2,
+         joypad3              => joypad3,
+         joypad4              => joypad4,
+         multitap             => multitap,
+         multitapDigital      => multitapDigital,
+         multitapAnalog       => multitapAnalog,
+   			neGconRumble         => neGconRumble,
+         joypad1_rumble       => joypad1_rumble,
+         joypad2_rumble       => joypad2_rumble,
+         joypad3_rumble       => joypad3_rumble,
+         joypad4_rumble       => joypad4_rumble,
+         padMode              => padMode,
+
+         memcard1_available   => memcard1_available,
+         memcard2_available   => memcard2_available,
+      
+         irqRequest           => irq_PAD,
+      
+         MouseEvent           => MouseEvent,
+         MouseLeft            => MouseLeft,
+         MouseRight           => MouseRight,
+         MouseX               => MouseX,
+         MouseY               => MouseY,
+         Gun1X                => Gun1X,
+         Gun2X                => Gun2X,
+         Gun1Y_scanlines      => Gun1Y_scanlines,
+         Gun2Y_scanlines      => Gun2Y_scanlines,
+         Gun1AimOffscreen     => Gun1AimOffscreen,
+         Gun2AimOffscreen     => Gun2AimOffscreen,
+         JustifierIrqEnable   => JustifierIrqEnable,
+      
+         snacPort1_in         => snacport1,
+         snacPort2_in         => snacport2,      
+         selectedPort1Snac    => selectedPort1Snac,
+         selectedPort2Snac    => selectedPort2Snac,
+         transmitValueSnac    => transmitValueSnac,
+         clk9Snac             => clk9Snac,
+         receiveBufferSnac	   => receiveBufferSnac,
+         beginTransferSnac    => beginTransferSnac,
+         actionNextSnac       => actionNextSnac,
+         receiveValidSnac     => receiveValidSnac,
+         ackSnac              => ackSnac,
+         snacMC               => snacMC,
+      
+         mem1_request         => memDDR3card1_request,   
+         mem1_BURSTCNT        => memDDR3card1_BURSTCNT,  
+         mem1_ADDR            => memDDR3card1_ADDR,      
+         mem1_DIN             => memDDR3card1_DIN,       
+         mem1_BE              => memDDR3card1_BE,        
+         mem1_WE              => memDDR3card1_WE,        
+         mem1_RD              => memDDR3card1_RD,       
+         mem1_ack             => memDDR3card1_ack,       
+      
+         mem2_request         => memDDR3card2_request,   
+         mem2_BURSTCNT        => memDDR3card2_BURSTCNT,  
+         mem2_ADDR            => memDDR3card2_ADDR,      
+         mem2_DIN             => memDDR3card2_DIN,       
+         mem2_BE              => memDDR3card2_BE,        
+         mem2_WE              => memDDR3card2_WE,        
+         mem2_RD              => memDDR3card2_RD,       
+         mem2_ack             => memDDR3card2_ack,  
+      
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
+      
+         bus_addr             => bus_pad_addr,     
+         bus_dataWrite        => bus_pad_dataWrite,
+         bus_read             => bus_pad_read,     
+         bus_write            => bus_pad_write,    
+         bus_writeMask        => bus_pad_writeMask,   
+         bus_dataRead         => bus_pad_dataRead,
+      
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(2 downto 0),      
+         SS_wren              => SS_wren(5),     
+         SS_rden              => SS_rden(5),     
+         SS_DataRead          => SS_DataRead_JOYPAD,
+         SS_idle              => SS_idle_pad
+      );
+   end generate;
    
    icheats : entity work.cheats
    port map
@@ -1235,90 +1440,253 @@ begin
    
    ignoreDMACDTiming <= '1' when (TURBO_MEM = '1' or IGNORECDDMATIMING = '1' or unsigned(FORCECDSPEED) >= 3) else '0';
    
-   idma : entity work.dma
-   port map
-   (
-      clk1x                => clk1x,
-      clk3x                => clk3x,
-      clk3xIndex           => clk3xIndex,
-      ce                   => ce,   
-      reset                => reset_intern,
+   gdma_golden : if G_DMA_IMPL = "golden" generate
+   begin
+      idma : entity work.dma
+      port map
+      (
+         clk1x                => clk1x,
+         clk3x                => clk3x,
+         clk3xIndex           => clk3xIndex,
+         ce                   => ce,   
+         reset                => reset_intern,
       
-      errorCHOP            => errorCHOP, 
-      errorDMACPU          => errorDMACPU, 
-      errorDMAFIFO         => errorDMAFIFO, 
+         errorCHOP            => errorCHOP, 
+         errorDMACPU          => errorDMACPU, 
+         errorDMAFIFO         => errorDMAFIFO, 
       
-      TURBO                => TURBO_COMP,
-      TURBO_CACHE          => TURBO_CACHE,
-      ram8mb               => ram8mb,
-      ignoreCDTiming       => ignoreDMACDTiming,
+         TURBO                => TURBO_COMP,
+         TURBO_CACHE          => TURBO_CACHE,
+         ram8mb               => ram8mb,
+         ignoreCDTiming       => ignoreDMACDTiming,
       
-      canDMA               => canDMA,
-      cpuPaused            => cpuPaused,
-      dmaRequest           => dmaRequest,
-      dmaStallCPU          => dmaStallCPU,
-      dmaOn                => dmaOn,
-      irqOut               => irq_DMA,
+         canDMA               => canDMA,
+         cpuPaused            => cpuPaused,
+         dmaRequest           => dmaRequest,
+         dmaStallCPU          => dmaStallCPU,
+         dmaOn                => dmaOn,
+         irqOut               => irq_DMA,
       
-      ram_Adr              => ram_dma_Adr,  
-      ram_cnt              => ram_cntDMA,  
-      ram_ena              => ram_dma_ena,
+         ram_Adr              => ram_dma_Adr,  
+         ram_cnt              => ram_cntDMA,  
+         ram_ena              => ram_dma_ena,
       
-      dma_wr               => dma_wr, 
-      dma_reqprocessed     => dma_reqprocessed,      
-      dma_data             => dma_data,
+         dma_wr               => dma_wr, 
+         dma_reqprocessed     => dma_reqprocessed,      
+         dma_data             => dma_data,
       
-      ram_dmafifo_adr      => ram_dmafifo_adr, 
-      ram_dmafifo_data     => ram_dmafifo_data,
-      ram_dmafifo_empty    => ram_dmafifo_empty,
-      ram_dmafifo_read     => ram_dmafifo_read, 
+         ram_dmafifo_adr      => ram_dmafifo_adr, 
+         ram_dmafifo_data     => ram_dmafifo_data,
+         ram_dmafifo_empty    => ram_dmafifo_empty,
+         ram_dmafifo_read     => ram_dmafifo_read, 
 
-      dma_cache_Adr        => dma_cache_Adr,  
-      dma_cache_data       => dma_cache_data, 
-      dma_cache_write      => dma_cache_write,      
+         dma_cache_Adr        => dma_cache_Adr,  
+         dma_cache_data       => dma_cache_data, 
+         dma_cache_write      => dma_cache_write,      
       
-      gpu_dmaRequest       => gpu_dmaRequest,  
-      DMA_GPU_waiting      => DMA_GPU_waiting,
-      DMA_GPU_writeEna     => DMA_GPU_writeEna,
-      DMA_GPU_readEna      => DMA_GPU_readEna, 
-      DMA_GPU_write        => DMA_GPU_write,   
-      DMA_GPU_read         => DMA_GPU_read,   
+         gpu_dmaRequest       => gpu_dmaRequest,  
+         DMA_GPU_waiting      => DMA_GPU_waiting,
+         DMA_GPU_writeEna     => DMA_GPU_writeEna,
+         DMA_GPU_readEna      => DMA_GPU_readEna, 
+         DMA_GPU_write        => DMA_GPU_write,   
+         DMA_GPU_read         => DMA_GPU_read,   
       
-      mdec_dmaWriteRequest => mdec_dmaWriteRequest,
-      mdec_dmaReadRequest  => mdec_dmaReadRequest, 
-      DMA_MDEC_writeEna    => DMA_MDEC_writeEna,   
-      DMA_MDEC_readEna     => DMA_MDEC_readEna,    
-      DMA_MDEC_write       => DMA_MDEC_write,      
-      DMA_MDEC_read        => DMA_MDEC_read,   
+         mdec_dmaWriteRequest => mdec_dmaWriteRequest,
+         mdec_dmaReadRequest  => mdec_dmaReadRequest, 
+         DMA_MDEC_writeEna    => DMA_MDEC_writeEna,   
+         DMA_MDEC_readEna     => DMA_MDEC_readEna,    
+         DMA_MDEC_write       => DMA_MDEC_write,      
+         DMA_MDEC_read        => DMA_MDEC_read,   
 
-      cd_memctrl           => cd_memctrl,
-      com0_delay           => com0_delay,
-      DMA_CD_readEna       => DMA_CD_readEna,
-      DMA_CD_read          => DMA_CD_read,   
+         cd_memctrl           => cd_memctrl,
+         com0_delay           => com0_delay,
+         DMA_CD_readEna       => DMA_CD_readEna,
+         DMA_CD_read          => DMA_CD_read,   
       
-      spu_timing_on        => dma_spu_timing_on,   
-      spu_timing_value     => dma_spu_timing_value,
-      spu_dmaRequest       => spu_dmaRequest, 
-      DMA_SPU_writeEna     => DMA_SPU_writeEna,   
-      DMA_SPU_readEna      => DMA_SPU_readEna,    
-      DMA_SPU_write        => DMA_SPU_write,    
-      DMA_SPU_read         => DMA_SPU_read,
+         spu_timing_on        => dma_spu_timing_on,   
+         spu_timing_value     => dma_spu_timing_value,
+         spu_dmaRequest       => spu_dmaRequest, 
+         DMA_SPU_writeEna     => DMA_SPU_writeEna,   
+         DMA_SPU_readEna      => DMA_SPU_readEna,    
+         DMA_SPU_write        => DMA_SPU_write,    
+         DMA_SPU_read         => DMA_SPU_read,
       
-      bus_addr             => bus_dma_addr,     
-      bus_dataWrite        => bus_dma_dataWrite,
-      bus_read             => bus_dma_read,     
-      bus_write            => bus_dma_write,    
-      bus_dataRead         => bus_dma_dataRead,
+         bus_addr             => bus_dma_addr,     
+         bus_dataWrite        => bus_dma_dataWrite,
+         bus_read             => bus_dma_read,     
+         bus_write            => bus_dma_write,    
+         bus_dataRead         => bus_dma_dataRead,
       
-      loading_savestate    => loading_savestate,
-      SS_reset             => SS_reset,
-      SS_DataWrite         => SS_DataWrite,
-      SS_Adr               => SS_Adr(5 downto 0),      
-      SS_wren              => SS_wren(3),     
-      SS_rden              => SS_rden(3),     
-      SS_DataRead          => SS_DataRead_DMA,
-      SS_idle              => SS_idle_dma
-   );
+         loading_savestate    => loading_savestate,
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(5 downto 0),      
+         SS_wren              => SS_wren(3),     
+         SS_rden              => SS_rden(3),     
+         SS_DataRead          => SS_DataRead_DMA,
+         SS_idle              => SS_idle_dma
+      );
+   end generate;
+
+   gdma_pocket : if G_DMA_IMPL = "pocket" generate
+      component dma_pocket is
+      port
+      (
+         clk1x                : in  std_logic;
+         clk3x                : in  std_logic;
+         clk3xIndex           : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         errorCHOP            : out std_logic;
+         errorDMACPU          : out std_logic;
+         errorDMAFIFO         : out std_logic;
+         TURBO                : in  std_logic;
+         TURBO_CACHE          : in  std_logic;
+         ram8mb               : in  std_logic;
+         ignoreCDTiming       : in  std_logic;
+         canDMA               : in  std_logic;
+         cpuPaused            : in  std_logic;
+         dmaRequest           : out std_logic;
+         dmaStallCPU          : out std_logic;
+         dmaOn                : out std_logic;
+         irqOut               : out std_logic := '0';
+         ram_Adr              : out std_logic_vector(22 downto 0) := (others => '0');
+         ram_cnt              : buffer std_logic_vector(1 downto 0) := (others => '0');
+         ram_ena              : out std_logic := '0';
+         dma_wr               : in  std_logic;
+         dma_reqprocessed     : in  std_logic;
+         dma_data             : in  std_logic_vector(31 downto 0);
+         ram_dmafifo_adr      : out std_logic_vector(22 downto 0);
+         ram_dmafifo_data     : out std_logic_vector(31 downto 0);
+         ram_dmafifo_empty    : out std_logic;
+         ram_dmafifo_read     : in  std_logic;
+         dma_cache_Adr        : out std_logic_vector(20 downto 0);
+         dma_cache_data       : out std_logic_vector(31 downto 0);
+         dma_cache_write      : out std_logic;
+         gpu_dmaRequest       : in  std_logic;
+         DMA_GPU_waiting      : out std_logic := '0';
+         DMA_GPU_writeEna     : out std_logic := '0';
+         DMA_GPU_readEna      : out std_logic := '0';
+         DMA_GPU_write        : out std_logic_vector(31 downto 0);
+         DMA_GPU_read         : in  std_logic_vector(31 downto 0);
+         mdec_dmaWriteRequest : in  std_logic;
+         mdec_dmaReadRequest  : in  std_logic;
+         DMA_MDEC_writeEna    : out std_logic := '0';
+         DMA_MDEC_readEna     : out std_logic := '0';
+         DMA_MDEC_write       : out std_logic_vector(31 downto 0);
+         DMA_MDEC_read        : in  std_logic_vector(31 downto 0);
+         cd_memctrl           : in  unsigned(13 downto 0);
+         com0_delay           : in  unsigned(3 downto 0);
+         DMA_CD_readEna       : out std_logic := '0';
+         DMA_CD_read          : in  std_logic_vector(7 downto 0);
+         spu_timing_on        : in  std_logic;
+         spu_timing_value     : in  unsigned(3 downto 0);
+         spu_dmaRequest       : in  std_logic;
+         DMA_SPU_writeEna     : out std_logic := '0';
+         DMA_SPU_readEna      : out std_logic := '0';
+         DMA_SPU_write        : out std_logic_vector(15 downto 0);
+         DMA_SPU_read         : in  std_logic_vector(15 downto 0);
+         bus_addr             : in  unsigned(6 downto 0);
+         bus_dataWrite        : in  std_logic_vector(31 downto 0);
+         bus_read             : in  std_logic;
+         bus_write            : in  std_logic;
+         bus_dataRead         : out std_logic_vector(31 downto 0);
+         loading_savestate    : in  std_logic;
+         SS_reset             : in  std_logic;
+         SS_DataWrite         : in  std_logic_vector(31 downto 0);
+         SS_Adr               : in  unsigned(5 downto 0);
+         SS_wren              : in  std_logic;
+         SS_rden              : in  std_logic;
+         SS_DataRead          : out std_logic_vector(31 downto 0);
+         SS_idle              : out std_logic
+      );
+      end component;
+   begin
+      idma : dma_pocket
+      port map
+      (
+         clk1x                => clk1x,
+         clk3x                => clk3x,
+         clk3xIndex           => clk3xIndex,
+         ce                   => ce,   
+         reset                => reset_intern,
+      
+         errorCHOP            => errorCHOP, 
+         errorDMACPU          => errorDMACPU, 
+         errorDMAFIFO         => errorDMAFIFO, 
+      
+         TURBO                => TURBO_COMP,
+         TURBO_CACHE          => TURBO_CACHE,
+         ram8mb               => ram8mb,
+         ignoreCDTiming       => ignoreDMACDTiming,
+      
+         canDMA               => canDMA,
+         cpuPaused            => cpuPaused,
+         dmaRequest           => dmaRequest,
+         dmaStallCPU          => dmaStallCPU,
+         dmaOn                => dmaOn,
+         irqOut               => irq_DMA,
+      
+         ram_Adr              => ram_dma_Adr,  
+         ram_cnt              => ram_cntDMA,  
+         ram_ena              => ram_dma_ena,
+      
+         dma_wr               => dma_wr, 
+         dma_reqprocessed     => dma_reqprocessed,      
+         dma_data             => dma_data,
+      
+         ram_dmafifo_adr      => ram_dmafifo_adr, 
+         ram_dmafifo_data     => ram_dmafifo_data,
+         ram_dmafifo_empty    => ram_dmafifo_empty,
+         ram_dmafifo_read     => ram_dmafifo_read, 
+
+         dma_cache_Adr        => dma_cache_Adr,  
+         dma_cache_data       => dma_cache_data, 
+         dma_cache_write      => dma_cache_write,      
+      
+         gpu_dmaRequest       => gpu_dmaRequest,  
+         DMA_GPU_waiting      => DMA_GPU_waiting,
+         DMA_GPU_writeEna     => DMA_GPU_writeEna,
+         DMA_GPU_readEna      => DMA_GPU_readEna, 
+         DMA_GPU_write        => DMA_GPU_write,   
+         DMA_GPU_read         => DMA_GPU_read,   
+      
+         mdec_dmaWriteRequest => mdec_dmaWriteRequest,
+         mdec_dmaReadRequest  => mdec_dmaReadRequest, 
+         DMA_MDEC_writeEna    => DMA_MDEC_writeEna,   
+         DMA_MDEC_readEna     => DMA_MDEC_readEna,    
+         DMA_MDEC_write       => DMA_MDEC_write,      
+         DMA_MDEC_read        => DMA_MDEC_read,   
+
+         cd_memctrl           => cd_memctrl,
+         com0_delay           => com0_delay,
+         DMA_CD_readEna       => DMA_CD_readEna,
+         DMA_CD_read          => DMA_CD_read,   
+      
+         spu_timing_on        => dma_spu_timing_on,   
+         spu_timing_value     => dma_spu_timing_value,
+         spu_dmaRequest       => spu_dmaRequest, 
+         DMA_SPU_writeEna     => DMA_SPU_writeEna,   
+         DMA_SPU_readEna      => DMA_SPU_readEna,    
+         DMA_SPU_write        => DMA_SPU_write,    
+         DMA_SPU_read         => DMA_SPU_read,
+      
+         bus_addr             => bus_dma_addr,     
+         bus_dataWrite        => bus_dma_dataWrite,
+         bus_read             => bus_dma_read,     
+         bus_write            => bus_dma_write,    
+         bus_dataRead         => bus_dma_dataRead,
+      
+         loading_savestate    => loading_savestate,
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(5 downto 0),      
+         SS_wren              => SS_wren(3),     
+         SS_rden              => SS_rden(3),     
+         SS_DataRead          => SS_DataRead_DMA,
+         SS_idle              => SS_idle_dma
+      );
+   end generate;
    
    ram_refresh   <= reset_intern;
    
@@ -1388,213 +1756,543 @@ begin
       SS_DataRead          => SS_DataRead_TIMER
    );
    
-   icd_top : entity work.cd_top
-   port map
-   (
-      clk1x                => clk1x,
-      ce                   => ce,   
-      reset                => reset_intern,
+   gcd_golden : if G_CD_IMPL = "golden" generate
+   begin
+      icd_top : entity work.cd_top
+      port map
+      (
+         clk1x                => clk1x,
+         ce                   => ce,   
+         reset                => reset_intern,
      
-      INSTANTSEEK          => INSTANTSEEK,
-      FORCECDSPEED         => FORCECDSPEED,
-      LIMITREADSPEED       => LIMITREADSPEED,
-      hasCD                => hasCD,
-      fastCD               => fastCD,
-      testSeek             => testSeek,
-      pauseOnCDSlow        => pauseOnCDSlow,
-      LIDopen              => LIDopen,
-      region               => region,
-      region_out           => region_out,	  
+         INSTANTSEEK          => INSTANTSEEK,
+         FORCECDSPEED         => FORCECDSPEED,
+         LIMITREADSPEED       => LIMITREADSPEED,
+         hasCD                => hasCD,
+         fastCD               => fastCD,
+         testSeek             => testSeek,
+         pauseOnCDSlow        => pauseOnCDSlow,
+         LIDopen              => LIDopen,
+         region               => region,
+         region_out           => region_out,	  
       
-      pauseCD              => pauseCD,
-      Pause_idle_cd        => Pause_idle_cd,
-      cdSlow               => cdSlow,
-      error                => errorCD,
-      LBAdisplay           => LBAdisplay,
+         pauseCD              => pauseCD,
+         Pause_idle_cd        => Pause_idle_cd,
+         cdSlow               => cdSlow,
+         error                => errorCD,
+         LBAdisplay           => LBAdisplay,
           
-      irqOut               => irq_CDROM,
+         irqOut               => irq_CDROM,
       
-      spu_tick             => spu_tick,
-      cd_left              => cd_left,
-      cd_right             => cd_right,
+         spu_tick             => spu_tick,
+         cd_left              => cd_left,
+         cd_right             => cd_right,
       
-      mdec_idle            => SS_Idle_mdec,
+         mdec_idle            => SS_Idle_mdec,
                             
-      bus_addr             => bus_cd_addr,     
-      bus_dataWrite        => bus_cd_dataWrite,
-      bus_read             => bus_cd_read,     
-      bus_write            => bus_cd_write,     
-      bus_dataRead         => bus_cd_dataRead,
+         bus_addr             => bus_cd_addr,     
+         bus_dataWrite        => bus_cd_dataWrite,
+         bus_read             => bus_cd_read,     
+         bus_write            => bus_cd_write,     
+         bus_dataRead         => bus_cd_dataRead,
                             
-      dma_read             => DMA_CD_readEna,
-      dma_readdata         => DMA_CD_read,
+         dma_read             => DMA_CD_readEna,
+         dma_readdata         => DMA_CD_read,
       
-      cd_hps_req           => cd_hps_req,  
-      cd_hps_lba           => cd_hps_lba,
-      cd_hps_lba_sim       => cd_hps_lba_sim,
-      cd_hps_ack           => cd_hps_ack,
-      cd_hps_write         => cd_hps_write,
-      cd_hps_data          => cd_hps_data, 
+         cd_hps_req           => cd_hps_req,  
+         cd_hps_lba           => cd_hps_lba,
+         cd_hps_lba_sim       => cd_hps_lba_sim,
+         cd_hps_ack           => cd_hps_ack,
+         cd_hps_write         => cd_hps_write,
+         cd_hps_data          => cd_hps_data, 
       
-      trackinfo_data       => trackinfo_data,
-      trackinfo_addr       => trackinfo_addr, 
-      trackinfo_write      => trackinfo_write,
-      resetFromCD          => resetFromCD,
+         trackinfo_data       => trackinfo_data,
+         trackinfo_addr       => trackinfo_addr, 
+         trackinfo_write      => trackinfo_write,
+         resetFromCD          => resetFromCD,
       
-      SS_reset             => SS_reset,
-      SS_DataWrite         => SS_DataWrite,
-      SS_Adr               => SS_Adr(13 downto 0),      
-      SS_wren              => SS_wren(13),     
-      SS_rden              => SS_rden(13),     
-      SS_DataRead          => SS_DataRead_CD,
-      SS_Idle              => SS_Idle_cd
-   );
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(13 downto 0),      
+         SS_wren              => SS_wren(13),     
+         SS_rden              => SS_rden(13),     
+         SS_DataRead          => SS_DataRead_CD,
+         SS_Idle              => SS_Idle_cd
+      );
+   end generate;
+
+   gcd_pocket : if G_CD_IMPL = "pocket" generate
+      component cd_pocket is
+      port
+      (
+         clk1x                : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         INSTANTSEEK          : in  std_logic;
+         FORCECDSPEED         : in  std_logic_vector(2 downto 0);
+         LIMITREADSPEED       : in  std_logic;
+         hasCD                : in  std_logic;
+         LIDopen              : in  std_logic;
+         fastCD               : in  std_logic;
+         testSeek             : in  std_logic;
+         pauseOnCDSlow        : in  std_logic;
+         region               : in  std_logic_vector(1 downto 0);
+         region_out           : out std_logic_vector(1 downto 0);
+         pauseCD              : out std_logic := '0';
+         Pause_idle_cd        : out std_logic := '0';
+         fullyIdle            : out std_logic;
+         cdSlow               : out std_logic := '0';
+         error                : out std_logic := '0';
+         LBAdisplay           : out unsigned(19 downto 0);
+         irqOut               : out std_logic := '0';
+         spu_tick             : in  std_logic;
+         cd_left              : out signed(15 downto 0) := (others => '0');
+         cd_right             : out signed(15 downto 0) := (others => '0');
+         mdec_idle            : in  std_logic;
+         bus_addr             : in  unsigned(3 downto 0);
+         bus_dataWrite        : in  std_logic_vector(7 downto 0);
+         bus_read             : in  std_logic;
+         bus_write            : in  std_logic;
+         bus_dataRead         : out std_logic_vector(7 downto 0) := (others => '0');
+         dma_read             : in  std_logic;
+         dma_readdata         : out std_logic_vector(7 downto 0);
+         cd_hps_req           : out std_logic := '0';
+         cd_hps_lba           : out std_logic_vector(31 downto 0);
+         cd_hps_lba_sim       : out std_logic_vector(31 downto 0) := (others => '0');
+         cd_hps_ack           : in  std_logic;
+         cd_hps_write         : in  std_logic;
+         cd_hps_data          : in  std_logic_vector(15 downto 0);
+         trackinfo_data       : in  std_logic_vector(31 downto 0);
+         trackinfo_addr       : in  std_logic_vector(8 downto 0);
+         trackinfo_write      : in  std_logic;
+         resetFromCD          : out std_logic := '0';
+         SS_reset             : in  std_logic;
+         SS_DataWrite         : in  std_logic_vector(31 downto 0);
+         SS_Adr               : in  unsigned(13 downto 0);
+         SS_wren              : in  std_logic;
+         SS_rden              : in  std_logic;
+         SS_DataRead          : out std_logic_vector(31 downto 0);
+         SS_idle              : out std_logic
+      );
+      end component;
+   begin
+      icd_top : cd_pocket
+      port map
+      (
+         clk1x                => clk1x,
+         ce                   => ce,   
+         reset                => reset_intern,
+     
+         INSTANTSEEK          => INSTANTSEEK,
+         FORCECDSPEED         => FORCECDSPEED,
+         LIMITREADSPEED       => LIMITREADSPEED,
+         hasCD                => hasCD,
+         fastCD               => fastCD,
+         testSeek             => testSeek,
+         pauseOnCDSlow        => pauseOnCDSlow,
+         LIDopen              => LIDopen,
+         region               => region,
+         region_out           => region_out,	  
+      
+         pauseCD              => pauseCD,
+         Pause_idle_cd        => Pause_idle_cd,
+         cdSlow               => cdSlow,
+         error                => errorCD,
+         LBAdisplay           => LBAdisplay,
+          
+         irqOut               => irq_CDROM,
+      
+         spu_tick             => spu_tick,
+         cd_left              => cd_left,
+         cd_right             => cd_right,
+      
+         mdec_idle            => SS_Idle_mdec,
+                            
+         bus_addr             => bus_cd_addr,     
+         bus_dataWrite        => bus_cd_dataWrite,
+         bus_read             => bus_cd_read,     
+         bus_write            => bus_cd_write,     
+         bus_dataRead         => bus_cd_dataRead,
+                            
+         dma_read             => DMA_CD_readEna,
+         dma_readdata         => DMA_CD_read,
+      
+         cd_hps_req           => cd_hps_req,  
+         cd_hps_lba           => cd_hps_lba,
+         cd_hps_lba_sim       => cd_hps_lba_sim,
+         cd_hps_ack           => cd_hps_ack,
+         cd_hps_write         => cd_hps_write,
+         cd_hps_data          => cd_hps_data, 
+      
+         trackinfo_data       => trackinfo_data,
+         trackinfo_addr       => trackinfo_addr, 
+         trackinfo_write      => trackinfo_write,
+         resetFromCD          => resetFromCD,
+      
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(13 downto 0),      
+         SS_wren              => SS_wren(13),     
+         SS_rden              => SS_rden(13),     
+         SS_DataRead          => SS_DataRead_CD,
+         SS_Idle              => SS_Idle_cd
+      );
+   end generate;
 
    cdslowEna <= cdSlow and cdslowOn;
 
-   igpu : entity work.gpu_pocket
-   port map
-   (
-      clk1x                => clk1x,
-      clk2x                => clk2x,
-      clk2xIndex           => clk2xIndex,
-      clkvid               => clkvid,
-      ce                   => ce,   
-      reset                => reset_intern,
+   ggpu_pocket : if G_GPU_IMPL = "pocket" generate
+   begin
+      igpu : entity work.gpu_pocket
+      port map
+      (
+         clk1x                => clk1x,
+         clk2x                => clk2x,
+         clk2xIndex           => clk2xIndex,
+         clkvid               => clkvid,
+         ce                   => ce,   
+         reset                => reset_intern,
       
-      allowunpause         => allowunpause,
-      savestate_busy       => savestate_busy,
-      system_paused        => pausing,
+         allowunpause         => allowunpause,
+         savestate_busy       => savestate_busy,
+         system_paused        => pausing,
       
-      ditherOff            => ditherOff,
-      interlaced480pHack   => interlaced480pHack,
-      REPRODUCIBLEGPUTIMING=> REPRODUCIBLEGPUTIMING,
-      videoout_on          => videoout_on,
-      isPal                => isPal,
-      pal60                => pal60,
-      fpscountOn           => fpscountOn,
-      noTexture            => noTexture,
-      textureFilter        => textureFilter,
-      textureFilterStrength=> textureFilterStrength,
-      textureFilter2DOff   => textureFilter2DOff,
-      dither24             => dither24,
-      render24             => render24,
-      drawSlow             => drawSlow,
-      debugmodeOn          => debugmodeOn,
-      syncVideoOut         => syncVideoOut,
-      syncInterlace        => syncInterlace,
-      rotate180            => rotate180,
-      fixedVBlank          => fixedVBlank,
-      vCrop                => vCrop,   
-      hCrop                => hCrop,   
+         ditherOff            => ditherOff,
+         interlaced480pHack   => interlaced480pHack,
+         REPRODUCIBLEGPUTIMING=> REPRODUCIBLEGPUTIMING,
+         videoout_on          => videoout_on,
+         isPal                => isPal,
+         pal60                => pal60,
+         fpscountOn           => fpscountOn,
+         noTexture            => noTexture,
+         textureFilter        => textureFilter,
+         textureFilterStrength=> textureFilterStrength,
+         textureFilter2DOff   => textureFilter2DOff,
+         dither24             => dither24,
+         render24             => render24,
+         drawSlow             => drawSlow,
+         debugmodeOn          => debugmodeOn,
+         syncVideoOut         => syncVideoOut,
+         syncInterlace        => syncInterlace,
+         rotate180            => rotate180,
+         fixedVBlank          => fixedVBlank,
+         vCrop                => vCrop,   
+         hCrop                => hCrop,   
       
-	  oldGPU               => oldGPU,
+   	  oldGPU               => oldGPU,
 	  
-      Gun1CrosshairOn      => Gun1CrosshairOn,
-      Gun1X                => Gun1X,
-      Gun1Y_scanlines      => Gun1Y_scanlines,
-      Gun1offscreen        => Gun1offscreen,
-      Gun1IRQ10            => Gun1IRQ10,
+         Gun1CrosshairOn      => Gun1CrosshairOn,
+         Gun1X                => Gun1X,
+         Gun1Y_scanlines      => Gun1Y_scanlines,
+         Gun1offscreen        => Gun1offscreen,
+         Gun1IRQ10            => Gun1IRQ10,
 
-      Gun2CrosshairOn      => Gun2CrosshairOn,
-      Gun2X                => Gun2X,
-      Gun2Y_scanlines      => Gun2Y_scanlines,
-      Gun2offscreen        => Gun2offscreen,
-      Gun2IRQ10            => Gun2IRQ10,
+         Gun2CrosshairOn      => Gun2CrosshairOn,
+         Gun2X                => Gun2X,
+         Gun2Y_scanlines      => Gun2Y_scanlines,
+         Gun2offscreen        => Gun2offscreen,
+         Gun2IRQ10            => Gun2IRQ10,
 
-      cdSlow               => cdslowEna,
+         cdSlow               => cdslowEna,
       
-      errorOn              => errorOn,  
-      errorEna             => errorEna, 
-      errorCode            => errorCode,
+         errorOn              => errorOn,  
+         errorEna             => errorEna, 
+         errorCode            => errorCode,
       
-      LBAOn                => LBAOn,
-      LBAdisplay           => LBAdisplay,
+         LBAOn                => LBAOn,
+         LBAdisplay           => LBAdisplay,
       
-      errorLINE            => errorLINE,
-      errorRECT            => errorRECT,
-      errorPOLY            => errorPOLY,
-      errorGPU             => errorGPU, 
-      errorMASK            => errorMASK, 
-      errorFIFO            => errorGPUFIFO,
+         errorLINE            => errorLINE,
+         errorRECT            => errorRECT,
+         errorPOLY            => errorPOLY,
+         errorGPU             => errorGPU, 
+         errorMASK            => errorMASK, 
+         errorFIFO            => errorGPUFIFO,
       
-      bus_addr             => bus_gpu_addr,     
-      bus_dataWrite        => bus_gpu_dataWrite,
-      bus_read             => bus_gpu_read,     
-      bus_write            => bus_gpu_write,    
-      bus_dataRead         => bus_gpu_dataRead, 
-      bus_stall            => bus_gpu_stall, 
+         bus_addr             => bus_gpu_addr,     
+         bus_dataWrite        => bus_gpu_dataWrite,
+         bus_read             => bus_gpu_read,     
+         bus_write            => bus_gpu_write,    
+         bus_dataRead         => bus_gpu_dataRead, 
+         bus_stall            => bus_gpu_stall, 
       
-      dmaOn                => dmaOn,
-      gpu_dmaRequest       => gpu_dmaRequest,  
-      DMA_GPU_waiting      => DMA_GPU_waiting,
-      DMA_GPU_writeEna     => DMA_GPU_writeEna,
-      DMA_GPU_readEna      => DMA_GPU_readEna, 
-      DMA_GPU_write        => DMA_GPU_write,   
-      DMA_GPU_read         => DMA_GPU_read,  
+         dmaOn                => dmaOn,
+         gpu_dmaRequest       => gpu_dmaRequest,  
+         DMA_GPU_waiting      => DMA_GPU_waiting,
+         DMA_GPU_writeEna     => DMA_GPU_writeEna,
+         DMA_GPU_readEna      => DMA_GPU_readEna, 
+         DMA_GPU_write        => DMA_GPU_write,   
+         DMA_GPU_read         => DMA_GPU_read,  
       
-      irq_VBLANK           => irq_VBLANK,
-      irq_GPU              => irq_GPU,
+         irq_VBLANK           => irq_VBLANK,
+         irq_GPU              => irq_GPU,
       
-      vram_pause           => vram_pause, 
-      vram_paused          => vram_paused,
-      vram_BUSY            => ddr3_BUSY,       
-      vram_DOUT            => ddr3_DOUT,       
-      vram_DOUT_READY      => ddr3_DOUT_READY,
-      vram_BURSTCNT        => vram_BURSTCNT,  
-      vram_ADDR            => vram_ADDR,      
-      vram_DIN             => vram_DIN,       
-      vram_BE              => vram_BE,        
-      vram_WE              => vram_WE,        
-      vram_RD              => vram_RD, 
+         vram_pause           => vram_pause, 
+         vram_paused          => vram_paused,
+         vram_BUSY            => ddr3_BUSY,       
+         vram_DOUT            => ddr3_DOUT,       
+         vram_DOUT_READY      => ddr3_DOUT_READY,
+         vram_BURSTCNT        => vram_BURSTCNT,  
+         vram_ADDR            => vram_ADDR,      
+         vram_DIN             => vram_DIN,       
+         vram_BE              => vram_BE,        
+         vram_WE              => vram_WE,        
+         vram_RD              => vram_RD, 
 
-      hblank_tmr           => hblank_tmr,
-      vblank_tmr           => vblank_tmr,
-      dotclock             => dotclock,
+         hblank_tmr           => hblank_tmr,
+         vblank_tmr           => vblank_tmr,
+         dotclock             => dotclock,
       
-      video_hsync          => hsync, 
-      video_vsync          => vsync, 
-      video_hblank         => hblank,
-      video_vblank         => vblank,
-      video_DisplayWidth   => DisplayWidth, 
-      video_DisplayHeight  => DisplayHeight,
-      video_DisplayOffsetX => DisplayOffsetX,
-      video_DisplayOffsetY => DisplayOffsetY,
-      video_ce             => video_ce,
-      video_interlace      => video_interlace,
-      video_r              => video_r, 
-      video_g              => video_g, 
-      video_b              => video_b, 
-      video_isPal          => video_isPal, 
-      video_fbmode         => video_fbmode, 
-      video_fb24           => video_fb24, 
-      video_hResMode       => video_hResMode, 
-      video_frameindex     => video_frameindex,
+         video_hsync          => hsync, 
+         video_vsync          => vsync, 
+         video_hblank         => hblank,
+         video_vblank         => vblank,
+         video_DisplayWidth   => DisplayWidth, 
+         video_DisplayHeight  => DisplayHeight,
+         video_DisplayOffsetX => DisplayOffsetX,
+         video_DisplayOffsetY => DisplayOffsetY,
+         video_ce             => video_ce,
+         video_interlace      => video_interlace,
+         video_r              => video_r, 
+         video_g              => video_g, 
+         video_b              => video_b, 
+         video_isPal          => video_isPal, 
+         video_fbmode         => video_fbmode, 
+         video_fb24           => video_fb24, 
+         video_hResMode       => video_hResMode, 
+         video_frameindex     => video_frameindex,
       
--- synthesis translate_off
-      export_gtm           => export_gtm,
-      export_line          => export_line,
-      export_gpus          => export_gpus,
-      export_gobj          => export_gobj,
--- synthesis translate_on
+   -- synthesis translate_off
+         export_gtm           => export_gtm,
+         export_line          => export_line,
+         export_gpus          => export_gpus,
+         export_gobj          => export_gobj,
+   -- synthesis translate_on
       
-      loading_savestate    => loading_savestate,
-      SS_reset             => SS_reset,
-      SS_DataWrite         => SS_DataWrite,
-      SS_Adr               => SS_Adr(2 downto 0),
-      SS_wren_GPU          => SS_wren(1),     
-      SS_wren_Timing       => SS_wren(2),      
-      SS_rden_GPU          => SS_rden(1),     
-      SS_rden_Timing       => SS_rden(2),
-      SS_DataRead_GPU      => SS_DataRead_GPU,
-      SS_DataRead_Timing   => SS_DataRead_GPUTiming,
-      SS_Idle              => SS_Idle_gpu
-   );
+         loading_savestate    => loading_savestate,
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(2 downto 0),
+         SS_wren_GPU          => SS_wren(1),     
+         SS_wren_Timing       => SS_wren(2),      
+         SS_rden_GPU          => SS_rden(1),     
+         SS_rden_Timing       => SS_rden(2),
+         SS_DataRead_GPU      => SS_DataRead_GPU,
+         SS_DataRead_Timing   => SS_DataRead_GPUTiming,
+         SS_Idle              => SS_Idle_gpu
+      );
+   end generate;
+
+   ggpu_golden : if G_GPU_IMPL = "golden" generate
+   begin
+      igpu : entity work.gpu
+      port map
+      (
+         clk1x                => clk1x,
+         clk2x                => clk2x,
+         clk2xIndex           => clk2xIndex,
+         clkvid               => clkvid,
+         ce                   => ce,   
+         reset                => reset_intern,
+      
+         allowunpause         => allowunpause,
+         savestate_busy       => savestate_busy,
+         system_paused        => pausing,
+      
+         ditherOff            => ditherOff,
+         interlaced480pHack   => interlaced480pHack,
+         REPRODUCIBLEGPUTIMING=> REPRODUCIBLEGPUTIMING,
+         videoout_on          => videoout_on,
+         isPal                => isPal,
+         pal60                => pal60,
+         fpscountOn           => fpscountOn,
+         noTexture            => noTexture,
+         textureFilter        => textureFilter,
+         textureFilterStrength=> textureFilterStrength,
+         textureFilter2DOff   => textureFilter2DOff,
+         dither24             => dither24,
+         render24             => render24,
+         drawSlow             => drawSlow,
+         debugmodeOn          => debugmodeOn,
+         syncVideoOut         => syncVideoOut,
+         syncInterlace        => syncInterlace,
+         rotate180            => rotate180,
+         fixedVBlank          => fixedVBlank,
+         vCrop                => vCrop,   
+         hCrop                => hCrop,   
+      
+   	  oldGPU               => oldGPU,
+	  
+         Gun1CrosshairOn      => Gun1CrosshairOn,
+         Gun1X                => Gun1X,
+         Gun1Y_scanlines      => Gun1Y_scanlines,
+         Gun1offscreen        => Gun1offscreen,
+         Gun1IRQ10            => Gun1IRQ10,
+
+         Gun2CrosshairOn      => Gun2CrosshairOn,
+         Gun2X                => Gun2X,
+         Gun2Y_scanlines      => Gun2Y_scanlines,
+         Gun2offscreen        => Gun2offscreen,
+         Gun2IRQ10            => Gun2IRQ10,
+
+         cdSlow               => cdslowEna,
+      
+         errorOn              => errorOn,  
+         errorEna             => errorEna, 
+         errorCode            => errorCode,
+      
+         LBAOn                => LBAOn,
+         LBAdisplay           => LBAdisplay,
+      
+         errorLINE            => errorLINE,
+         errorRECT            => errorRECT,
+         errorPOLY            => errorPOLY,
+         errorGPU             => errorGPU, 
+         errorMASK            => errorMASK, 
+         errorFIFO            => errorGPUFIFO,
+      
+         bus_addr             => bus_gpu_addr,     
+         bus_dataWrite        => bus_gpu_dataWrite,
+         bus_read             => bus_gpu_read,     
+         bus_write            => bus_gpu_write,    
+         bus_dataRead         => bus_gpu_dataRead, 
+         bus_stall            => bus_gpu_stall, 
+      
+         dmaOn                => dmaOn,
+         gpu_dmaRequest       => gpu_dmaRequest,  
+         DMA_GPU_waiting      => DMA_GPU_waiting,
+         DMA_GPU_writeEna     => DMA_GPU_writeEna,
+         DMA_GPU_readEna      => DMA_GPU_readEna, 
+         DMA_GPU_write        => DMA_GPU_write,   
+         DMA_GPU_read         => DMA_GPU_read,  
+      
+         irq_VBLANK           => irq_VBLANK,
+         irq_GPU              => irq_GPU,
+      
+         vram_pause           => vram_pause, 
+         vram_paused          => vram_paused,
+         vram_BUSY            => ddr3_BUSY,       
+         vram_DOUT            => ddr3_DOUT,       
+         vram_DOUT_READY      => ddr3_DOUT_READY,
+         vram_BURSTCNT        => vram_BURSTCNT,  
+         vram_ADDR            => vram_ADDR,      
+         vram_DIN             => vram_DIN,       
+         vram_BE              => vram_BE,        
+         vram_WE              => vram_WE,        
+         vram_RD              => vram_RD, 
+
+         hblank_tmr           => hblank_tmr,
+         vblank_tmr           => vblank_tmr,
+         dotclock             => dotclock,
+      
+         video_hsync          => hsync, 
+         video_vsync          => vsync, 
+         video_hblank         => hblank,
+         video_vblank         => vblank,
+         video_DisplayWidth   => DisplayWidth, 
+         video_DisplayHeight  => DisplayHeight,
+         video_DisplayOffsetX => DisplayOffsetX,
+         video_DisplayOffsetY => DisplayOffsetY,
+         video_ce             => video_ce,
+         video_interlace      => video_interlace,
+         video_r              => video_r, 
+         video_g              => video_g, 
+         video_b              => video_b, 
+         video_isPal          => video_isPal, 
+         video_fbmode         => video_fbmode, 
+         video_fb24           => video_fb24, 
+         video_hResMode       => video_hResMode, 
+         video_frameindex     => video_frameindex,
+      
+   -- synthesis translate_off
+         export_gtm           => export_gtm,
+         export_line          => export_line,
+         export_gpus          => export_gpus,
+         export_gobj          => export_gobj,
+   -- synthesis translate_on
+      
+         loading_savestate    => loading_savestate,
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(2 downto 0),
+         SS_wren_GPU          => SS_wren(1),     
+         SS_wren_Timing       => SS_wren(2),      
+         SS_rden_GPU          => SS_rden(1),     
+         SS_rden_Timing       => SS_rden(2),
+         SS_DataRead_GPU      => SS_DataRead_GPU,
+         SS_DataRead_Timing   => SS_DataRead_GPUTiming,
+         SS_Idle              => SS_Idle_gpu
+      );
+   end generate;
    
-   gmdec : if not NO_MDEC generate
+   gmdec_golden : if G_MDEC_IMPL = "golden" and not NO_MDEC generate
    begin
 
       imdec : entity work.mdec
+      port map
+      (
+         clk1x                => clk1x,     
+         clk2x                => clk2x,    
+         clk2xIndex           => clk2xIndex,
+         ce                   => ce,        
+         reset                => reset_intern,     
+      
+         bus_addr             => bus_mdec_addr,     
+         bus_dataWrite        => bus_mdec_dataWrite,
+         bus_read             => bus_mdec_read,     
+         bus_write            => bus_mdec_write,    
+         bus_dataRead         => bus_mdec_dataRead, 
+      
+         dmaWriteRequest      => mdec_dmaWriteRequest,
+         dmaReadRequest       => mdec_dmaReadRequest, 
+         dma_write            => DMA_MDEC_writeEna,   
+         dma_writedata        => DMA_MDEC_write,    
+         dma_read             => DMA_MDEC_readEna,      
+         dma_readdata         => DMA_MDEC_read,
+
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(6 downto 0),      
+         SS_wren              => SS_wren(6),     
+         SS_rden              => SS_rden(6),     
+         SS_DataRead          => SS_DataRead_MDEC,
+         SS_Idle              => SS_Idle_mdec
+      );
+
+   end generate;
+
+   gmdec_pocket : if G_MDEC_IMPL = "pocket" and not NO_MDEC generate
+      component mdec_pocket is
+      port
+      (
+         clk1x                : in  std_logic;
+         clk2x                : in  std_logic;
+         clk2xIndex           : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         bus_addr             : in  unsigned(3 downto 0);
+         bus_dataWrite        : in  std_logic_vector(31 downto 0);
+         bus_read             : in  std_logic;
+         bus_write            : in  std_logic;
+         bus_dataRead         : out std_logic_vector(31 downto 0);
+         dmaWriteRequest      : out std_logic;
+         dmaReadRequest       : out std_logic;
+         dma_write            : in  std_logic;
+         dma_writedata        : in  std_logic_vector(31 downto 0);
+         dma_read             : in  std_logic;
+         dma_readdata         : out std_logic_vector(31 downto 0);
+         SS_reset             : in  std_logic;
+         SS_DataWrite         : in  std_logic_vector(31 downto 0);
+         SS_Adr               : in  unsigned(6 downto 0);
+         SS_wren              : in  std_logic;
+         SS_rden              : in  std_logic;
+         SS_DataRead          : out std_logic_vector(31 downto 0);
+         SS_Idle              : out std_logic
+      );
+      end component;
+   begin
+
+      imdec : mdec_pocket
       port map
       (
          clk1x                => clk1x,     
@@ -1637,82 +2335,230 @@ begin
       SS_Idle_mdec         <= '1';
    end generate;
 
-   ispu : entity work.spu
-   port map
-   (
-      clk1x                => clk1x,   
-      clk2x                => clk2x,    
-      clk2xIndex           => clk2xIndex,      
-      ce                   => ce,        
-      reset                => reset_intern,     
+   gspu_golden : if G_SPU_IMPL = "golden" generate
+   begin
+      ispu : entity work.spu
+      port map
+      (
+         clk1x                => clk1x,   
+         clk2x                => clk2x,    
+         clk2xIndex           => clk2xIndex,      
+         ce                   => ce,        
+         reset                => reset_intern,     
       
-      SPUon                => SPUon,
-      SPUIRQTrigger        => SPUIRQTrigger,
-      useSDRAM             => SPUSDRAM,
-      REPRODUCIBLESPUIRQ   => '1',
-      REPRODUCIBLESPUDMA   => REPRODUCIBLESPUDMA,
-      REVERBOFF            => REVERBOFF,
+         SPUon                => SPUon,
+         SPUIRQTrigger        => SPUIRQTrigger,
+         useSDRAM             => SPUSDRAM,
+         REPRODUCIBLESPUIRQ   => '1',
+         REPRODUCIBLESPUDMA   => REPRODUCIBLESPUDMA,
+         REVERBOFF            => REVERBOFF,
       
-      cpuPaused            => cpuPaused,
+         cpuPaused            => cpuPaused,
       
-      spu_tick             => spu_tick,
-      cd_left              => cd_left,
-      cd_right             => cd_right,
+         spu_tick             => spu_tick,
+         cd_left              => cd_left,
+         cd_right             => cd_right,
       
-      irqOut               => irq_SPU,
+         irqOut               => irq_SPU,
       
-      sound_timeout        => errorSPUTIME,
+         sound_timeout        => errorSPUTIME,
       
-      sound_out_left       => sound_out_left, 
-      sound_out_right      => sound_out_right,
+         sound_out_left       => sound_out_left, 
+         sound_out_right      => sound_out_right,
       
-      bus_addr             => bus_spu_addr,     
-      bus_dataWrite        => bus_spu_dataWrite,
-      bus_read             => bus_spu_read,     
-      bus_write            => bus_spu_write,    
-      bus_dataRead         => bus_spu_dataRead, 
+         bus_addr             => bus_spu_addr,     
+         bus_dataWrite        => bus_spu_dataWrite,
+         bus_read             => bus_spu_read,     
+         bus_write            => bus_spu_write,    
+         bus_dataRead         => bus_spu_dataRead, 
       
-      spu_dmaRequest       => spu_dmaRequest, 
-      dma_read             => DMA_SPU_readEna,      
-      dma_readdata         => DMA_SPU_read, 
-      dma_write            => DMA_SPU_writeEna, 
-      dma_writedata        => DMA_SPU_write,
+         spu_dmaRequest       => spu_dmaRequest, 
+         dma_read             => DMA_SPU_readEna,      
+         dma_readdata         => DMA_SPU_read, 
+         dma_write            => DMA_SPU_writeEna, 
+         dma_writedata        => DMA_SPU_write,
           
-      sdram_dataWrite      => spuram_dataWrite,
-      sdram_dataRead       => spuram_dataRead, 
-      sdram_Adr            => spuram_Adr,      
-      sdram_be             => spuram_be,      
-      sdram_rnw            => spuram_rnw,      
-      sdram_ena            => spuram_ena,           
-      sdram_done           => spuram_done,
+         sdram_dataWrite      => spuram_dataWrite,
+         sdram_dataRead       => spuram_dataRead, 
+         sdram_Adr            => spuram_Adr,      
+         sdram_be             => spuram_be,      
+         sdram_rnw            => spuram_rnw,      
+         sdram_ena            => spuram_ena,           
+         sdram_done           => spuram_done,
       
-      mem_request          => memSPU_request,  
-      mem_BURSTCNT         => memSPU_BURSTCNT, 
-      mem_ADDR             => memSPU_ADDR,     
-      mem_DIN              => memSPU_DIN,      
-      mem_BE               => memSPU_BE,       
-      mem_WE               => memSPU_WE,       
-      mem_RD               => memSPU_RD,       
-      mem_ack              => memSPU_ack,      
-      mem_DOUT             => ddr3_DOUT,      
-      mem_DOUT_READY       => ddr3_DOUT_READY,
+         mem_request          => memSPU_request,  
+         mem_BURSTCNT         => memSPU_BURSTCNT, 
+         mem_ADDR             => memSPU_ADDR,     
+         mem_DIN              => memSPU_DIN,      
+         mem_BE               => memSPU_BE,       
+         mem_WE               => memSPU_WE,       
+         mem_RD               => memSPU_RD,       
+         mem_ack              => memSPU_ack,      
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
       
-      SS_reset             => SS_reset,
-      loading_savestate    => loading_savestate,
-      SS_DataWrite         => SS_DataWrite,
-      SS_Adr               => SS_Adr(8 downto 0),  
-      SS_wren              => SS_wren(9),     
-      SS_rden              => SS_rden(9),     
-      SS_DataRead          => SS_DataRead_SOUND,
-      SS_idle              => SS_idle_spu,
+         SS_reset             => SS_reset,
+         loading_savestate    => loading_savestate,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(8 downto 0),  
+         SS_wren              => SS_wren(9),     
+         SS_rden              => SS_rden(9),     
+         SS_DataRead          => SS_DataRead_SOUND,
+         SS_idle              => SS_idle_spu,
       
-      SS_RAM_dataWrite     => SS_SPURAM_dataWrite,
-      SS_RAM_Adr           => SS_SPURAM_Adr,      
-      SS_RAM_request       => SS_SPURAM_request,  
-      SS_RAM_rnw           => SS_SPURAM_rnw,      
-      SS_RAM_dataRead      => SS_SPURAM_dataRead, 
-      SS_RAM_done          => SS_SPURAM_done     
-   );
+         SS_RAM_dataWrite     => SS_SPURAM_dataWrite,
+         SS_RAM_Adr           => SS_SPURAM_Adr,      
+         SS_RAM_request       => SS_SPURAM_request,  
+         SS_RAM_rnw           => SS_SPURAM_rnw,      
+         SS_RAM_dataRead      => SS_SPURAM_dataRead, 
+         SS_RAM_done          => SS_SPURAM_done     
+      );
+   end generate;
+
+   gspu_pocket : if G_SPU_IMPL = "pocket" generate
+      component spu_pocket is
+      port
+      (
+         clk1x                : in  std_logic;
+         clk2x                : in  std_logic;
+         clk2xIndex           : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         SPUon                : in  std_logic;
+         SPUIRQTrigger        : in  std_logic;
+         useSDRAM             : in  std_logic;
+         REPRODUCIBLESPUIRQ   : in  std_logic;
+         REPRODUCIBLESPUDMA   : in  std_logic;
+         REVERBOFF            : in  std_logic;
+         cpuPaused            : in  std_logic;
+         spu_tick             : out std_logic := '0';
+         cd_left              : in  signed(15 downto 0);
+         cd_right             : in  signed(15 downto 0);
+         irqOut               : out std_logic := '0';
+         sound_timeout        : out std_logic := '0';
+         sound_out_left       : out std_logic_vector(15 downto 0) := (others => '0');
+         sound_out_right      : out std_logic_vector(15 downto 0) := (others => '0');
+         bus_addr             : in  unsigned(9 downto 0);
+         bus_dataWrite        : in  std_logic_vector(15 downto 0);
+         bus_read             : in  std_logic;
+         bus_write            : in  std_logic;
+         bus_dataRead         : out std_logic_vector(15 downto 0);
+         spu_dmaRequest       : out std_logic;
+         dma_read             : in  std_logic;
+         dma_readdata         : out std_logic_vector(15 downto 0);
+         dma_write            : in  std_logic;
+         dma_writedata        : in  std_logic_vector(15 downto 0);
+         sdram_dataWrite      : out std_logic_vector(31 downto 0);
+         sdram_Adr            : out std_logic_vector(18 downto 0);
+         sdram_be             : out std_logic_vector(3 downto 0);
+         sdram_rnw            : out std_logic;
+         sdram_ena            : out std_logic;
+         sdram_dataRead       : in  std_logic_vector(31 downto 0);
+         sdram_done           : in  std_logic;
+         mem_request          : out std_logic := '0';
+         mem_BURSTCNT         : out std_logic_vector(7 downto 0) := (others => '0');
+         mem_ADDR             : out std_logic_vector(19 downto 0) := (others => '0');
+         mem_DIN              : out std_logic_vector(63 downto 0) := (others => '0');
+         mem_BE               : out std_logic_vector(7 downto 0) := (others => '0');
+         mem_WE               : out std_logic := '0';
+         mem_RD               : out std_logic := '0';
+         mem_ack              : in  std_logic;
+         mem_DOUT             : in  std_logic_vector(63 downto 0);
+         mem_DOUT_READY       : in  std_logic;
+         SS_reset             : in  std_logic;
+         loading_savestate    : in  std_logic;
+         SS_DataWrite         : in  std_logic_vector(31 downto 0);
+         SS_Adr               : in  unsigned(8 downto 0);
+         SS_wren              : in  std_logic;
+         SS_rden              : in  std_logic;
+         SS_DataRead          : out std_logic_vector(31 downto 0);
+         SS_idle              : out std_logic;
+         SS_RAM_dataWrite     : in  std_logic_vector(15 downto 0);
+         SS_RAM_Adr           : in  std_logic_vector(18 downto 0);
+         SS_RAM_request       : in  std_logic;
+         SS_RAM_rnw           : in  std_logic;
+         SS_RAM_dataRead      : out std_logic_vector(15 downto 0);
+         SS_RAM_done          : out std_logic
+      );
+      end component;
+   begin
+      ispu : spu_pocket
+      port map
+      (
+         clk1x                => clk1x,   
+         clk2x                => clk2x,    
+         clk2xIndex           => clk2xIndex,      
+         ce                   => ce,        
+         reset                => reset_intern,     
+      
+         SPUon                => SPUon,
+         SPUIRQTrigger        => SPUIRQTrigger,
+         useSDRAM             => SPUSDRAM,
+         REPRODUCIBLESPUIRQ   => '1',
+         REPRODUCIBLESPUDMA   => REPRODUCIBLESPUDMA,
+         REVERBOFF            => REVERBOFF,
+      
+         cpuPaused            => cpuPaused,
+      
+         spu_tick             => spu_tick,
+         cd_left              => cd_left,
+         cd_right             => cd_right,
+      
+         irqOut               => irq_SPU,
+      
+         sound_timeout        => errorSPUTIME,
+      
+         sound_out_left       => sound_out_left, 
+         sound_out_right      => sound_out_right,
+      
+         bus_addr             => bus_spu_addr,     
+         bus_dataWrite        => bus_spu_dataWrite,
+         bus_read             => bus_spu_read,     
+         bus_write            => bus_spu_write,    
+         bus_dataRead         => bus_spu_dataRead, 
+      
+         spu_dmaRequest       => spu_dmaRequest, 
+         dma_read             => DMA_SPU_readEna,      
+         dma_readdata         => DMA_SPU_read, 
+         dma_write            => DMA_SPU_writeEna, 
+         dma_writedata        => DMA_SPU_write,
+          
+         sdram_dataWrite      => spuram_dataWrite,
+         sdram_dataRead       => spuram_dataRead, 
+         sdram_Adr            => spuram_Adr,      
+         sdram_be             => spuram_be,      
+         sdram_rnw            => spuram_rnw,      
+         sdram_ena            => spuram_ena,           
+         sdram_done           => spuram_done,
+      
+         mem_request          => memSPU_request,  
+         mem_BURSTCNT         => memSPU_BURSTCNT, 
+         mem_ADDR             => memSPU_ADDR,     
+         mem_DIN              => memSPU_DIN,      
+         mem_BE               => memSPU_BE,       
+         mem_WE               => memSPU_WE,       
+         mem_RD               => memSPU_RD,       
+         mem_ack              => memSPU_ack,      
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
+      
+         SS_reset             => SS_reset,
+         loading_savestate    => loading_savestate,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(8 downto 0),  
+         SS_wren              => SS_wren(9),     
+         SS_rden              => SS_rden(9),     
+         SS_DataRead          => SS_DataRead_SOUND,
+         SS_idle              => SS_idle_spu,
+      
+         SS_RAM_dataWrite     => SS_SPURAM_dataWrite,
+         SS_RAM_Adr           => SS_SPURAM_Adr,      
+         SS_RAM_request       => SS_SPURAM_request,  
+         SS_RAM_rnw           => SS_SPURAM_rnw,      
+         SS_RAM_dataRead      => SS_SPURAM_dataRead, 
+         SS_RAM_done          => SS_SPURAM_done     
+      );
+   end generate;
    
    iexp2 : entity work.exp2
    port map
@@ -1728,237 +2574,672 @@ begin
       bus_dataRead         => bus_exp2_dataRead
    );
 
-   imemorymux : entity work.memorymux
-   port map
-   (
-      clk1x                => clk1x,
-      clk2x                => clk2x,
-      ce                   => ce,   
-      reset                => reset_intern,
+   gbus_golden : if G_BUS_IMPL = "golden" generate
+   begin
+      imemorymux : entity work.memorymux
+      port map
+      (
+         clk1x                => clk1x,
+         clk2x                => clk2x,
+         ce                   => ce,   
+         reset                => reset_intern,
       
-      pauseNext            => cpuPaused or (dmaRequest and canDMA),
-      isIdle               => memMuxIdle,
+         pauseNext            => cpuPaused or (dmaRequest and canDMA),
+         isIdle               => memMuxIdle,
          
-      loadExe              => loadExe,
-      exe_initial_pc       => exe_initial_pc,  
-      exe_initial_gp       => exe_initial_gp,  
-      exe_load_address     => exe_load_address,
-      exe_file_size        => exe_file_size,   
-      exe_stackpointer     => exe_stackpointer,
-      reset_exe            => reset_exe,
+         loadExe              => loadExe,
+         exe_initial_pc       => exe_initial_pc,  
+         exe_initial_gp       => exe_initial_gp,  
+         exe_load_address     => exe_load_address,
+         exe_file_size        => exe_file_size,   
+         exe_stackpointer     => exe_stackpointer,
+         reset_exe            => reset_exe,
       
-      fastboot             => fastboot,
-      TURBO                => TURBO_MEM,
-      region_in            => biosregion,
-      PATCHSERIAL          => PATCHSERIAL,
+         fastboot             => fastboot,
+         TURBO                => TURBO_MEM,
+         region_in            => biosregion,
+         PATCHSERIAL          => PATCHSERIAL,
             
-      ram_dataWrite        => ram_cpu_dataWrite,
-      ram_dataRead         => ram_dataRead32,  
-      ram_Adr              => ram_cpu_Adr,  
-      ram_be               => ram_cpu_be,        
-      ram_rnw              => ram_cpu_rnw,      
-      ram_ena              => ram_cpu_ena,   
-      ram_cache            => ram_cpu_cache,      
-      ram_done             => ram_cpu_done,
+         ram_dataWrite        => ram_cpu_dataWrite,
+         ram_dataRead         => ram_dataRead32,  
+         ram_Adr              => ram_cpu_Adr,  
+         ram_be               => ram_cpu_be,        
+         ram_rnw              => ram_cpu_rnw,      
+         ram_ena              => ram_cpu_ena,   
+         ram_cache            => ram_cpu_cache,      
+         ram_done             => ram_cpu_done,
       
-      mem_in_request       => mem_request,  
-      mem_in_rnw           => mem_rnw,      
-      mem_in_isData        => mem_isData,      
-      mem_in_isCache       => mem_isCache,      
-      mem_in_oldtagvalids  => mem_oldtagvalids,  
-      mem_in_addressInstr  => mem_addressInstr,  
-      mem_in_addressData   => mem_addressData,  
-      mem_in_reqsize       => mem_reqsize,  
-      mem_in_writeMask     => mem_writeMask,
-      mem_in_dataWrite     => mem_dataWrite,
-      mem_dataRead         => mem_dataRead, 
-      mem_done             => mem_done,
-      mem_fifofull         => mem_fifofull,  
-      mem_tagvalids        => mem_tagvalids,
+         mem_in_request       => mem_request,  
+         mem_in_rnw           => mem_rnw,      
+         mem_in_isData        => mem_isData,      
+         mem_in_isCache       => mem_isCache,      
+         mem_in_oldtagvalids  => mem_oldtagvalids,  
+         mem_in_addressInstr  => mem_addressInstr,  
+         mem_in_addressData   => mem_addressData,  
+         mem_in_reqsize       => mem_reqsize,  
+         mem_in_writeMask     => mem_writeMask,
+         mem_in_dataWrite     => mem_dataWrite,
+         mem_dataRead         => mem_dataRead, 
+         mem_done             => mem_done,
+         mem_fifofull         => mem_fifofull,  
+         mem_tagvalids        => mem_tagvalids,
 
-      bios_memctrl         => bios_memctrl,
+         bios_memctrl         => bios_memctrl,
 
-      ex1_memctrl          => ex1_memctrl,
-      --bus_exp1_addr        => bus_exp1_addr,   
-      --bus_exp1_dataWrite   => bus_exp1_dataWrite,
-      bus_exp1_read        => bus_exp1_read,   
-      --bus_exp1_write       => bus_exp1_write,  
-      bus_exp1_dataRead    => bus_exp1_dataRead,
+         ex1_memctrl          => ex1_memctrl,
+         --bus_exp1_addr        => bus_exp1_addr,   
+         --bus_exp1_dataWrite   => bus_exp1_dataWrite,
+         bus_exp1_read        => bus_exp1_read,   
+         --bus_exp1_write       => bus_exp1_write,  
+         bus_exp1_dataRead    => bus_exp1_dataRead,
       
-      bus_memc_addr        => bus_memc_addr,     
-      bus_memc_dataWrite   => bus_memc_dataWrite,
-      bus_memc_read        => bus_memc_read,     
-      bus_memc_write       => bus_memc_write,    
-      bus_memc_dataRead    => bus_memc_dataRead,   
+         bus_memc_addr        => bus_memc_addr,     
+         bus_memc_dataWrite   => bus_memc_dataWrite,
+         bus_memc_read        => bus_memc_read,     
+         bus_memc_write       => bus_memc_write,    
+         bus_memc_dataRead    => bus_memc_dataRead,   
       
-      bus_pad_addr         => bus_pad_addr,     
-      bus_pad_dataWrite    => bus_pad_dataWrite,
-      bus_pad_read         => bus_pad_read,     
-      bus_pad_write        => bus_pad_write,    
-      bus_pad_writeMask    => bus_pad_writeMask,
-      bus_pad_dataRead     => bus_pad_dataRead,       
+         bus_pad_addr         => bus_pad_addr,     
+         bus_pad_dataWrite    => bus_pad_dataWrite,
+         bus_pad_read         => bus_pad_read,     
+         bus_pad_write        => bus_pad_write,    
+         bus_pad_writeMask    => bus_pad_writeMask,
+         bus_pad_dataRead     => bus_pad_dataRead,       
       
-      bus_sio_addr         => bus_sio_addr,     
-      bus_sio_dataWrite    => bus_sio_dataWrite,
-      bus_sio_read         => bus_sio_read,     
-      bus_sio_write        => bus_sio_write,    
-      bus_sio_writeMask    => bus_sio_writeMask,
-      bus_sio_dataRead     => bus_sio_dataRead, 
+         bus_sio_addr         => bus_sio_addr,     
+         bus_sio_dataWrite    => bus_sio_dataWrite,
+         bus_sio_read         => bus_sio_read,     
+         bus_sio_write        => bus_sio_write,    
+         bus_sio_writeMask    => bus_sio_writeMask,
+         bus_sio_dataRead     => bus_sio_dataRead, 
 
-      bus_memc2_addr       => bus_memc2_addr,     
-      bus_memc2_dataWrite  => bus_memc2_dataWrite,
-      bus_memc2_read       => bus_memc2_read,     
-      bus_memc2_write      => bus_memc2_write,    
-      bus_memc2_dataRead   => bus_memc2_dataRead, 
+         bus_memc2_addr       => bus_memc2_addr,     
+         bus_memc2_dataWrite  => bus_memc2_dataWrite,
+         bus_memc2_read       => bus_memc2_read,     
+         bus_memc2_write      => bus_memc2_write,    
+         bus_memc2_dataRead   => bus_memc2_dataRead, 
 
-      bus_irq_addr         => bus_irq_addr,     
-      bus_irq_dataWrite    => bus_irq_dataWrite,
-      bus_irq_read         => bus_irq_read,     
-      bus_irq_write        => bus_irq_write,    
-      bus_irq_dataRead     => bus_irq_dataRead,       
+         bus_irq_addr         => bus_irq_addr,     
+         bus_irq_dataWrite    => bus_irq_dataWrite,
+         bus_irq_read         => bus_irq_read,     
+         bus_irq_write        => bus_irq_write,    
+         bus_irq_dataRead     => bus_irq_dataRead,       
       
-      bus_dma_addr         => bus_dma_addr,     
-      bus_dma_dataWrite    => bus_dma_dataWrite,
-      bus_dma_read         => bus_dma_read,     
-      bus_dma_write        => bus_dma_write,    
-      bus_dma_dataRead     => bus_dma_dataRead,     
+         bus_dma_addr         => bus_dma_addr,     
+         bus_dma_dataWrite    => bus_dma_dataWrite,
+         bus_dma_read         => bus_dma_read,     
+         bus_dma_write        => bus_dma_write,    
+         bus_dma_dataRead     => bus_dma_dataRead,     
 
-      bus_tmr_addr         => bus_tmr_addr,     
-      bus_tmr_dataWrite    => bus_tmr_dataWrite,
-      bus_tmr_read         => bus_tmr_read,     
-      bus_tmr_write        => bus_tmr_write,    
-      bus_tmr_dataRead     => bus_tmr_dataRead,  
+         bus_tmr_addr         => bus_tmr_addr,     
+         bus_tmr_dataWrite    => bus_tmr_dataWrite,
+         bus_tmr_read         => bus_tmr_read,     
+         bus_tmr_write        => bus_tmr_write,    
+         bus_tmr_dataRead     => bus_tmr_dataRead,  
 
-      cd_memctrl           => cd_memctrl,
-      bus_cd_addr          => bus_cd_addr,     
-      bus_cd_dataWrite     => bus_cd_dataWrite,
-      bus_cd_read          => bus_cd_read,     
-      bus_cd_write         => bus_cd_write,    
-      bus_cd_dataRead      => bus_cd_dataRead,      
+         cd_memctrl           => cd_memctrl,
+         bus_cd_addr          => bus_cd_addr,     
+         bus_cd_dataWrite     => bus_cd_dataWrite,
+         bus_cd_read          => bus_cd_read,     
+         bus_cd_write         => bus_cd_write,    
+         bus_cd_dataRead      => bus_cd_dataRead,      
       
-      bus_gpu_addr         => bus_gpu_addr,     
-      bus_gpu_dataWrite    => bus_gpu_dataWrite,
-      bus_gpu_read         => bus_gpu_read,     
-      bus_gpu_write        => bus_gpu_write,    
-      bus_gpu_dataRead     => bus_gpu_dataRead,
-      bus_gpu_stall        => bus_gpu_stall,
+         bus_gpu_addr         => bus_gpu_addr,     
+         bus_gpu_dataWrite    => bus_gpu_dataWrite,
+         bus_gpu_read         => bus_gpu_read,     
+         bus_gpu_write        => bus_gpu_write,    
+         bus_gpu_dataRead     => bus_gpu_dataRead,
+         bus_gpu_stall        => bus_gpu_stall,
       
-      bus_mdec_addr        => bus_mdec_addr,     
-      bus_mdec_dataWrite   => bus_mdec_dataWrite,
-      bus_mdec_read        => bus_mdec_read,     
-      bus_mdec_write       => bus_mdec_write,    
-      bus_mdec_dataRead    => bus_mdec_dataRead, 
+         bus_mdec_addr        => bus_mdec_addr,     
+         bus_mdec_dataWrite   => bus_mdec_dataWrite,
+         bus_mdec_read        => bus_mdec_read,     
+         bus_mdec_write       => bus_mdec_write,    
+         bus_mdec_dataRead    => bus_mdec_dataRead, 
       
-      spu_memctrl          => spu_memctrl, 
-      bus_spu_addr         => bus_spu_addr,     
-      bus_spu_dataWrite    => bus_spu_dataWrite,
-      bus_spu_read         => bus_spu_read,     
-      bus_spu_write        => bus_spu_write,    
-      bus_spu_dataRead     => bus_spu_dataRead, 
+         spu_memctrl          => spu_memctrl, 
+         bus_spu_addr         => bus_spu_addr,     
+         bus_spu_dataWrite    => bus_spu_dataWrite,
+         bus_spu_read         => bus_spu_read,     
+         bus_spu_write        => bus_spu_write,    
+         bus_spu_dataRead     => bus_spu_dataRead, 
       
-      ex2_memctrl          => ex2_memctrl,
-      bus_exp2_addr        => bus_exp2_addr,     
-      bus_exp2_dataWrite   => bus_exp2_dataWrite,
-      bus_exp2_read        => bus_exp2_read,     
-      bus_exp2_write       => bus_exp2_write,    
-      bus_exp2_dataRead    => bus_exp2_dataRead,
+         ex2_memctrl          => ex2_memctrl,
+         bus_exp2_addr        => bus_exp2_addr,     
+         bus_exp2_dataWrite   => bus_exp2_dataWrite,
+         bus_exp2_read        => bus_exp2_read,     
+         bus_exp2_write       => bus_exp2_write,    
+         bus_exp2_dataRead    => bus_exp2_dataRead,
       
-      ex3_memctrl          => ex3_memctrl,
-      --bus_exp3_dataWrite   => bus_exp3_dataWrite,
-      bus_exp3_read        => bus_exp3_read,     
-      --bus_exp3_write       => bus_exp3_write,    
-      bus_exp3_dataRead    => bus_exp3_dataRead, 
+         ex3_memctrl          => ex3_memctrl,
+         --bus_exp3_dataWrite   => bus_exp3_dataWrite,
+         bus_exp3_read        => bus_exp3_read,     
+         --bus_exp3_write       => bus_exp3_write,    
+         bus_exp3_dataRead    => bus_exp3_dataRead, 
       
-      com0_delay           => com0_delay,
-      com1_delay           => com1_delay,
-      com2_delay           => com2_delay,
-      com3_delay           => com3_delay,
+         com0_delay           => com0_delay,
+         com1_delay           => com1_delay,
+         com2_delay           => com2_delay,
+         com3_delay           => com3_delay,
       
-      loading_savestate    => loading_savestate,
-      SS_reset             => SS_reset,
-      SS_DataWrite         => SS_DataWrite,
-      SS_Adr               => SS_Adr(18 downto 0),
-      SS_wren_SDRam        => SS_wren(16),
-      SS_rden_SDRam        => SS_rden(16)
-   );
+         loading_savestate    => loading_savestate,
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(18 downto 0),
+         SS_wren_SDRam        => SS_wren(16),
+         SS_rden_SDRam        => SS_rden(16)
+      );
+   end generate;
+
+   gbus_pocket : if G_BUS_IMPL = "pocket" generate
+      component memorymux_pocket is
+      port
+      (
+         clk1x                : in  std_logic;
+         clk2x                : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         pauseNext            : in  std_logic;
+         isIdle               : out std_logic;
+         loadExe              : in  std_logic;
+         exe_initial_pc       : in  unsigned(31 downto 0);
+         exe_initial_gp       : in  unsigned(31 downto 0);
+         exe_load_address     : in  unsigned(31 downto 0);
+         exe_file_size        : in  unsigned(31 downto 0);
+         exe_stackpointer     : in  unsigned(31 downto 0);
+         reset_exe            : out std_logic := '0';
+         fastboot             : in  std_logic;
+         PATCHSERIAL          : in  std_logic;
+         TURBO                : in  std_logic;
+         region_in            : in  std_logic_vector(1 downto 0);
+         ram_dataWrite        : out std_logic_vector(31 downto 0) := (others => '0');
+         ram_dataRead         : in  std_logic_vector(31 downto 0);
+         ram_Adr              : out std_logic_vector(24 downto 0) := (others => '0');
+         ram_be               : out std_logic_vector(3 downto 0) := (others => '0');
+         ram_rnw              : out std_logic := '0';
+         ram_ena              : out std_logic := '0';
+         ram_cache            : out std_logic := '0';
+         ram_done             : in  std_logic;
+         mem_in_request       : in  std_logic;
+         mem_in_rnw           : in  std_logic;
+         mem_in_isData        : in  std_logic;
+         mem_in_isCache       : in  std_logic;
+         mem_in_oldtagvalids  : in  std_logic_vector(3 downto 0);
+         mem_in_addressInstr  : in  unsigned(31 downto 0);
+         mem_in_addressData   : in  unsigned(31 downto 0);
+         mem_in_reqsize       : in  unsigned(1 downto 0);
+         mem_in_writeMask     : in  std_logic_vector(3 downto 0);
+         mem_in_dataWrite     : in  std_logic_vector(31 downto 0);
+         mem_dataRead         : out std_logic_vector(31 downto 0);
+         mem_done             : out std_logic;
+         mem_fifofull         : out std_logic;
+         mem_tagvalids        : out std_logic_vector(3 downto 0);
+         bios_memctrl         : in  unsigned(13 downto 0);
+         ex1_memctrl          : in  unsigned(13 downto 0);
+         bus_exp1_read        : out std_logic;
+         bus_exp1_dataRead    : in  std_logic_vector(7 downto 0);
+         bus_memc_addr        : out unsigned(5 downto 0);
+         bus_memc_dataWrite   : out std_logic_vector(31 downto 0);
+         bus_memc_read        : out std_logic;
+         bus_memc_write       : out std_logic;
+         bus_memc_dataRead    : in  std_logic_vector(31 downto 0);
+         bus_pad_addr         : out unsigned(3 downto 0);
+         bus_pad_dataWrite    : out std_logic_vector(31 downto 0);
+         bus_pad_read         : out std_logic;
+         bus_pad_write        : out std_logic;
+         bus_pad_writeMask    : out std_logic_vector(3 downto 0);
+         bus_pad_dataRead     : in  std_logic_vector(31 downto 0);
+         bus_sio_addr         : out unsigned(3 downto 0);
+         bus_sio_dataWrite    : out std_logic_vector(31 downto 0);
+         bus_sio_read         : out std_logic;
+         bus_sio_write        : out std_logic;
+         bus_sio_writeMask    : out std_logic_vector(3 downto 0);
+         bus_sio_dataRead     : in  std_logic_vector(31 downto 0);
+         bus_memc2_addr       : out unsigned(3 downto 0);
+         bus_memc2_dataWrite  : out std_logic_vector(31 downto 0);
+         bus_memc2_read       : out std_logic;
+         bus_memc2_write      : out std_logic;
+         bus_memc2_dataRead   : in  std_logic_vector(31 downto 0);
+         bus_irq_addr         : out unsigned(3 downto 0);
+         bus_irq_dataWrite    : out std_logic_vector(31 downto 0);
+         bus_irq_read         : out std_logic;
+         bus_irq_write        : out std_logic;
+         bus_irq_dataRead     : in  std_logic_vector(31 downto 0);
+         bus_dma_addr         : out unsigned(6 downto 0);
+         bus_dma_dataWrite    : out std_logic_vector(31 downto 0);
+         bus_dma_read         : out std_logic;
+         bus_dma_write        : out std_logic;
+         bus_dma_dataRead     : in  std_logic_vector(31 downto 0);
+         bus_tmr_addr         : out unsigned(5 downto 0);
+         bus_tmr_dataWrite    : out std_logic_vector(31 downto 0);
+         bus_tmr_read         : out std_logic;
+         bus_tmr_write        : out std_logic;
+         bus_tmr_dataRead     : in  std_logic_vector(31 downto 0);
+         cd_memctrl           : in  unsigned(13 downto 0);
+         bus_cd_addr          : out unsigned(3 downto 0);
+         bus_cd_dataWrite     : out std_logic_vector(7 downto 0);
+         bus_cd_read          : out std_logic;
+         bus_cd_write         : out std_logic;
+         bus_cd_dataRead      : in  std_logic_vector(7 downto 0);
+         bus_gpu_addr         : out unsigned(3 downto 0);
+         bus_gpu_dataWrite    : out std_logic_vector(31 downto 0);
+         bus_gpu_read         : out std_logic;
+         bus_gpu_write        : out std_logic;
+         bus_gpu_dataRead     : in  std_logic_vector(31 downto 0);
+         bus_gpu_stall        : in  std_logic;
+         bus_mdec_addr        : out unsigned(3 downto 0);
+         bus_mdec_dataWrite   : out std_logic_vector(31 downto 0);
+         bus_mdec_read        : out std_logic;
+         bus_mdec_write       : out std_logic;
+         bus_mdec_dataRead    : in  std_logic_vector(31 downto 0);
+         spu_memctrl          : in  unsigned(13 downto 0);
+         bus_spu_addr         : out unsigned(9 downto 0) := (others => '0');
+         bus_spu_dataWrite    : out std_logic_vector(15 downto 0);
+         bus_spu_read         : out std_logic;
+         bus_spu_write        : out std_logic;
+         bus_spu_dataRead     : in  std_logic_vector(15 downto 0);
+         ex2_memctrl          : in  unsigned(13 downto 0);
+         bus_exp2_addr        : out unsigned(12 downto 0);
+         bus_exp2_dataWrite   : out std_logic_vector(7 downto 0);
+         bus_exp2_read        : out std_logic;
+         bus_exp2_write       : out std_logic;
+         bus_exp2_dataRead    : in  std_logic_vector(7 downto 0);
+         ex3_memctrl          : in  unsigned(13 downto 0);
+         bus_exp3_read        : out std_logic;
+         bus_exp3_dataRead    : in  std_logic_vector(15 downto 0);
+         com0_delay           : in  unsigned(3 downto 0);
+         com1_delay           : in  unsigned(3 downto 0);
+         com2_delay           : in  unsigned(3 downto 0);
+         com3_delay           : in  unsigned(3 downto 0);
+         loading_savestate    : in  std_logic;
+         SS_reset             : in  std_logic;
+         SS_DataWrite         : in  std_logic_vector(31 downto 0);
+         SS_Adr               : in  unsigned(18 downto 0);
+         SS_wren_SDRam        : in  std_logic;
+         SS_rden_SDRam        : in  std_logic
+      );
+      end component;
+   begin
+      imemorymux : memorymux_pocket
+      port map
+      (
+         clk1x                => clk1x,
+         clk2x                => clk2x,
+         ce                   => ce,   
+         reset                => reset_intern,
+      
+         pauseNext            => cpuPaused or (dmaRequest and canDMA),
+         isIdle               => memMuxIdle,
+         
+         loadExe              => loadExe,
+         exe_initial_pc       => exe_initial_pc,  
+         exe_initial_gp       => exe_initial_gp,  
+         exe_load_address     => exe_load_address,
+         exe_file_size        => exe_file_size,   
+         exe_stackpointer     => exe_stackpointer,
+         reset_exe            => reset_exe,
+      
+         fastboot             => fastboot,
+         TURBO                => TURBO_MEM,
+         region_in            => biosregion,
+         PATCHSERIAL          => PATCHSERIAL,
+            
+         ram_dataWrite        => ram_cpu_dataWrite,
+         ram_dataRead         => ram_dataRead32,  
+         ram_Adr              => ram_cpu_Adr,  
+         ram_be               => ram_cpu_be,        
+         ram_rnw              => ram_cpu_rnw,      
+         ram_ena              => ram_cpu_ena,   
+         ram_cache            => ram_cpu_cache,      
+         ram_done             => ram_cpu_done,
+      
+         mem_in_request       => mem_request,  
+         mem_in_rnw           => mem_rnw,      
+         mem_in_isData        => mem_isData,      
+         mem_in_isCache       => mem_isCache,      
+         mem_in_oldtagvalids  => mem_oldtagvalids,  
+         mem_in_addressInstr  => mem_addressInstr,  
+         mem_in_addressData   => mem_addressData,  
+         mem_in_reqsize       => mem_reqsize,  
+         mem_in_writeMask     => mem_writeMask,
+         mem_in_dataWrite     => mem_dataWrite,
+         mem_dataRead         => mem_dataRead, 
+         mem_done             => mem_done,
+         mem_fifofull         => mem_fifofull,  
+         mem_tagvalids        => mem_tagvalids,
+
+         bios_memctrl         => bios_memctrl,
+
+         ex1_memctrl          => ex1_memctrl,
+         --bus_exp1_addr        => bus_exp1_addr,   
+         --bus_exp1_dataWrite   => bus_exp1_dataWrite,
+         bus_exp1_read        => bus_exp1_read,   
+         --bus_exp1_write       => bus_exp1_write,  
+         bus_exp1_dataRead    => bus_exp1_dataRead,
+      
+         bus_memc_addr        => bus_memc_addr,     
+         bus_memc_dataWrite   => bus_memc_dataWrite,
+         bus_memc_read        => bus_memc_read,     
+         bus_memc_write       => bus_memc_write,    
+         bus_memc_dataRead    => bus_memc_dataRead,   
+      
+         bus_pad_addr         => bus_pad_addr,     
+         bus_pad_dataWrite    => bus_pad_dataWrite,
+         bus_pad_read         => bus_pad_read,     
+         bus_pad_write        => bus_pad_write,    
+         bus_pad_writeMask    => bus_pad_writeMask,
+         bus_pad_dataRead     => bus_pad_dataRead,       
+      
+         bus_sio_addr         => bus_sio_addr,     
+         bus_sio_dataWrite    => bus_sio_dataWrite,
+         bus_sio_read         => bus_sio_read,     
+         bus_sio_write        => bus_sio_write,    
+         bus_sio_writeMask    => bus_sio_writeMask,
+         bus_sio_dataRead     => bus_sio_dataRead, 
+
+         bus_memc2_addr       => bus_memc2_addr,     
+         bus_memc2_dataWrite  => bus_memc2_dataWrite,
+         bus_memc2_read       => bus_memc2_read,     
+         bus_memc2_write      => bus_memc2_write,    
+         bus_memc2_dataRead   => bus_memc2_dataRead, 
+
+         bus_irq_addr         => bus_irq_addr,     
+         bus_irq_dataWrite    => bus_irq_dataWrite,
+         bus_irq_read         => bus_irq_read,     
+         bus_irq_write        => bus_irq_write,    
+         bus_irq_dataRead     => bus_irq_dataRead,       
+      
+         bus_dma_addr         => bus_dma_addr,     
+         bus_dma_dataWrite    => bus_dma_dataWrite,
+         bus_dma_read         => bus_dma_read,     
+         bus_dma_write        => bus_dma_write,    
+         bus_dma_dataRead     => bus_dma_dataRead,     
+
+         bus_tmr_addr         => bus_tmr_addr,     
+         bus_tmr_dataWrite    => bus_tmr_dataWrite,
+         bus_tmr_read         => bus_tmr_read,     
+         bus_tmr_write        => bus_tmr_write,    
+         bus_tmr_dataRead     => bus_tmr_dataRead,  
+
+         cd_memctrl           => cd_memctrl,
+         bus_cd_addr          => bus_cd_addr,     
+         bus_cd_dataWrite     => bus_cd_dataWrite,
+         bus_cd_read          => bus_cd_read,     
+         bus_cd_write         => bus_cd_write,    
+         bus_cd_dataRead      => bus_cd_dataRead,      
+      
+         bus_gpu_addr         => bus_gpu_addr,     
+         bus_gpu_dataWrite    => bus_gpu_dataWrite,
+         bus_gpu_read         => bus_gpu_read,     
+         bus_gpu_write        => bus_gpu_write,    
+         bus_gpu_dataRead     => bus_gpu_dataRead,
+         bus_gpu_stall        => bus_gpu_stall,
+      
+         bus_mdec_addr        => bus_mdec_addr,     
+         bus_mdec_dataWrite   => bus_mdec_dataWrite,
+         bus_mdec_read        => bus_mdec_read,     
+         bus_mdec_write       => bus_mdec_write,    
+         bus_mdec_dataRead    => bus_mdec_dataRead, 
+      
+         spu_memctrl          => spu_memctrl, 
+         bus_spu_addr         => bus_spu_addr,     
+         bus_spu_dataWrite    => bus_spu_dataWrite,
+         bus_spu_read         => bus_spu_read,     
+         bus_spu_write        => bus_spu_write,    
+         bus_spu_dataRead     => bus_spu_dataRead, 
+      
+         ex2_memctrl          => ex2_memctrl,
+         bus_exp2_addr        => bus_exp2_addr,     
+         bus_exp2_dataWrite   => bus_exp2_dataWrite,
+         bus_exp2_read        => bus_exp2_read,     
+         bus_exp2_write       => bus_exp2_write,    
+         bus_exp2_dataRead    => bus_exp2_dataRead,
+      
+         ex3_memctrl          => ex3_memctrl,
+         --bus_exp3_dataWrite   => bus_exp3_dataWrite,
+         bus_exp3_read        => bus_exp3_read,     
+         --bus_exp3_write       => bus_exp3_write,    
+         bus_exp3_dataRead    => bus_exp3_dataRead, 
+      
+         com0_delay           => com0_delay,
+         com1_delay           => com1_delay,
+         com2_delay           => com2_delay,
+         com3_delay           => com3_delay,
+      
+         loading_savestate    => loading_savestate,
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(18 downto 0),
+         SS_wren_SDRam        => SS_wren(16),
+         SS_rden_SDRam        => SS_rden(16)
+      );
+   end generate;
    
-   icpu : entity work.cpu
-   port map
-   (
-      clk1x             => clk1x,
-      clk2x             => clk2x,
-      clk3x             => clk3x,
-      ce                => ce,   
-      reset             => reset_intern,
+   gcpu_golden : if G_CPU_IMPL = "golden" generate
+   begin
+      icpu : entity work.cpu
+      port map
+      (
+         clk1x             => clk1x,
+         clk2x             => clk2x,
+         clk3x             => clk3x,
+         ce                => ce,   
+         reset             => reset_intern,
       
-      TURBO             => TURBO_COMP,
-      TURBO_CACHE       => TURBO_CACHE,
-      TURBO_CACHE50     => TURBO_CACHE50,
+         TURBO             => TURBO_COMP,
+         TURBO_CACHE       => TURBO_CACHE,
+         TURBO_CACHE50     => TURBO_CACHE50,
          
-      irqRequest        => irqRequest,
-      dmaStallCPU       => dmaStallCPU,
-      cpuPaused         => cpuPaused,
+         irqRequest        => irqRequest,
+         dmaStallCPU       => dmaStallCPU,
+         cpuPaused         => cpuPaused,
       
-      error             => errorCPU,
-      error2            => errorCPU2,
+         error             => errorCPU,
+         error2            => errorCPU2,
          
-      mem_request       => mem_request,  
-      mem_rnw           => mem_rnw,      
-      mem_isData        => mem_isData,      
-      mem_isCache       => mem_isCache, 
-      mem_oldtagvalids  => mem_oldtagvalids,      
-      mem_addressInstr  => mem_addressInstr,  
-      mem_addressData   => mem_addressData,  
-      mem_reqsize       => mem_reqsize,  
-      mem_writeMask     => mem_writeMask,
-      mem_dataWrite     => mem_dataWrite,
-      mem_dataRead      => mem_dataRead, 
-      mem_done          => mem_done,
-      mem_fifofull      => mem_fifofull,
-      mem_tagvalids     => mem_tagvalids,
+         mem_request       => mem_request,  
+         mem_rnw           => mem_rnw,      
+         mem_isData        => mem_isData,      
+         mem_isCache       => mem_isCache, 
+         mem_oldtagvalids  => mem_oldtagvalids,      
+         mem_addressInstr  => mem_addressInstr,  
+         mem_addressData   => mem_addressData,  
+         mem_reqsize       => mem_reqsize,  
+         mem_writeMask     => mem_writeMask,
+         mem_dataWrite     => mem_dataWrite,
+         mem_dataRead      => mem_dataRead, 
+         mem_done          => mem_done,
+         mem_fifofull      => mem_fifofull,
+         mem_tagvalids     => mem_tagvalids,
       
-      cache_wr          => cache_wr,  
-      cache_data        => cache_data,
-      cache_addr        => cache_addr,
+         cache_wr          => cache_wr,  
+         cache_data        => cache_data,
+         cache_addr        => cache_addr,
       
-      stallNext         => stallNext,
+         stallNext         => stallNext,
       
-      dma_cache_Adr     => dma_cache_Adr,  
-      dma_cache_data    => dma_cache_data, 
-      dma_cache_write   => dma_cache_write,  
+         dma_cache_Adr     => dma_cache_Adr,  
+         dma_cache_data    => dma_cache_data, 
+         dma_cache_write   => dma_cache_write,  
       
-      ram_dataRead      => ram_dataRead32,    
-      ram_rnw           => ram_cpu_rnw,
-      ram_done          => ram_cpu_done,
+         ram_dataRead      => ram_dataRead32,    
+         ram_rnw           => ram_cpu_rnw,
+         ram_done          => ram_cpu_done,
       
-      gte_busy          => gte_busy, 
-      gte_readEna       => gte_readEna,
-      gte_readAddr      => gte_readAddr, 
-      gte_readData      => gte_readData, 
-      gte_writeAddr     => gte_writeAddr,
-      gte_writeData     => gte_writeData,
-      gte_writeEna      => gte_writeEna, 
-      gte_cmdData       => gte_cmdData,  
-      gte_cmdEna        => gte_cmdEna, 
+         gte_busy          => gte_busy, 
+         gte_readEna       => gte_readEna,
+         gte_readAddr      => gte_readAddr, 
+         gte_readData      => gte_readData, 
+         gte_writeAddr     => gte_writeAddr,
+         gte_writeData     => gte_writeData,
+         gte_writeEna      => gte_writeEna, 
+         gte_cmdData       => gte_cmdData,  
+         gte_cmdEna        => gte_cmdEna, 
 
-      SS_reset          => SS_reset,
-      SS_DataWrite      => SS_DataWrite,
-      SS_Adr            => SS_Adr(7 downto 0),   
-      SS_wren_CPU       => SS_wren(0),     
-      SS_wren_SCP       => SS_wren(12),  
-      SS_rden_CPU       => SS_rden(0),     
-      SS_rden_SCP       => SS_rden(12),        
-      SS_DataRead_CPU   => SS_DataRead_CPU,
-      SS_DataRead_SCP   => SS_DataRead_SCP,
-      SS_idle           => SS_idle_cpu,
+         SS_reset          => SS_reset,
+         SS_DataWrite      => SS_DataWrite,
+         SS_Adr            => SS_Adr(7 downto 0),   
+         SS_wren_CPU       => SS_wren(0),     
+         SS_wren_SCP       => SS_wren(12),  
+         SS_rden_CPU       => SS_rden(0),     
+         SS_rden_SCP       => SS_rden(12),        
+         SS_DataRead_CPU   => SS_DataRead_CPU,
+         SS_DataRead_SCP   => SS_DataRead_SCP,
+         SS_idle           => SS_idle_cpu,
       
--- synthesis translate_off
-      cpu_done          => cpu_done,  
-      cpu_export        => cpu_export,
--- synthesis translate_on
+   -- synthesis translate_off
+         cpu_done          => cpu_done,  
+         cpu_export        => cpu_export,
+   -- synthesis translate_on
       
-      debug_firstGTE    => debug_firstGTE
-   );
+         debug_firstGTE    => debug_firstGTE
+      );
+   end generate;
+
+   gcpu_pocket : if G_CPU_IMPL = "pocket" generate
+      component cpu_pocket is
+      port
+      (
+         clk1x                 : in  std_logic;
+         clk2x                 : in  std_logic;
+         clk3x                 : in  std_logic;
+         ce                    : in  std_logic;
+         reset                 : in  std_logic;
+         TURBO                 : in  std_logic;
+         TURBO_CACHE           : in  std_logic;
+         TURBO_CACHE50         : in  std_logic;
+         irqRequest            : in  std_logic;
+         dmaStallCPU           : in  std_logic;
+         cpuPaused             : in  std_logic;
+         error                 : out std_logic := '0';
+         error2                : out std_logic := '0';
+         mem_request           : out std_logic;
+         mem_rnw               : out std_logic;
+         mem_isData            : out std_logic;
+         mem_isCache           : out std_logic;
+         mem_oldtagvalids      : out std_logic_vector(3 downto 0);
+         mem_addressInstr      : out unsigned(31 downto 0);
+         mem_addressData       : out unsigned(31 downto 0);
+         mem_reqsize           : out unsigned(1 downto 0);
+         mem_writeMask         : out std_logic_vector(3 downto 0);
+         mem_dataWrite         : out std_logic_vector(31 downto 0);
+         mem_dataRead          : in  std_logic_vector(31 downto 0);
+         mem_done              : in  std_logic;
+         mem_fifofull          : in  std_logic;
+         mem_tagvalids         : in  std_logic_vector(3 downto 0);
+         cache_wr              : in  std_logic_vector(3 downto 0);
+         cache_data            : in  std_logic_vector(31 downto 0);
+         cache_addr            : in  std_logic_vector(7 downto 0);
+         stallNext             : out std_logic;
+         dma_cache_Adr         : in  std_logic_vector(20 downto 0);
+         dma_cache_data        : in  std_logic_vector(31 downto 0);
+         dma_cache_write       : in  std_logic;
+         ram_done              : in  std_logic;
+         ram_rnw               : in  std_logic;
+         ram_dataRead          : in  std_logic_vector(31 downto 0);
+         gte_busy              : in  std_logic;
+         gte_readEna           : out std_logic := '0';
+         gte_readAddr          : out unsigned(5 downto 0);
+         gte_readData          : in  unsigned(31 downto 0);
+         gte_writeAddr         : out unsigned(5 downto 0);
+         gte_writeData         : out unsigned(31 downto 0);
+         gte_writeEna          : out std_logic := '0';
+         gte_cmdData           : out unsigned(31 downto 0);
+         gte_cmdEna            : out std_logic := '0';
+         SS_reset              : in  std_logic;
+         SS_DataWrite          : in  std_logic_vector(31 downto 0);
+         SS_Adr                : in  unsigned(7 downto 0);
+         SS_wren_CPU           : in  std_logic;
+         SS_wren_SCP           : in  std_logic;
+         SS_rden_CPU           : in  std_logic;
+         SS_rden_SCP           : in  std_logic;
+         SS_DataRead_CPU       : out std_logic_vector(31 downto 0);
+         SS_DataRead_SCP       : out std_logic_vector(31 downto 0);
+         SS_idle               : out std_logic;
+         cpu_done              : out std_logic := '0';
+         cpu_export            : out cpu_export_type := ((others => (others => '0')), (others => '0'), (others => '0'), (others => '0'));
+         debug_firstGTE        : in  std_logic
+      );
+      end component;
+   begin
+      icpu : cpu_pocket
+      port map
+      (
+         clk1x             => clk1x,
+         clk2x             => clk2x,
+         clk3x             => clk3x,
+         ce                => ce,   
+         reset             => reset_intern,
+      
+         TURBO             => TURBO_COMP,
+         TURBO_CACHE       => TURBO_CACHE,
+         TURBO_CACHE50     => TURBO_CACHE50,
+         
+         irqRequest        => irqRequest,
+         dmaStallCPU       => dmaStallCPU,
+         cpuPaused         => cpuPaused,
+      
+         error             => errorCPU,
+         error2            => errorCPU2,
+         
+         mem_request       => mem_request,  
+         mem_rnw           => mem_rnw,      
+         mem_isData        => mem_isData,      
+         mem_isCache       => mem_isCache, 
+         mem_oldtagvalids  => mem_oldtagvalids,      
+         mem_addressInstr  => mem_addressInstr,  
+         mem_addressData   => mem_addressData,  
+         mem_reqsize       => mem_reqsize,  
+         mem_writeMask     => mem_writeMask,
+         mem_dataWrite     => mem_dataWrite,
+         mem_dataRead      => mem_dataRead, 
+         mem_done          => mem_done,
+         mem_fifofull      => mem_fifofull,
+         mem_tagvalids     => mem_tagvalids,
+      
+         cache_wr          => cache_wr,  
+         cache_data        => cache_data,
+         cache_addr        => cache_addr,
+      
+         stallNext         => stallNext,
+      
+         dma_cache_Adr     => dma_cache_Adr,  
+         dma_cache_data    => dma_cache_data, 
+         dma_cache_write   => dma_cache_write,  
+      
+         ram_dataRead      => ram_dataRead32,    
+         ram_rnw           => ram_cpu_rnw,
+         ram_done          => ram_cpu_done,
+      
+         gte_busy          => gte_busy, 
+         gte_readEna       => gte_readEna,
+         gte_readAddr      => gte_readAddr, 
+         gte_readData      => gte_readData, 
+         gte_writeAddr     => gte_writeAddr,
+         gte_writeData     => gte_writeData,
+         gte_writeEna      => gte_writeEna, 
+         gte_cmdData       => gte_cmdData,  
+         gte_cmdEna        => gte_cmdEna, 
+
+         SS_reset          => SS_reset,
+         SS_DataWrite      => SS_DataWrite,
+         SS_Adr            => SS_Adr(7 downto 0),   
+         SS_wren_CPU       => SS_wren(0),     
+         SS_wren_SCP       => SS_wren(12),  
+         SS_rden_CPU       => SS_rden(0),     
+         SS_rden_SCP       => SS_rden(12),        
+         SS_DataRead_CPU   => SS_DataRead_CPU,
+         SS_DataRead_SCP   => SS_DataRead_SCP,
+         SS_idle           => SS_idle_cpu,
+      
+   -- synthesis translate_off
+         cpu_done          => cpu_done,  
+         cpu_export        => cpu_export,
+   -- synthesis translate_on
+      
+         debug_firstGTE    => debug_firstGTE
+      );
+   end generate;
    
    igte : entity work.gte_serial
    port map
@@ -2004,85 +3285,245 @@ begin
    memcard_changed <= MemCard_changePending1 or MemCard_changePending2;
    saving_memcard  <= MemCard_saving_memcard1 or MemCard_saving_memcard2;
    
-   imemcard1 : entity work.memcard
-   port map
-   (
-      clk2x                => clk2x, 
-      ce                   => ce,    
-      reset                => reset, 
+   gmemcard1_golden : if G_MEMCARD_IMPL = "golden" generate
+   begin
+      imemcard1 : entity work.memcard
+      port map
+      (
+         clk2x                => clk2x, 
+         ce                   => ce,    
+         reset                => reset, 
       
-      save                 => memcard_save,
-      load                 => memcard1_load,
+         save                 => memcard_save,
+         load                 => memcard1_load,
                             
-      pause                => memcard1_pause,
-      system_paused        => pausing,
+         pause                => memcard1_pause,
+         system_paused        => pausing,
                            
-      mounted              => memcard1_mounted,
-      anyChange            => memDDR3card1_WE,
+         mounted              => memcard1_mounted,
+         anyChange            => memDDR3card1_WE,
       
-      changePending        => MemCard_changePending1,
-      saving_memcard       => MemCard_saving_memcard1,
+         changePending        => MemCard_changePending1,
+         saving_memcard       => MemCard_saving_memcard1,
                             
-      mem_request          => memHPScard1_request, 
-      mem_BURSTCNT         => memHPScard1_BURSTCNT,      
-      mem_ADDR             => memHPScard1_ADDR,                     
-      mem_DIN              => memHPScard1_DIN,    
-      mem_BE               => memHPScard1_BE,      
-      mem_WE               => memHPScard1_WE,      
-      mem_RD               => memHPScard1_RD,   
-      mem_ack              => memHPScard1_ack,   
-      mem_DOUT             => ddr3_DOUT,      
-      mem_DOUT_READY       => ddr3_DOUT_READY,
+         mem_request          => memHPScard1_request, 
+         mem_BURSTCNT         => memHPScard1_BURSTCNT,      
+         mem_ADDR             => memHPScard1_ADDR,                     
+         mem_DIN              => memHPScard1_DIN,    
+         mem_BE               => memHPScard1_BE,      
+         mem_WE               => memHPScard1_WE,      
+         mem_RD               => memHPScard1_RD,   
+         mem_ack              => memHPScard1_ack,   
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
                            
-      memcard_rd           => memcard1_rd,     
-      memcard_wr           => memcard1_wr,     
-      memcard_lba          => memcard1_lba,    
-      memcard_ack          => memcard1_ack,    
-      memcard_write        => memcard1_write,  
-      memcard_addr         => memcard1_addr,   
-      memcard_dataIn       => memcard1_dataIn, 
-      memcard_dataOut      => memcard1_dataOut
-   );
+         memcard_rd           => memcard1_rd,     
+         memcard_wr           => memcard1_wr,     
+         memcard_lba          => memcard1_lba,    
+         memcard_ack          => memcard1_ack,    
+         memcard_write        => memcard1_write,  
+         memcard_addr         => memcard1_addr,   
+         memcard_dataIn       => memcard1_dataIn, 
+         memcard_dataOut      => memcard1_dataOut
+      );
+   end generate;
+
+   gmemcard1_pocket : if G_MEMCARD_IMPL = "pocket" generate
+      component memcard_pocket is
+      port
+      (
+         clk2x                : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         save                 : in  std_logic;
+         load                 : in  std_logic;
+         pause                : out std_logic := '0';
+         system_paused        : in  std_logic;
+         mounted              : in  std_logic;
+         anyChange            : in  std_logic;
+         changePending        : out std_logic;
+         saving_memcard       : out std_logic := '0';
+         mem_request          : out std_logic := '0';
+         mem_BURSTCNT         : out std_logic_vector(7 downto 0) := (others => '0');
+         mem_ADDR             : out std_logic_vector(19 downto 0) := (others => '0');
+         mem_DIN              : out std_logic_vector(63 downto 0) := (others => '0');
+         mem_BE               : out std_logic_vector(7 downto 0) := (others => '0');
+         mem_WE               : out std_logic := '0';
+         mem_RD               : out std_logic := '0';
+         mem_ack              : in  std_logic;
+         mem_DOUT             : in  std_logic_vector(63 downto 0);
+         mem_DOUT_READY       : in  std_logic;
+         memcard_rd           : out std_logic := '0';
+         memcard_wr           : out std_logic := '0';
+         memcard_lba          : out std_logic_vector(6 downto 0);
+         memcard_ack          : in  std_logic;
+         memcard_write        : in  std_logic;
+         memcard_addr         : in  std_logic_vector(8 downto 0);
+         memcard_dataIn       : in  std_logic_vector(15 downto 0);
+         memcard_dataOut      : out std_logic_vector(15 downto 0)
+      );
+      end component;
+   begin
+      imemcard1 : memcard_pocket
+      port map
+      (
+         clk2x                => clk2x, 
+         ce                   => ce,    
+         reset                => reset, 
+      
+         save                 => memcard_save,
+         load                 => memcard1_load,
+                            
+         pause                => memcard1_pause,
+         system_paused        => pausing,
+                           
+         mounted              => memcard1_mounted,
+         anyChange            => memDDR3card1_WE,
+      
+         changePending        => MemCard_changePending1,
+         saving_memcard       => MemCard_saving_memcard1,
+                            
+         mem_request          => memHPScard1_request, 
+         mem_BURSTCNT         => memHPScard1_BURSTCNT,      
+         mem_ADDR             => memHPScard1_ADDR,                     
+         mem_DIN              => memHPScard1_DIN,    
+         mem_BE               => memHPScard1_BE,      
+         mem_WE               => memHPScard1_WE,      
+         mem_RD               => memHPScard1_RD,   
+         mem_ack              => memHPScard1_ack,   
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
+                           
+         memcard_rd           => memcard1_rd,     
+         memcard_wr           => memcard1_wr,     
+         memcard_lba          => memcard1_lba,    
+         memcard_ack          => memcard1_ack,    
+         memcard_write        => memcard1_write,  
+         memcard_addr         => memcard1_addr,   
+         memcard_dataIn       => memcard1_dataIn, 
+         memcard_dataOut      => memcard1_dataOut
+      );
+   end generate;
    
-   imemcard2 : entity work.memcard
-   port map
-   (
-      clk2x                => clk2x, 
-      ce                   => ce,    
-      reset                => reset, 
+   gmemcard2_golden : if G_MEMCARD_IMPL = "golden" generate
+   begin
+      imemcard2 : entity work.memcard
+      port map
+      (
+         clk2x                => clk2x, 
+         ce                   => ce,    
+         reset                => reset, 
       
-      save                 => memcard_save,
-      load                 => memcard2_load,
+         save                 => memcard_save,
+         load                 => memcard2_load,
                             
-      pause                => memcard2_pause,
-      system_paused        => pausing,
+         pause                => memcard2_pause,
+         system_paused        => pausing,
                            
-      mounted              => memcard2_mounted,
-      anyChange            => memDDR3card2_WE,
+         mounted              => memcard2_mounted,
+         anyChange            => memDDR3card2_WE,
       
-      changePending        => MemCard_changePending2,
-      saving_memcard       => MemCard_saving_memcard2,
+         changePending        => MemCard_changePending2,
+         saving_memcard       => MemCard_saving_memcard2,
                             
-      mem_request          => memHPScard2_request, 
-      mem_BURSTCNT         => memHPScard2_BURSTCNT,      
-      mem_ADDR             => memHPScard2_ADDR,                     
-      mem_DIN              => memHPScard2_DIN,    
-      mem_BE               => memHPScard2_BE,      
-      mem_WE               => memHPScard2_WE,      
-      mem_RD               => memHPScard2_RD,   
-      mem_ack              => memHPScard2_ack,   
-      mem_DOUT             => ddr3_DOUT,      
-      mem_DOUT_READY       => ddr3_DOUT_READY,
+         mem_request          => memHPScard2_request, 
+         mem_BURSTCNT         => memHPScard2_BURSTCNT,      
+         mem_ADDR             => memHPScard2_ADDR,                     
+         mem_DIN              => memHPScard2_DIN,    
+         mem_BE               => memHPScard2_BE,      
+         mem_WE               => memHPScard2_WE,      
+         mem_RD               => memHPScard2_RD,   
+         mem_ack              => memHPScard2_ack,   
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
                            
-      memcard_rd           => memcard2_rd,     
-      memcard_wr           => memcard2_wr,     
-      memcard_lba          => memcard2_lba,    
-      memcard_ack          => memcard2_ack,    
-      memcard_write        => memcard2_write,  
-      memcard_addr         => memcard2_addr,   
-      memcard_dataIn       => memcard2_dataIn, 
-      memcard_dataOut      => memcard2_dataOut
-   );
+         memcard_rd           => memcard2_rd,     
+         memcard_wr           => memcard2_wr,     
+         memcard_lba          => memcard2_lba,    
+         memcard_ack          => memcard2_ack,    
+         memcard_write        => memcard2_write,  
+         memcard_addr         => memcard2_addr,   
+         memcard_dataIn       => memcard2_dataIn, 
+         memcard_dataOut      => memcard2_dataOut
+      );
+   end generate;
+
+   gmemcard2_pocket : if G_MEMCARD_IMPL = "pocket" generate
+      component memcard_pocket is
+      port
+      (
+         clk2x                : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         save                 : in  std_logic;
+         load                 : in  std_logic;
+         pause                : out std_logic := '0';
+         system_paused        : in  std_logic;
+         mounted              : in  std_logic;
+         anyChange            : in  std_logic;
+         changePending        : out std_logic;
+         saving_memcard       : out std_logic := '0';
+         mem_request          : out std_logic := '0';
+         mem_BURSTCNT         : out std_logic_vector(7 downto 0) := (others => '0');
+         mem_ADDR             : out std_logic_vector(19 downto 0) := (others => '0');
+         mem_DIN              : out std_logic_vector(63 downto 0) := (others => '0');
+         mem_BE               : out std_logic_vector(7 downto 0) := (others => '0');
+         mem_WE               : out std_logic := '0';
+         mem_RD               : out std_logic := '0';
+         mem_ack              : in  std_logic;
+         mem_DOUT             : in  std_logic_vector(63 downto 0);
+         mem_DOUT_READY       : in  std_logic;
+         memcard_rd           : out std_logic := '0';
+         memcard_wr           : out std_logic := '0';
+         memcard_lba          : out std_logic_vector(6 downto 0);
+         memcard_ack          : in  std_logic;
+         memcard_write        : in  std_logic;
+         memcard_addr         : in  std_logic_vector(8 downto 0);
+         memcard_dataIn       : in  std_logic_vector(15 downto 0);
+         memcard_dataOut      : out std_logic_vector(15 downto 0)
+      );
+      end component;
+   begin
+      imemcard2 : memcard_pocket
+      port map
+      (
+         clk2x                => clk2x, 
+         ce                   => ce,    
+         reset                => reset, 
+      
+         save                 => memcard_save,
+         load                 => memcard2_load,
+                            
+         pause                => memcard2_pause,
+         system_paused        => pausing,
+                           
+         mounted              => memcard2_mounted,
+         anyChange            => memDDR3card2_WE,
+      
+         changePending        => MemCard_changePending2,
+         saving_memcard       => MemCard_saving_memcard2,
+                            
+         mem_request          => memHPScard2_request, 
+         mem_BURSTCNT         => memHPScard2_BURSTCNT,      
+         mem_ADDR             => memHPScard2_ADDR,                     
+         mem_DIN              => memHPScard2_DIN,    
+         mem_BE               => memHPScard2_BE,      
+         mem_WE               => memHPScard2_WE,      
+         mem_RD               => memHPScard2_RD,   
+         mem_ack              => memHPScard2_ack,   
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
+                           
+         memcard_rd           => memcard2_rd,     
+         memcard_wr           => memcard2_wr,     
+         memcard_lba          => memcard2_lba,    
+         memcard_ack          => memcard2_ack,    
+         memcard_write        => memcard2_write,  
+         memcard_addr         => memcard2_addr,   
+         memcard_dataIn       => memcard2_dataIn, 
+         memcard_dataOut      => memcard2_dataOut
+      );
+   end generate;
    
    -- savestates are absent: every signal they drove is tied inactive
    loading_savestate <= '0';

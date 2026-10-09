@@ -1,0 +1,4 @@
+# Golden-GPU comparison revision; elaborates today (gpu and gpu_pocket are port-identical).
+source psx_pocket_a6.qsf
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files_psx_pocket_a6_gpu
+set_parameter -name G_GPU_IMPL golden

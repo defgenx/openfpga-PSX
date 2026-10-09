@@ -8,7 +8,19 @@ library work;
 use work.pJoypad.all;
 
 entity psx_pocket_wrap is
-   generic ( G_NO_MDEC : boolean := false );
+   generic
+   (
+      G_NO_MDEC      : boolean := false;
+      G_GPU_IMPL     : string  := "pocket";
+      G_CPU_IMPL     : string  := "golden";
+      G_SPU_IMPL     : string  := "golden";
+      G_CD_IMPL      : string  := "golden";
+      G_DMA_IMPL     : string  := "golden";
+      G_BUS_IMPL     : string  := "golden";
+      G_JOYPAD_IMPL  : string  := "golden";
+      G_MEMCARD_IMPL : string  := "golden";
+      G_MDEC_IMPL    : string  := "golden"
+   );
    port
    (
       clk1x, clk2x, clk3x, clkvid, reset : in std_logic;
@@ -87,7 +99,12 @@ architecture arch of psx_pocket_wrap is
       Analog1X => (others => '0'), Analog1Y => (others => '0'), Analog2X => (others => '0'), Analog2Y => (others => '0'));
 begin
    ipsx_top : entity work.psx_top_pocket
-   generic map ( NO_MDEC => G_NO_MDEC )
+   generic map
+   (
+      NO_MDEC => G_NO_MDEC, G_GPU_IMPL => G_GPU_IMPL, G_CPU_IMPL => G_CPU_IMPL, G_SPU_IMPL => G_SPU_IMPL,
+      G_CD_IMPL => G_CD_IMPL, G_DMA_IMPL => G_DMA_IMPL, G_BUS_IMPL => G_BUS_IMPL, G_JOYPAD_IMPL => G_JOYPAD_IMPL,
+      G_MEMCARD_IMPL => G_MEMCARD_IMPL, G_MDEC_IMPL => G_MDEC_IMPL
+   )
    port map
    (
       clk1x => clk1x, clk2x => clk2x, clk3x => clk3x, clkvid => clkvid, reset => reset,
