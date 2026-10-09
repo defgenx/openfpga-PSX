@@ -126,9 +126,9 @@ AS4C32M16SB: 16 bit, 4 banks, 8,192 rows × 1,024 columns. Chip select is tied l
 idle command is a NOP. Burst length 4, CL 3, open-page policy. Word address mapping: column `[9:0]`,
 bank `[11:10]`, row `[24:12]`, so one 1,024-word VRAM line is one row.
 
-Every timing figure lives in one table, `tools/sdram_timing.py`, which generates `fpga/core/sdram_timing.vh`
-(cycle counts per clock for `sdram_ctl`, ns figures for `sim/sdram_model.v`), `fpga/core/sdram_timing.sdc` (the
-I/O figures `core_constraints.sdc` sources) and `fpga/core/sdram_timing.json` (read by `sim/gpu_diff/bwmodel.py`).
+Every timing figure lives in one table, `pocket/common/tools/sdram_timing.py`, which generates `pocket/common/mem/sdram_timing.vh`
+(cycle counts per clock for `sdram_ctl`, ns figures for `sim/sdram_model.v`), `pocket/common/mem/sdram_timing.sdc` (the
+I/O figures `core_constraints.sdc` sources) and `pocket/common/mem/sdram_timing.json` (read by `sim/gpu_diff/bwmodel.py`).
 `build.sh compile` and `build.sh sim` fail when a committed generated file differs from the script's output. A
 cycle count is `max(minimum clocks, ceil(ns / tCK))`.
 
@@ -141,7 +141,7 @@ better. "B-die" is the AS4C32M16SB datasheet (figures confirmed from its key-spe
 tCK3, tAC3, tRAS, tRC); "A-die" is the AS4C32M16SA Rev 2.0 datasheet (-7), used for the figures not read from the
 B-die sheet. Where two sources differ the slower figure is kept.
 
-`CLOCKS` in `tools/sdram_timing.py` also generates the clock constants `MT_CLK_HZ` and `MT_TCK_PS` into `sdram_timing.vh`,
+`CLOCKS` in `pocket/common/tools/sdram_timing.py` also generates the clock constants `MT_CLK_HZ` and `MT_TCK_PS` into `sdram_timing.vh`,
 under the same `SDRAM_135` selection as the cycle counts. `--check` fails if either `PLL_SYS_MHZ` in `pll_mem.v` differs from
 `CLOCKS`, so a clock change is one edit in `CLOCKS` plus the matching PLL values in `pll_mem.v`.
 
@@ -275,7 +275,7 @@ unverified.** The PSRAM design was not changed for the new clock. Writes stay
 asynchronous (the fill happens before the mode change). If the device ignores or rejects the register write, the sync
 tests report errors; they cannot hang the core.
 
-### SRAM (`sram_test.v`)
+### SRAM (`sram_test.v`, controller `pocket/common/mem/sram_ctl.v`)
 
 256 KB as `sram_a[16:0]` × 16 bit, used as bytes through `ub_n` / `lb_n`. A read holds the address for
 `wait` cycles; a write sets address and data up one cycle before WE# and holds WE# low for `wait`
@@ -293,7 +293,7 @@ clock is VCO / 128 in both. Video is 400 × 264
 pixels at 60.1 Hz with 320 × 240 active, one scaler mode, 4:3. One line period is 400 pixel clocks = 62.99 µs: 6,400 system cycles at
 101.6 MHz and 25,600 / 3 = 8,533.33 at 135.5 MHz. `sd_scan` counts that period with a fractional accumulator (8,533 cycles, one
 more every third line), which is the scan-out deadline. Pin assignments and I/O standards are the template's.
-The APF framework files in `fpga/apf/` and `core_bridge_cmd.v` are unchanged.
+The APF framework files in `pocket/common/apf/` and `core_bridge_cmd.v` are unchanged.
 
 ## Bridge throughput bench (`slot_bench.v`)
 
@@ -592,7 +592,7 @@ result is the one that matters for the PSX core.
 
 | Source | What was taken | Licence |
 |---|---|---|
-| Analogue openFPGA core template v1.3.0 (`open-fpga/core-template`, commit `da3a021`) | `fpga/apf/*` (via the C64 port, identical except line endings), `core_bridge_cmd.v`, the `core_top.v` port list, bridge and audio blocks, `icon.bin`, JSON layout | No licence file. Each source file carries Analogue's Software License Agreement header (use under the Pocket EULA, `analogue.link/pocket-eula`; the MIT or GPL prevails where it applies) |
+| Analogue openFPGA core template v1.3.0 (`open-fpga/core-template`, commit `da3a021`) | `pocket/common/apf/*` (via the C64 port, identical except line endings), `core_bridge_cmd.v`, the `core_top.v` port list, bridge and audio blocks, `icon.bin`, JSON layout | No licence file. Each source file carries Analogue's Software License Agreement header (use under the Pocket EULA, `analogue.link/pocket-eula`; the MIT or GPL prevails where it applies) |
 | `defgenx/openfpga-C64` | `ap_core.qsf` pin and I/O assignments and fast-register assignments, `build.sh` structure, `tools/check_json.py`, `tools/reverse_bits.py`, `tools/font8x8_basic.h` | No licence file; its README states GPL v2 or later for the Pocket-specific code |
 | `defgenx/openfpga-AtariST` | the direct `altera_pll` instantiation style, the DDIO SDRAM clock and the SDC pin timing pattern were read and re-written, not copied | No licence file; same author |
 | `defgenx/openfpga-SNES` | read for the SDRAM clock handling; nothing copied | GPL v3 |

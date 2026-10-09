@@ -1,9 +1,9 @@
 // SDRAM controller for the Pocket's AS4C32M16SB: BL4, CL3, open-page, 4 banks.
 // One request is decoded while the previous burst is still on the bus.
-// Every datasheet timing is a cycle count from sdram_timing.vh (selected in memtest_defs.vh);
+// Every datasheet timing is a cycle count from sdram_timing.vh (selected in mem_defs.vh);
 // timing, byte enables, the pin and capture pipeline stages and the read-data alignment are
 // explained in docs/pocket/MEMTEST.md.
-`include "memtest_defs.vh"
+`include "mem_defs.vh"
 module sdram_ctl #(
     parameter CL          = `SDT_CL,
     parameter BL          = `SDT_BL,      // the 64-bit request port is four 16-bit beats

@@ -1,5 +1,5 @@
 {
-  "generated_by": "pocket/memtest/tools/sdram_timing.py; do not edit",
+  "generated_by": "pocket/common/tools/sdram_timing.py; do not edit",
   "part": "AS4C32M16SB-7",
   "grade_source": "unconfirmed: core_constraints.sdc comment, no chip marking checked",
   "cl": 3,

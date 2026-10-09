@@ -15,7 +15,8 @@ import re
 import sys
 from pathlib import Path
 
-CORE = Path(__file__).resolve().parent.parent / "fpga" / "core"
+MEM = Path(__file__).resolve().parent.parent / "mem"
+PLL = Path(__file__).resolve().parent.parent.parent / "memtest" / "fpga" / "core" / "pll_mem.v"
 
 PART = "AS4C32M16SB-7"
 # The speed grade is the SDC comment's (core_constraints.sdc); no Pocket chip marking or schematic
@@ -107,7 +108,7 @@ def gen_sdc():
 
 def gen_json():
     doc = {
-        "generated_by": "pocket/memtest/tools/sdram_timing.py; do not edit",
+        "generated_by": "pocket/common/tools/sdram_timing.py; do not edit",
         "part": PART,
         "grade_source": GRADE_SOURCE,
         "cl": CL,
@@ -121,15 +122,15 @@ def gen_json():
 
 
 OUTPUTS = {
-    CORE / "sdram_timing.vh": gen_vh,
-    CORE / "sdram_timing.sdc": gen_sdc,
-    CORE / "sdram_timing.json": gen_json,
+    MEM / "sdram_timing.vh": gen_vh,
+    MEM / "sdram_timing.sdc": gen_sdc,
+    MEM / "sdram_timing.json": gen_json,
 }
 
 
 def pll_problems():
     """Differences between the PLL_SYS_MHZ defines of pll_mem.v (`SDRAM_135 branch first) and CLOCKS."""
-    text = (CORE / "pll_mem.v").read_text()
+    text = PLL.read_text()
     found = re.findall(r'`define\s+PLL_SYS_MHZ\s+"([0-9.]+) MHz"', text)
     want = [CLOCKS[DEFINE_135], *(v for k, v in CLOCKS.items() if k != DEFINE_135)]
     if len(found) != len(want) or any(abs(float(f) - w) > 1e-9 for f, w in zip(found, want)):

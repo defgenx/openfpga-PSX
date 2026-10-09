@@ -16,7 +16,7 @@ set CLK_V90 "$PLL\[4\].gpll~PLL_OUTPUT_COUNTER|divclk"
 # clock is a generated clock that includes the same I/O delay as the data pins.
 # tAC, tOH, tIS and tIH come from the SDRAM timing table (docs/pocket/MEMTEST.md), read from the
 # generated sdram_timing.sdc; the same constraints hold for both clock variants.
-source core/sdram_timing.sdc
+source ../../common/mem/sdram_timing.sdc
 create_generated_clock -name dram_clk_pin -source [get_pins "$CLK_SD"] [get_ports {dram_clk}]
 set_input_delay  -clock dram_clk_pin -max $SDT_TAC [get_ports {dram_dq[*]}]
 set_input_delay  -clock dram_clk_pin -min $SDT_TOH [get_ports {dram_dq[*]}]

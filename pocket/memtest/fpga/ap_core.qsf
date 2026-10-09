@@ -726,18 +726,20 @@ set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq[*]
 
 # ---- memtest sources
 set_global_assignment -name SEARCH_PATH core
-set_global_assignment -name QIP_FILE apf/apf.qip
+set_global_assignment -name SEARCH_PATH ../../common/mem
+set_global_assignment -name QIP_FILE ../../common/apf/apf.qip
 set_global_assignment -name VERILOG_FILE core/core_top.v
 set_global_assignment -name VERILOG_FILE core/core_bridge_cmd.v
 set_global_assignment -name VERILOG_FILE core/pll_mem.v
-set_global_assignment -name VERILOG_FILE core/sd_clk_out.v
+set_global_assignment -name VERILOG_FILE ../../common/mem/sd_clk_out.v
 set_global_assignment -name VERILOG_FILE core/memtest_core.v
-set_global_assignment -name VERILOG_FILE core/sdram_ctl.v
-set_global_assignment -name VERILOG_FILE core/sdram_arb.v
+set_global_assignment -name VERILOG_FILE ../../common/mem/sdram_ctl.v
+set_global_assignment -name VERILOG_FILE ../../common/mem/sdram_arb.v
 set_global_assignment -name VERILOG_FILE core/sd_traffic.v
 set_global_assignment -name VERILOG_FILE core/sd_scan.v
-set_global_assignment -name VERILOG_FILE core/psram32.v
+set_global_assignment -name VERILOG_FILE ../../common/mem/psram32.v
 set_global_assignment -name VERILOG_FILE core/ps_traffic.v
+set_global_assignment -name VERILOG_FILE ../../common/mem/sram_ctl.v
 set_global_assignment -name VERILOG_FILE core/sram_test.v
 set_global_assignment -name VERILOG_FILE core/dma_eng.v
 set_global_assignment -name VERILOG_FILE core/div32.v
@@ -748,4 +750,4 @@ set_global_assignment -name VERILOG_FILE core/slot_bench.v
 
 # build with the same effort the other Pocket cores use
 set_global_assignment -name NUM_PARALLEL_PROCESSORS 2
-set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:apf/build_id_gen.tcl"
+set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:../../common/apf/build_id_gen.tcl"

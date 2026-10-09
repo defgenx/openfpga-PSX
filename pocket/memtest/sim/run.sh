@@ -28,7 +28,7 @@ mkdir -p sim/out
 # one tb_be run: name, defines, expected verdict (PASS, or FAULT = the injected fault must be reported as caught)
 be_run() {
   local name=$1 d=$2 want=$3
-  iverilog -g2012 -o sim/out/$name.vvp -I fpga/core $d sim/tb_be.v sim/sdram_model.v fpga/core/sdram_ctl.v
+  iverilog -g2012 -o sim/out/$name.vvp -I fpga/core -I ../common/mem $d sim/tb_be.v sim/sdram_model.v ../common/mem/sdram_ctl.v
   # the injected-fault run reports every violation it provokes; keep the log to the summary lines
   vvp sim/out/$name.vvp | { if [ "$want" = PASS ]; then cat; else grep -v VIOLATION; fi; } | tee sim/out/$name.log
   if [ "$want" = PASS ]; then grep -qx PASS sim/out/$name.log; else grep -qx "PASS (fault caught)" sim/out/$name.log; fi
@@ -47,9 +47,9 @@ esac
 # one whole-core run: name, defines
 core_run() {
   local name=$1 d=$2
-  iverilog -g2012 -o sim/out/core_$name.vvp -I fpga/core $d ${EXTRA:-} -DMAXC=${MAXC:-60000000} \
+  iverilog -g2012 -o sim/out/core_$name.vvp -I fpga/core -I ../common/mem $d ${EXTRA:-} -DMAXC=${MAXC:-60000000} \
     sim/tb_core.v sim/sdram_model.v sim/psram_model.v sim/sram_model.v \
-    fpga/core/{memtest_core,res_ram,sdram_ctl,sdram_arb,sd_traffic,sd_scan,psram32,ps_traffic,sram_test,dma_eng,div32,slot_bench}.v
+    fpga/core/{memtest_core,res_ram,sd_traffic,sd_scan,ps_traffic,sram_test,dma_eng,div32,slot_bench}.v ../common/mem/{sdram_ctl,sdram_arb,psram32,sram_ctl}.v
   vvp sim/out/core_$name.vvp | tee sim/out/core_$name.log
   grep -qx PASS sim/out/core_$name.log
 }

@@ -15,9 +15,9 @@ QUARTUS_IMAGE=${QUARTUS_IMAGE:-raetro/quartus:21.1}
 CORE=defgenx.PSXMemTest
 RELEASE=${RELEASE:-135}      # the variant `package` ships when none is named
 
-# the generated SDRAM timing files must match tools/sdram_timing.py's table (MEMTEST.md, SDRAM timing table)
+# the generated SDRAM timing files must match common/tools/sdram_timing.py's table (MEMTEST.md, SDRAM timing table)
 timing_check() {
-	python3 tools/sdram_timing.py --check
+	python3 ../common/tools/sdram_timing.py --check
 }
 
 # revision of a variant: 101 = ap_core, 135 = ap_core_135 (ap_core plus VERILOG_MACRO SDRAM_135=1)
@@ -114,9 +114,9 @@ simulate() {
 	sim/run.sh slot
 	iverilog -g2012 -o sim/out/div.vvp sim/tb_div.v fpga/core/div32.v
 	vvp_pass sim/out/div.vvp
-	iverilog -g2012 -o sim/out/screen.vvp -I fpga/core sim/tb_screen.v fpga/core/{res_ram,report_fmt,video_text}.v
+	iverilog -g2012 -o sim/out/screen.vvp -I fpga/core -I ../common/mem sim/tb_screen.v fpga/core/{res_ram,report_fmt,video_text}.v
 	vvp_pass sim/out/screen.vvp
-	iverilog -g2012 -o sim/out/screen135.vvp -DSDRAM_135 -I fpga/core sim/tb_screen.v fpga/core/{res_ram,report_fmt,video_text}.v
+	iverilog -g2012 -o sim/out/screen135.vvp -DSDRAM_135 -I fpga/core -I ../common/mem sim/tb_screen.v fpga/core/{res_ram,report_fmt,video_text}.v
 	vvp_pass sim/out/screen135.vvp
 }
 
