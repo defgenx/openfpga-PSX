@@ -8,8 +8,20 @@ gates: [ROADMAP.md](ROADMAP.md). Reference format: [GPU.md](GPU.md).
 The golden model is `cpu.vhd` with `divider.vhd` and `datacache.vhd`, frozen. The Pocket CPU must
 retire the same instruction stream with the same bus transactions, COP0 behaviour and GTE
 interface as the golden with `TURBO`, `TURBO_CACHE` and `TURBO_CACHE50` off and the savestate ports
-tied. Gate: <= 1,300 ALMs for the instance (explorer estimate of the final size 1,500-1,700). Kept:
-the asynchronous tag-RAM read, the clk2x scratchpad port, forwarding and load-use stalls.
+tied. Kept: the asynchronous tag-RAM read, the clk2x scratchpad port, forwarding and load-use stalls.
+
+Gate: **<= 1,900 ALMs for `cpu:icpu` in the `psx_top_pocket` in-context fit** (`sizing/psx_pocket_a6_cpu.qsf`,
+see [ROADMAP.md](ROADMAP.md#phase-4--rewrites-area-and-the-core-gate)). The gate is in context because that
+is what has to fit; the standalone `cpu_golden` fit stays a diagnostic.
+
+| | ALMs |
+|---|---|
+| Standalone floor for a cycle-exact R3000A pipeline | 1,500-1,900 |
+| In-context gap measured on the golden (2,674.4 vs 2,291.1) | +383 |
+| **In-context range** | **1,900-2,300** |
+| **Gate** (bottom of the range) | **<= 1,900** |
+
+The projection uses the range, not the gate.
 
 Sizing wrapper: `sizing/cpu_size_wrap.vhd` (all I/O registered on clk1x, clk1x/clk2x/clk3x),
 project `sizing/cpu_size.qpf`, revision `cpu_golden` on 5CEBA4F23C8.
@@ -84,6 +96,6 @@ checkout.
 The savestate lever in context is therefore 817.9 ALMs. The in-context figure stays 383 ALMs above the standalone `cpu_golden`. Measured, not explained: in context
 the CPU has 151 more combinational ALUTs (3,276 vs 3,125) and 61 fewer registers (1,816 vs 1,877); the rest
 is packing (2,813.6 vs 2,515.4 placed, 195.5 vs 297.0 recoverable by dense packing). The standalone fit is
-timing-driven with an SDC and `psx_pocket_a6` has none. The standalone figure is the gate metric.
+timing-driven with an SDC and `psx_pocket_a6` has none. The in-context figure is the gate metric; the standalone figure is a diagnostic.
 The levers above other than the savestate removal apply to both figures alike; only the savestate lever is
 measured in context.

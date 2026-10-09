@@ -157,7 +157,7 @@ never fails; **the worst peak the gating run prints is the gate figure**. There 
 in this repository (no BIOS or game images); the traces are the generator's game-like random suite.
 
 The model is open-loop (each access starts at its traced time) and has one controller model,
-which follows the command timing of `pocket/memtest/fpga/core/sdram_ctl.v`:
+which follows the command timing of `pocket/common/mem/sdram_ctl.v`:
 - Timings come from `sdram_timing.json` (generated from the datasheet table), in ns, converted
   per clock as `max(min_clk, ceil(ns × MHz / 1000))`, so `--mhz` alone changes the clock; the
   rule is checked against the table's own precomputed cycles at both clocks on every run.
@@ -217,6 +217,133 @@ with the test through the round-robin arbiter (`sdram_arb.v`). It prints the ben
 Under scan-out at 135.4752 MHz the model takes 671,151 cycles against the simulation's 671,241.
 The validated model carries the gate: if it falls outside about 10% of the simulation or the
 hardware, a trace-replay check replaces it before the 80% is trusted.
+
+### SDRAM bandwidth — re-plan
+
+The model above puts the worst synthetic trace at 91.2% at 135.4752 MHz against the 80% gate. The plan is to
+cut traffic with four levers, calibrate the read capture instead of closing it statically, and add closed-loop
+and latency criteria. Gates and decisions: [ROADMAP.md](ROADMAP.md#gate-m--vram-bandwidth-replaces-the-phase-2-bandwidth-gate).
+Capture mechanics: [MEMTEST.md](MEMTEST.md).
+
+#### Traffic on `trace_s1`
+
+| Traffic | Share of beats | Note |
+|---|---|---|
+| Pixel writes (single beat) | 72% | already 3.5 pixels per beat; write combining saves 0.4% |
+| Texture-cache misses (single beat) | 4.6% | |
+| Destination-span and CLUT reads (2–63 beats) | 12.5% | |
+| Scan-out | 10% | |
+
+#### Levers
+
+Figures are the worst peak on `trace_s1` at 135.4752 MHz (baseline 91.2%), from `bwmodel.py` replays. **Each
+was run alone as a single-lever replay.** No run combines them yet, and the SPU's voice pitch is not modelled
+in `bwmodel.py` today. The combined run is the model v2 result below.
+
+| Lever | Where | Single-lever replay |
+|---|---|---|
+| **L1** SPU per-voice block cache: 24 × 16 B, one block fill per 28 samples instead of 48 reads per sample | SPU rewrite (B1) | 76.9% at 1× pitch, 80.6% at 4× pitch (the gating case) |
+| **L2** texture cache from 256 to 1,024 lines (~6 M10K net, partly paid back because the filter ways are gone) | `gpu_pixelpipeline_pocket` (G1) | 74.4% together with L1; about −2.5 points |
+| **L3** bank-aware controller: lookahead of one request, early ACT/PRE on another bank during a burst | `sdram_ctl`/`sdram_arb` (M2b) | −3 to −6 points (estimate; 8.5–12 points of row overhead exist); built only if the model shows ≥ 3 points |
+| **L4** destination-read gating: skip the span read when no pixel of the primitive can blend or mask-check | GPU (G1, B6) | −1 to −4 points (realistic); the upper bound of removing every 2–63-beat read is −9.6 points; built only if it stays exact on the VRAM write sequence, and only when L1 + L2 at 4× is above 80% or the fallback clock is taken |
+
+Adding the single-lever figures projects ~66–71% after L1–L3 at 135.4752 MHz. That is a projection, not a
+measurement.
+
+L1 is exact because:
+- every SPU RAM write passes through the SPU itself (CPU and DMA transfers, capture, reverb);
+- the IRQ compare keys on the computed address, not on the memory access (`spu.vhd:1087-1097`), so the cache
+  sits below it and below the `ram_request`/`ram_Adr` timing;
+- with `useSDRAM = '1'` the voice slot length is fixed (`voiceCounter >= 23`, `spu.vhd:1931`), so a faster read
+  never shifts its timing. `useSDRAM = '1'` is the contract mode.
+
+L1 holds only conditionally: a slow read stretches the slot (the counter saturates at 31, `spu.vhd:1480`), so a
+read returning after the 23rd clk1x breaks exactness; Gate M (c) covers it. A per-voice cache already exists in
+`spu_ram.vhd:268-420` (24 voices plus a transfer slot, 8 × 64-bit words each, write update at `:389`), used on
+the `useSDRAM = '0'` path; L1 is built from it.
+
+#### Gate M
+
+All five criteria, at the chosen SDRAM clock:
+
+| | Criterion |
+|---|---|
+| (a) | open loop: worst synthetic trace ≤ 80% over a sliding 1 ms window, the SPU charged as the cached SPU. Gating case: 4× pitch on every voice; 1× reported. "L1 + L2 at 4× ≤ 80%" decides whether L3 and L4 are built |
+| (b) | closed loop: the GPU's draw time on the worst trace grows ≤ 5% against a memory with `G_READ_LAT` (8 clk2x cycles, `vram_model.vhd:24`). The traces carry no read dependencies, so the model serialises every read behind its data: a worst-case bound, cross-checked once with the real GPU in nvc |
+| (c) | latency, under the P1d arbiter's QoS (SPU and scan-out above GPU draw): zero SPU slot overruns and zero late scan-out lines. The 1 ms peak cannot show either: at 135 MHz the model reports a 27.9 µs scan-out max latency and a 32.1 µs max queue wait, and a 63-beat GPU read (~1.9 µs) outlasts a whole SPU slot (~0.68 µs) |
+| (d) | game traces recorded locally also stay ≤ 80% open loop (reported until such traces exist, gating after) |
+| (e) | the model stays within 10% of the memtest hardware figures (pending hardware) |
+
+#### SDRAM clock: calibrated 135.4752 MHz primary, 116.12 MHz fallback
+
+| | Primary | Fallback |
+|---|---|---|
+| Clock | 135.4752 MHz (VCO/6), synchronous to the core | 116.1223 MHz (VCO/7), asynchronous, dual-clock FIFOs |
+| Read capture | dynamic phase shift, calibrated at boot and tracked in vblank; excepted from static timing | closes static timing (+0.43 ns) |
+| Worst-trace peak before levers | 91.2% | **87.8%** floor, with SPU RAM fully off SDRAM (86.9% on s2, 86.4% on s3) |
+
+At 116.12 MHz with the SPU RAM on PSRAM, L2 and L3 are mandatory and L4 is very likely needed:
+87.8 − 2.5 − (3 to 6) = 79.3–82.3% before L4. With SPU RAM left on SDRAM the peaks are 98.7% at 116.12 MHz and
+98.2% at 121.9 MHz: the bandwidth lost outweighs the timing gained. The FIFOs change the read latency the GPU
+sees, so Gate M (b) and (c) are re-run at 116.12 MHz.
+
+#### Model v2 results
+
+`bwmodel.py` v2 adds options that are all off by default. With them off it prints the same figures as before:
+`bwselftest.py`, run by `make bw`, pins 91.2% / 98.7% / 98.2% / 99.9% on s1 at 135.4752 / 116.1223 / 121.9277 /
+101.6064 MHz, and 87.8% / 86.9% / 86.4% at 116.1223 MHz with `--spu-voices 0`.
+
+| Option | Lever | Model |
+|---|---|---|
+| `--spu-cache 1x\|4x\|mixed` | L1 | each voice keeps a phase and a sequential 16-byte block pointer; every 28 / pitch samples it fills the next block (2 BL4 bursts in its slot). Pitch 1× or 4× on every voice, or mixed (1×, 2×, 4× by voice number); phases and start blocks are fixed pseudo-random. Reverb and transfers unchanged |
+| `--tex-lines N` | L2 | an LRU of N 8-byte lines behind the trace's 256-line cache; single-beat reads that hit are dropped, a write evicts the lines it covers. Slightly optimistic against N direct-mapped lines |
+| `--lookahead` | L3 | the next queued request (one deep) gets its PRE/ACT early under tRP, tRC, tRRD, tRAS. Command-bus collisions are not modelled |
+| `--closed-loop` | Gate M (b) | every read blocks the next access until its last beat returns. The traces carry no read dependencies, so this is a worst-case bound. Inflation is the replay time against the same serialisation on a memory with `G_READ_LAT` = 8 clk2x cycles |
+| `--qos` | Gate M (c) | beat-level priority: SPU, then scan-out (reads ≥ 64 beats), then draw. Counts SPU reads returning after their slot's 23 clk1x cycles, and scan-out reads returning more than one line period (63.56 µs) after their request |
+
+Results, peak over a 1 ms window, worst of s1/s2/s3:
+
+| At 135.4752 MHz | Peak | Note |
+|---|---|---|
+| baseline | 91.2% | |
+| L1 at 1× / mixed / 4× | 76.4% / 77.4% / 78.4% | the earlier single-lever replay gave 80.6% at 4×; the difference is this model's pitch phase and block pointer |
+| L1 + L2 at 4× | 76.2% | ≤ 80%: **L4 is not needed** at this clock |
+| L1 + L2 + L3 at 4× | **72.9%** (71.2% at 1×) | replaces the "~66–71%" projection. L3 gains 3.3 points on the worst trace (3.1 / 3.3 / 1.5 on s1 / s2 / s3): **L3 is built** |
+| closed-loop inflation, L1 + L2 + L3 at 4× | +3.2% (+3.3% with QoS) | Gate M (b) ≤ 5%: pass |
+| SPU slot overruns / late scan-out lines, `--qos` | 0 / 0 | without QoS 13–14% of SPU reads overrun (2,113 of 15,095 on s1). Scan-out max latency falls from 27–38 µs to ~3.5 µs |
+
+| At 116.1223 MHz, SPU RAM off SDRAM | Peak |
+|---|---|
+| baseline | 87.8% |
+| + L2 | 84.8% |
+| + L2 + L3 | 81.8% (s2): still above 80%, so L4 is needed on the fallback |
+| closed-loop inflation | +5.0% / +4.9% / +4.8%: at the limit |
+
+The late-line criterion is weak as modelled: a whole line period is a generous deadline, and even the plain FIFO
+arbiter shows 0 late lines. The real scan-out FIFO depth sets the deadline; P1d replaces it with that figure.
+
+#### Game traces
+
+Real-game load for Gate M (d) comes from GP0/GP1 dumps recorded locally in DuckStation. Dumps, vectors and
+traces are game-derived and never committed: outputs go under the gitignored `sim/gpu_diff/run/`.
+
+- **Record** a GPU dump of a few frames in DuckStation (its GPU frame capture; the file is `.psxgpu`, or
+  `.psxgpu.zst`/`.psxgpu.xz`). Format `PSXGPUDUMPv1`: DuckStation `src/core/gpu_dump.cpp`, spec ps1dev/standards
+  `GPUDUMP.md`.
+- **Convert and trace:** `make -C sim/gpu_diff trace-game TRACES="a.psxgpu b.psxgpu.zst" GAMEARGS="--first-frame 100 --frames 3"`
+  writes `run/game_<name>/vec.txt` and `run/trace_game_<name>.txt` (golden), plus `run/trace_pocket_game_<name>.txt`
+  when gpu_pocket is configured. `make bw-game TRACES=...` then runs `bwmodel.py` at 101.6064 MHz (report) and
+  `--max-util 0.8` at 135.4752 MHz (report-only unless `GAME_GATE=1`). `gpudump2vec.py --selftest` and
+  `make gamevec-selftest` check the converter on a synthetic dump.
+- **Conversion:** GP0 is re-split into whole commands (`P`, or `Q` with `--queue`), GP1 becomes `G1`, `0xC0` reads
+  become `RD n`, and each VSync becomes `W <tick delta>` in clk1x cycles (about 565,045 per NTSC frame).
+- **Limits:**
+  - the initial 1 MiB VRAM snapshot is dropped by default (`--vram-init` replays it, but its write burst then
+    dominates the peak window), so textures are blank;
+  - frames before `--first-frame` keep only state, uploads, fills and copies;
+  - GPUREAD data is not in the dump, so reads are replayed but only golden and pocket are compared;
+  - commands are serialised unless `--queue`;
+  - the layout is checked against the DuckStation source and the spec, not yet against a recorded dump.
 
 ## Verification
 

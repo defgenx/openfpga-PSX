@@ -4,6 +4,11 @@ Source: PSX_MiSTer `cd17b5a` (2026-08-21). Target: Pocket core FPGA, Cyclone V E
 18,480 ALMs, 308 M10K, 66 DSP blocks. All ALM figures are Quartus 21.1 synthesis estimates
 ("ALMs needed"). On the C64 port that estimate was within 3% of the fitted result (17,361 vs 16,921).
 
+> **Superseded in part (2026-10-09).** The area projection, the 90% target and the amputation order below
+> predate the measurements of Phases 1–4.0. The current budget, per-block targets, projection cases and
+> stop rules are in [ROADMAP.md](ROADMAP.md#phase-4--rewrites-area-and-the-core-gate). The measurements and
+> the memory layout here still stand.
+
 ## Verdict
 
 **No-go as a port, and a marginal maybe as a rewrite.** Even after deleting every optional feature,
