@@ -1,0 +1,7 @@
+PSX for the Analogue Pocket (openFPGA)
+
+Shell skeleton: APF bridge, clocks, memory controllers and the data slots. The PlayStation core is a stub
+until the core replaces it. Layout, slots and build: docs/pocket/POCKET_TOP.md in the PSX_MiSTer repository.
+
+Copy this folder's Cores/, Platforms/ and Assets/ to the root of the Pocket SD card. Put the BIOS at
+Assets/psx/defgenx.PSX/psxbios.bin.
