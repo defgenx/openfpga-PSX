@@ -16,10 +16,16 @@ module memtest_core #(
     parameter SR_SWEEP_LOG2  = 10,
     parameter SR_N_LOG2      = 16,
     parameter SD_INIT_CYCLES = `MT_SD_INIT,
-    parameter WD_BITS        = 26     // per-step watchdog, 2^26 cycles
+    parameter WD_BITS        = 26,    // per-step watchdog, 2^26 cycles
+    parameter CAL_FRAMES     = 16     // capture tracking window every CAL_FRAMES raster frames (264 lines)
 ) (
     input  wire        clk,           // system clock: 101.6064 MHz, 135.4752 MHz in the SDRAM_135 variant
-    input  wire        clk_cap,       // clk delayed by half a period (SDRAM read data capture)
+    input  wire        clk_cap,       // SDRAM read data capture: a PLL output whose phase the calibration sets
+    input  wire        clk_scan,      // PLL scan clock (capture phase steps)
+    input  wire        pll_locked,    // PLL lock, in the clk domain
+    output wire        ph_en,          // PLL phase_en, clk_scan domain
+    output wire        ph_up,
+    input  wire        ph_done,
     input  wire        rst,
     input  wire [31:0] seed_in,
 
@@ -134,14 +140,28 @@ module memtest_core #(
         .c_rvalid(c_rvalid), .c_rdata(c_rdata), .c_rtag(c_rtag)
     );
 
+    wire        cal_tick, cal_done, cal_ok;
+    wire [6:0]  cal_width, cal_boot, cal_centre, cal_min, cal_max;
+    wire [15:0] cal_moves;
+    wire [3:0]  cal_flags;
     sdram_ctl #(.INIT_CYCLES(SD_INIT_CYCLES)) sdram (
         .clk(clk), .clk_cap(clk_cap), .rst(rst_eng), .init_done(sd_init_done),
         .req_valid(c_valid), .req_ready(c_ready), .req_we(c_we), .req_addr(c_addr),
         .req_wdata(c_wdata), .req_be(c_be), .req_tag(c_tag),
         .rd_valid(c_rvalid), .rd_data(c_rdata), .rd_tag(c_rtag),
         .dram_a(dram_a), .dram_ba(dram_ba), .dram_dq(dram_dq), .dram_dqm(dram_dqm),
-        .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n)
+        .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n),
+        .pll_locked(pll_locked), .cal_tick(cal_tick), .clk_scan(clk_scan), .ps_en(ph_en), .ps_up(ph_up), .ps_done(ph_done),
+        .cal_done(cal_done), .cal_ok(cal_ok), .cal_width(cal_width), .cal_boot(cal_boot), .cal_centre(cal_centre),
+        .cal_min(cal_min), .cal_max(cal_max), .cal_moves(cal_moves), .cal_flags(cal_flags)
     );
+
+    // Capture tracking window: memtest has no vertical blanking, so a timer of CAL_FRAMES raster frames stands in
+    // for it (docs/pocket/MEMTEST.md, Calibration contract).
+    localparam [31:0] CAL_PERIOD = CAL_FRAMES * ((264 * `MT_LINE_NUM) / `MT_LINE_DEN);
+    reg  [31:0] cal_cnt = 32'd0;
+    assign      cal_tick = (cal_cnt == 32'd0);
+    always @(posedge clk) cal_cnt <= (cal_cnt == CAL_PERIOD - 1) ? 32'd0 : cal_cnt + 1'b1;
 
     // SDRAM test engine and scan-out
     reg         sd_start, pat_rel;
@@ -285,8 +305,30 @@ module memtest_core #(
         else if (slot_pend && !res_we) slot_pend <= 1'b0;
     end
     wire slot_wr = slot_pend && !res_we;
+    // the capture calibration's figures, one word every 1,024 cycles, in a cycle in which nothing else writes
+    reg  [2:0]  cal_i = 3'd0;
+    reg  [9:0]  cal_t = 10'd0;
+    reg         cal_pend = 1'b0;
+    reg  [6:0]  cal_pa;
+    reg  [32:0] cal_pd;
+    wire        cal_wr = cal_pend && !res_we && !slot_wr;
+    always @(posedge clk) begin
+        cal_t <= cal_t + 1'b1;
+        if (cal_t == 10'd0) begin
+            cal_pend <= 1'b1; cal_pa <= `R_CAL + cal_i; cal_i <= (cal_i == 3'd5) ? 3'd0 : cal_i + 1'b1;
+            case (cal_i)
+                3'd0: cal_pd <= {cal_done, 25'd0, cal_width};
+                3'd1: cal_pd <= {cal_done, 25'd0, cal_boot};
+                3'd2: cal_pd <= {cal_done, 28'd0, cal_flags};
+                3'd3: cal_pd <= {cal_done, 25'd0, cal_min};
+                3'd4: cal_pd <= {cal_done, 25'd0, cal_max};
+                default: cal_pd <= {cal_done, 16'd0, cal_moves};
+            endcase
+        end else if (cal_wr) cal_pend <= 1'b0;
+    end
     res_ram rres (
-        .clk(clk), .we(res_we | slot_wr), .wa(res_we ? res_wa : slot_pa), .wd(res_we ? res_wd : slot_pd), .ra(res_ra), .rq(res_rq),
+        .clk(clk), .we(res_we | slot_wr | cal_wr), .wa(res_we ? res_wa : slot_wr ? slot_pa : cal_pa),
+        .wd(res_we ? res_wd : slot_wr ? slot_pd : cal_pd), .ra(res_ra), .rq(res_rq),
         .clk_b(res_clk_b), .rb(res_rb), .rq_b(res_rq_b)
     );
 

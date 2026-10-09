@@ -28,11 +28,11 @@ def rows(mhz, psram, sram, dma):
         row("SEQ READ"),                                                   # 4
         row("RANDOM READ"),                                                # 5
         row("MIXED RD/WR"),                                                # 6
-        row("SCAN 640X16 US", "LATE", "WORST", "LINES", HEAD),             # 7
-        row("  ALONE"),                                                    # 8
-        row("  UNDER MIXED"),                                              # 9
+        row("EYE W/BOOT/FLAGS"),                                           # 7   capture eye width, boot centre, flags (steps)
+        row("SCAN ALONE L/W/E"),                                           # 8   late lines, worst line us, data errors (640x16 line)
+        row("SCAN MIXED L/W/E"),                                           # 9
         row("MIXED UNDER SCAN", "MB/S", "ERR", "CYCLES"),                  # 10
-        row("SCAN DATA ERR"),                                              # 11
+        row("TRACK MIN/MAX/MV"),                                           # 11  lowest and highest capture centre, centre moves
         row(psram, "NS/OP", "ERR", "MB/S", HEAD),                          # 12
         row("WRITE 32B"),                                                  # 13
         row("RANDOM READ 32B"),                                            # 14

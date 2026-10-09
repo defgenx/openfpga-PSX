@@ -7,6 +7,10 @@
 `endif
 module tb_core;
     `include "memtest_defs.vh"
+    `include "cal_sim.vh"
+`ifndef CAL_FRAMES
+  `define CAL_FRAMES 16
+`endif
 `ifdef SDRAM_135
     parameter real TCK = 1000.0 / 135.4752;
 `else
@@ -62,16 +66,11 @@ module tb_core;
 
     reg clk = 0;
     always #(TCK/2) clk = ~clk;
-    // SDRAM clock = system clock here. The capture clock sits inside the read data window, after the
-    // system clock edge that ends the CL + 3 cycle read latency, as the hardware phases do (docs/pocket/MEMTEST.md).
-    // 101 MHz: half a period late, with the pad and routing delays of the read path folded into the model.
-    // 135 MHz: the datasheet model with no added delay, capture 0.26 ns late (middle of tAC .. tOH).
-`ifdef SDRAM_135
-    wire clk_cap;
-    assign #0.26 clk_cap = clk;
-`else
-    wire clk_cap = ~clk;
-`endif
+    // SDRAM clock = system clock here. The capture clock comes from the PLL stand-in and is placed inside the read
+    // data window by the calibration (docs/pocket/MEMTEST.md, Calibration contract).
+    wire clk_cap, clk_scan, ps_en, ps_up, ps_done;
+    pll_dps_model #(.SCAN_DIV(`SIM_SCAN_DIV)) pll (.clk(clk), .clk_scan(clk_scan), .phase_en(ps_en), .updn(ps_up),
+        .cntsel(5'd2), .phase_done(ps_done), .clk_cap(clk_cap));
     reg rst = 1;
 
     // ---- APF bridge throughput bench (SLOT): slot_bench on a 74.25 MHz clock against a host model that answers
@@ -252,8 +251,9 @@ module tb_core;
     memtest_core #(.SD_REG_BITS(SD_REG_BITS), .SD_RND_LOG2(SD_RND_LOG2), .SC_LINES(SC_LINES), .SC_Y_WRAP(SC_Y_WRAP), .SC_LINE_NUM(SC_NUM), .SC_LINE_DEN(SC_DEN),
                    .PS_REG_BITS(PS_REG_BITS), .PS_SEQ_LOG2(PS_SEQ_LOG2), .PS_RND_LOG2(PS_RND_LOG2), .PS_SWEEP_LOG2(PS_SWEEP_LOG2),
                    .DMA_LOG2(DMA_LOG2), .SR_SWEEP_LOG2(SR_SWEEP_LOG2), .SR_N_LOG2(SR_N_LOG2),
-                   .SD_INIT_CYCLES(SD_INIT), .WD_BITS(25)) dut (
-        .clk(clk), .clk_cap(clk_cap), .rst(rst), .seed_in(32'h1234ABCD),
+                   .SD_INIT_CYCLES(SD_INIT), .WD_BITS(25), .CAL_FRAMES(`CAL_FRAMES)) dut (
+        .clk(clk), .clk_cap(clk_cap), .clk_scan(clk_scan), .pll_locked(1'b1), .ph_en(ps_en), .ph_up(ps_up), .ph_done(ps_done),
+        .rst(rst), .seed_in(32'h1234ABCD),
         .cfg_sync_en(SYNC_EN[0]), .cfg_lc(3'd3), .cfg_phase(2'd2), .cfg_loop(1'b0),
         .res_ra(ra), .res_rq(rq), .res_clk_b(clk), .res_rb(7'd0), .res_rq_b(rq_b), .run_state(run_state),
         .slot_tog(slot_tog), .slot_wa(slot_wa), .slot_wd(slot_wd),
@@ -267,15 +267,8 @@ module tb_core;
         .sram_ub_n(sram_ub_n), .sram_lb_n(sram_lb_n)
     );
 
-`ifdef SDRAM_135
-    sdram_model #(.TCK(TCK)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dram_dqm),
+    sdram_model #(.TCK(TCK), .PAD_NS(`SIM_PAD_NS)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dram_dqm),
                        .ras_n(dram_ras_n), .cas_n(dram_cas_n), .we_n(dram_we_n));
-`else
-    // pad and routing delays of the read path folded into the model: data valid tAC + 4.2 ns after the
-    // clock edge, held until tOH + 3.7 ns after the next one (as seen at the capture register)
-    sdram_model #(.TCK(TCK), .T_AC(`SDT_TAC_NS + 4.2), .T_OH(`SDT_TOH_NS + 3.7)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dram_dqm),
-                       .ras_n(dram_ras_n), .cas_n(dram_cas_n), .we_n(dram_we_n));
-`endif
     psram_model #(.T_AA(PS_T_AA), .STUCK_BIT(STUCK), .STUCK_VAL(STUCK_V), .BRIDGE_BIT(BRIDGE)) pr0 (.a(cram_a), .dq(cram0_dq), .wait_o(), .clk(cram_clk), .adv_n(cram_adv_n), .cre(cram_cre),
                      .ce0_n(cram_ce0_n), .ce1_n(cram_ce1_n), .oe_n(cram_oe_n), .we_n(cram_we_n),
                      .ub_n(cram0_ub_n), .lb_n(cram0_lb_n));
@@ -284,6 +277,9 @@ module tb_core;
                      .ub_n(cram1_ub_n), .lb_n(cram1_lb_n));
     sram_model sram (.a(sram_a), .dq(sram_dq), .oe_n(sram_oe_n), .we_n(sram_we_n), .ub_n(sram_ub_n), .lb_n(sram_lb_n));
 
+    reg [32:0] cal_bc;
+    integer trk_ticks = 0;
+    always @(posedge clk) if (dut.cal_tick && dut.cal_done) trk_ticks = trk_ticks + 1;
     function [32:0] res;
         input integer i;
         res = dut.rres.ma[i];
@@ -678,6 +674,22 @@ module tb_core;
 `ifdef SLOT
         slot_checks;
 `endif
+        // capture calibration: boot sweep found the eye (the 101 variant's model window runs past step 0), no PLL timeout,
+        // no shift outside the range, and the tracker kept the centre where the sweep put it (nothing drifts here)
+        expect_range("capture eye width", `R_CAL, `MT_CAL_EYE_MIN, `MT_CAL_SWMAX + 1);
+        expect_range("capture boot centre", `R_CAL + 1, `MT_CAL_NOM - 3, `MT_CAL_NOM + 8);
+`ifdef SDRAM_135
+        expect_eq("capture flags", `R_CAL + 2, 0);
+`else
+        expect_eq("capture flags", `R_CAL + 2, 2);
+`endif
+        expect_eq("tracker centre moves", `R_CAL_T + 2, 0);
+        cal_bc = res(`R_CAL + 1);
+        expect_eq("tracker lowest centre", `R_CAL_T, cal_bc[31:0]);
+        expect_eq("tracker highest centre", `R_CAL_T + 1, cal_bc[31:0]);
+        $display("capture: eye %0d steps, boot centre %0d, %0d PLL steps, %0d tracking probes", res(`R_CAL) & 33'h7FFFFFFF, cal_bc[31:0], pll.nsteps, trk_ticks);
+        if (`CAL_FRAMES == 1 && trk_ticks < 2) begin fails = fails + 1; $display("  CHECK FAILED: only %0d tracking windows in this run", trk_ticks); end
+        if (pll.range_viol != 0) begin fails = fails + 1; $display("  CHECK FAILED: %0d PLL shifts outside 0 .. %0d", pll.range_viol, 63); end
         $display("model violations: sdram=%0d psram0=%0d psram1=%0d sram=%0d (short SRAM pulses ignored: %0d)", sdram.violations, pr0.violations, pr1.violations, sram.violations, sram.short_pulses);
         if (sdram.violations + pr0.violations + pr1.violations + sram.violations != 0) fails = fails + 1;
         if (fails == 0) $display("PASS"); else $display("FAIL (%0d)", fails);

@@ -267,8 +267,10 @@ assign vpll_feed = 1'bZ;
 
 ///////////////////////////////////////////////////////////////////////////////
 // clocks: 74.25 MHz in; the system clock (101.6064 MHz, or 135.4752 MHz in the SDRAM_135 variant), the same clock
-// shifted for the SDRAM pin and for SDRAM read capture, 6.3504 MHz pixel clock and its 90 degree copy
-wire clk_sys, clk_sd, clk_cap, clk_vid, clk_vid_90;
+// shifted for the SDRAM pin and for SDRAM read capture (its phase is moved at run time by the calibration through
+// the PLL's dynamic phase shift, scan clock clk_scan), 6.3504 MHz pixel clock and its 90 degree copy
+wire clk_sys, clk_sd, clk_cap, clk_vid, clk_vid_90, clk_scan;
+wire ps_en, ps_up, ps_done;
 wire pll_core_locked;
 wire pll_core_locked_s;
 synch_3 s01(pll_core_locked, pll_core_locked_s, clk_74a);
@@ -281,7 +283,11 @@ pll_mem pll (
     .clk_cap    ( clk_cap ),
     .clk_vid    ( clk_vid ),
     .clk_vid_90 ( clk_vid_90 ),
-    .locked     ( pll_core_locked )
+    .clk_scan   ( clk_scan ),
+    .locked     ( pll_core_locked ),
+    .phase_en   ( ps_en ),
+    .updn       ( ps_up ),
+    .phase_done ( ps_done )
 );
 
 //
@@ -511,6 +517,8 @@ wire restart_tog_s;
 synch_3 s_rst (restart_tog, restart_tog_s, clk_sys);
 wire reset_n_s;
 synch_3 s_rn (reset_n & pll_core_locked_s, reset_n_s, clk_sys);
+wire pll_locked_sys;
+synch_3 s_pl (pll_core_locked, pll_locked_sys, clk_sys);
 
 reg        restart_d;
 reg [4:0]  rst_cnt = 5'd31;
@@ -537,6 +545,11 @@ wire        cram0_ub, cram0_lb, cram1_ub, cram1_lb;
 memtest_core mt (
     .clk        ( clk_sys ),
     .clk_cap    ( clk_cap ),
+    .clk_scan   ( clk_scan ),
+    .pll_locked ( pll_locked_sys ),
+    .ph_en      ( ps_en ),
+    .ph_up      ( ps_up ),
+    .ph_done    ( ps_done ),
     .rst        ( rst_sys ),
     .seed_in    ( seed_ctr ),
     .cfg_sync_en( cfg_s[0] ),

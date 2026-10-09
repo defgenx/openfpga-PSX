@@ -110,6 +110,10 @@ simulate() {
 	sim/run.sh sd135
 	# random byte-enable masks against the model with a shadow memory, both clocks, plus an injected fault that must be caught
 	sim/run.sh be
+	# calibrated read capture: boot sweep, tracking under drift, clamp, lost eye, reset, no step with a read in flight, injected fault
+	sim/run.sh cal
+	# the same whole-core run with a tracking window every raster frame: the probes must not disturb any test (MEMTEST.md, Calibration contract)
+	EXTRA="-DCAL_FRAMES=1" sim/run.sh sd135
 	# APF bridge throughput bench against a host model: normal, no file, short reads, 135 variant (MEMTEST.md, Bridge throughput bench)
 	sim/run.sh slot
 	iverilog -g2012 -o sim/out/div.vvp sim/tb_div.v fpga/core/div32.v

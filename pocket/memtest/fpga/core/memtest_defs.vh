@@ -50,6 +50,9 @@
 `define R_SL_SEQX   7'd81   // sequential: worst issue-to-done us, requests done, bytes received
 `define R_SL_RNDX   7'd84   // random: same
 `define R_SL_FILE   7'd87   // file size in bytes, state (0 idle, 1 running, 2 done, 3 no file, 4 timeout), expected bytes per mode
+// SDRAM read-capture calibration (sdram_cal.v, written by memtest_core)
+`define R_CAL       7'd90   // eye width (steps), boot centre, flags (bit 0 no eye, 1 eye touches the sweep range, 2 PLL timeout, 3 re-swept)
+`define R_CAL_T     7'd93   // tracker: lowest centre, highest centre, centre moves
 `define R_COUNT     7'd128
 
 // engine mode codes

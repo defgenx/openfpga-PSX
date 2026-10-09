@@ -30,6 +30,21 @@
   `define MT_SD_TMRD    `SDT_101_TMRD
 `endif
 
+// ---- calibrated read capture (sdram_cal.v; docs/pocket/MEMTEST.md, Calibration contract)
+// Capture phase steps are 1/8 of the VCO period (153.8 ps): 48 per system period at 135.4752 MHz, 64 at 101.6064 MHz.
+// MT_CAL_SWMAX (from the timing table) is the highest step swept: the dq_cap3 -> dq_r transfer is timed for it.
+`define MT_CAL_SWMAX    `SDT_CAL_SWMAX
+`ifdef SDRAM_135
+  `define MT_CAL_NOM    15           // centre used when no eye is found
+`else
+  `define MT_CAL_NOM    12
+`endif
+`define MT_CAL_READS    32           // read bursts per step
+`define MT_CAL_K        4            // tracker probes at centre -/+ K
+`define MT_CAL_DEB      2            // consecutive probes that must agree before the centre moves
+`define MT_CAL_EYE_MIN  10           // eye width (steps) that counts as good
+`define MT_CAL_ADDR     25'h1FFFC00  // reserved row: bank 3, row 8191, column 0 (word address)
+
 // Cycles of the system clock that cover ns10 / 10 ns. Every wait or window that is a time rather than
 // a protocol cycle count is written through this, so both clock variants keep the same ns.
 `define MT_CYC(ns10) (((ns10) * 100 + `MT_TCK_PS - 1) / `MT_TCK_PS)

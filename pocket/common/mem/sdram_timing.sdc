@@ -4,3 +4,5 @@ set SDT_TAC 5.4
 set SDT_TOH 2.5
 set SDT_TIS 1.5
 set SDT_TIH 0.8
+# capture clock swing, ns: CAL_SWMAX phase steps of 1/8 VCO period
+set SDT_CAL_SWING 4.62

@@ -2,7 +2,7 @@
 // One request is decoded while the previous burst is still on the bus.
 // Every datasheet timing is a cycle count from sdram_timing.vh (selected in mem_defs.vh);
 // timing, byte enables, the pin and capture pipeline stages and the read-data alignment are
-// explained in docs/pocket/MEMTEST.md.
+// explained in docs/pocket/MEMTEST.md; the calibrated read capture (sdram_cal.v) in its "Calibration contract".
 `include "mem_defs.vh"
 module sdram_ctl #(
     parameter CL          = `SDT_CL,
@@ -19,9 +19,9 @@ module sdram_ctl #(
     parameter T_MRD = `MT_SD_TMRD
 ) (
     input  wire        clk,
-    input  wire        clk_cap,        // read data is captured here (phase inside the data window)
+    input  wire        clk_cap,        // read data is captured here: a PLL output whose phase sdram_cal moves
     input  wire        rst,
-    output reg         init_done,
+    output wire        init_done,      // initialised and the capture phase calibrated
 
     // request: word address (16-bit words), burst of four words, in-order
     input  wire        req_valid,
@@ -44,7 +44,24 @@ module sdram_ctl #(
     output reg  [1:0]  dram_dqm,
     output reg         dram_ras_n,
     output reg         dram_cas_n,
-    output reg         dram_we_n
+    output reg         dram_we_n,
+
+    // calibrated read capture (sdram_cal.v)
+    input  wire        pll_locked,     // PLL lock, clk domain
+    input  wire        cal_tick,       // one pulse per tracking window (vblank)
+    input  wire        clk_scan,       // PLL scanclk, a related clock <= 100 MHz
+    output wire        ps_en,          // PLL phase_en, clk_scan domain
+    output wire        ps_up,          // PLL updn: 1 delays clk_cap by one step
+    input  wire        ps_done,        // PLL phase_done, clk_scan domain
+    output wire        cal_done,
+    output wire        cal_ok,         // eye at least MT_CAL_EYE_MIN steps wide
+    output wire [6:0]  cal_width,
+    output wire [6:0]  cal_boot,       // centre chosen by the boot sweep
+    output wire [6:0]  cal_centre,
+    output wire [6:0]  cal_min,        // lowest and highest centre since the boot sweep
+    output wire [6:0]  cal_max,
+    output wire [15:0] cal_moves,
+    output wire [3:0]  cal_flags
 );
 
     localparam S_INIT = 4'd0, S_PREALL = 4'd1, S_WAIT = 4'd2, S_REF = 4'd3, S_MRS = 4'd4,
@@ -62,12 +79,14 @@ module sdram_ctl #(
     localparam [3:0] RD_TO_WR   = CL + BL + 2;     // read CAS to write CAS: no overlap with read data on the bus
     localparam [3:0] RD_TO_PRE  = BL;              // read CAS to PRECHARGE
     localparam [3:0] WR_TO_PRE  = BL - 1 + T_WR;   // write CAS to PRECHARGE: last beat, then tWR
-    // One register stage between the decision logic and the I/O-cell registers of the pins, and one between the
-    // capture registers in the I/O cells and the system clock: the routing between I/O cells and the core takes
-    // several ns, so neither side can have logic in front of or behind its I/O register at 135 MHz.
-    localparam LAT = CL + 3 + 1 + 1;               // decision to registered read data, in cycles
+    // One register stage between the decision logic and the I/O-cell registers of the pins, and two between the
+    // capture registers in the I/O cells and the system clock (the second sits next to the transfer to the system
+    // clock): the routing between I/O cells and the core takes several ns, so neither side can have logic in front of
+    // or behind its I/O register at 135 MHz.
+    localparam LAT = CL + 3 + 1 + 1 + 1;           // decision to registered read data, in cycles
     localparam RDV_LAST = LAT + BL - 1;            // rdv/tagd tap of the last beat
 
+    reg        init_core;
     reg [3:0]  state, nstate;
     reg [15:0] wcnt;
     reg [3:0]  icnt;
@@ -98,7 +117,7 @@ module sdram_ctl #(
     reg [31:0] wsh;                         // beats 2 and 3 of a write burst
     reg [3:0]  bsh;                         // their byte enables
     reg [1:0]  wleft;
-    reg [15:0] dq_cap, dq_cap2;
+    reg [15:0] dq_cap, dq_cap2, dq_cap3;
     reg [15:0] dq_r;
     // pin register stage (the pins themselves are loaded from these, one cycle later)
     reg [2:0]  cmd_p;
@@ -109,11 +128,27 @@ module sdram_ctl #(
     reg [RDV_LAST:0] rdv;
     reg [RDV_LAST:0] tagd;
     reg [63:0] sh;
+    reg        rv_cal;
+
+    // Request port: the calibration borrows it (own) with the other requesters held off (hold).
+    wire        cal_own, cal_hold, cq_valid, cq_we;
+    wire [24:0] cq_addr;
+    wire [63:0] cq_wdata;
+    wire        rq_ready = (state == S_RUN) && !cur_valid && !ref_due;
+    wire        rq_valid = cal_own ? cq_valid : (req_valid && !cal_hold);
+    wire        rq_we    = cal_own ? cq_we : req_we;
+    wire [24:0] rq_addr  = cal_own ? cq_addr : req_addr;
+    wire [63:0] rq_wdata = cal_own ? cq_wdata : req_wdata;
+    wire [7:0]  rq_be    = cal_own ? 8'hFF : req_be;
+    wire        rq_tag   = cal_own ? 1'b0 : req_tag;
+    assign req_ready = rq_ready && !cal_own && !cal_hold;
+    assign init_done = init_core && cal_done;
 
     assign dram_dq = dq_oe ? dq_out : 16'hzzzz;
     always @(posedge clk_cap) begin
         dq_cap  <= dram_dq;      // in the I/O cell
-        dq_cap2 <= dq_cap;       // in the fabric, same clock; crosses to clk next
+        dq_cap2 <= dq_cap;       // in the fabric, same clock, next to the I/O cell
+        dq_cap3 <= dq_cap2;      // same clock, next to dq_r: crosses to clk next
     end
 
     // The current request's bank state: its open row is compared once, when the request is accepted, and the
@@ -127,7 +162,7 @@ module sdram_ctl #(
     reg         acc_open;
     reg  [12:0] acc_orow;
     always @(*) begin
-        case (req_addr[11:10])
+        case (rq_addr[11:10])
             2'd0: begin acc_open = open[0]; acc_orow = orow0; end
             2'd1: begin acc_open = open[1]; acc_orow = orow1; end
             2'd2: begin acc_open = open[2]; acc_orow = orow2; end
@@ -135,7 +170,6 @@ module sdram_ctl #(
         endcase
     end
 
-    assign req_ready = (state == S_RUN) && !cur_valid && !ref_due;
 
     wire win = |rdv[LAT +: BL];      // the beats of a burst reach dq_r in these cycles
 
@@ -193,13 +227,15 @@ module sdram_ctl #(
         dq_out   <= dq_out_p;
         dq_oe    <= dq_oe_p;
         rd_valid <= 1'b0;
+        rv_cal   <= 1'b0;
 
         // read return
-        dq_r <= dq_cap2;
+        dq_r <= dq_cap3;
         rdv  <= {rdv[RDV_LAST-1:0], issue_rd};
         tagd <= {tagd[RDV_LAST-1:0], issue_rd & cur_tag};
         if (win) sh <= {dq_r, sh[63:16]};
-        rd_valid <= rdv[RDV_LAST];
+        rd_valid <= rdv[RDV_LAST] & ~cal_own;      // the calibration's own reads do not reach the requesters
+        rv_cal   <= rdv[RDV_LAST];
         rd_data  <= {dq_r, sh[63:16]};
         rd_tag   <= tagd[RDV_LAST];
 
@@ -244,7 +280,7 @@ module sdram_ctl #(
         if (ref_cnt >= REF_CYCLES - 1) ref_due <= 1'b1;
 
         if (rst) begin
-            state <= S_INIT; wcnt <= 16'd0; icnt <= 4'd0; init_done <= 1'b0;
+            state <= S_INIT; wcnt <= 16'd0; icnt <= 4'd0; init_core <= 1'b0;
             cur_valid <= 1'b0; open <= 4'd0; ref_cnt <= 16'd0; ref_due <= 1'b0;
             rcd0 <= 0; rcd1 <= 0; rcd2 <= 0; rcd3 <= 0;
             pre0 <= 0; pre1 <= 0; pre2 <= 0; pre3 <= 0;
@@ -272,15 +308,15 @@ module sdram_ctl #(
                 end
                 S_MRS: begin
                     wcnt <= T_MRD - 2; nstate <= S_RUN; state <= S_WAIT;
-                    init_done <= 1'b1;
+                    init_core <= 1'b1;
                     ref_cnt <= 16'd0; ref_due <= 1'b0;
                 end
                 S_RUN: begin
-                    if (req_valid && req_ready) begin
-                        cur_valid <= 1'b1; cur_we <= req_we; cur_tag <= req_tag;
-                        cur_row <= req_addr[24:12]; cur_bank <= req_addr[11:10];
-                        cur_col <= {req_addr[9:2], 2'b00}; cur_wdata <= req_wdata; cur_be <= req_be;
-                        hit_open <= acc_open; row_hit <= acc_open && (acc_orow == req_addr[24:12]);
+                    if (rq_valid && rq_ready) begin
+                        cur_valid <= 1'b1; cur_we <= rq_we; cur_tag <= rq_tag;
+                        cur_row <= rq_addr[24:12]; cur_bank <= rq_addr[11:10];
+                        cur_col <= {rq_addr[9:2], 2'b00}; cur_wdata <= rq_wdata; cur_be <= rq_be;
+                        hit_open <= acc_open; row_hit <= acc_open && (acc_orow == rq_addr[24:12]);
                     end
                     if (do_cas) begin
                         cur_valid <= 1'b0;
@@ -322,7 +358,7 @@ module sdram_ctl #(
                             default: begin orow3 <= cur_row; rcd3 <= T_RCD - 1; pre3 <= T_RAS - 1; rc3 <= T_RC - 1; end
                         endcase
                     end
-                    if (ref_due && !cur_valid && !(req_valid && req_ready)) state <= S_RPRE;
+                    if (ref_due && !cur_valid && !(rq_valid && rq_ready)) state <= S_RPRE;
                 end
                 S_RPRE: begin
                     if (all_pre_ok && wleft == 0) begin
@@ -338,5 +374,17 @@ module sdram_ctl #(
             endcase
         end
     end
+
+    // No request pending and no read between the READ command and the registered read data: the capture phase may move.
+    wire quiet = !cur_valid && (rdv == 0) && !rv_cal;
+
+    sdram_cal cal (
+        .clk(clk), .rst(rst), .pll_locked(pll_locked), .ctl_ready(init_core), .quiet(quiet),
+        .own(cal_own), .hold(cal_hold), .q_valid(cq_valid), .q_we(cq_we), .q_addr(cq_addr), .q_wdata(cq_wdata),
+        .q_ready(rq_ready && cal_own), .rd_valid(rv_cal), .rd_data(rd_data),
+        .tick(cal_tick), .done(cal_done), .ok(cal_ok), .width(cal_width), .boot_c(cal_boot), .centre(cal_centre),
+        .cmin(cal_min), .cmax(cal_max), .moves(cal_moves), .flags(cal_flags),
+        .clk_scan(clk_scan), .ps_en(ps_en), .ps_up(ps_up), .ps_done(ps_done)
+    );
 
 endmodule

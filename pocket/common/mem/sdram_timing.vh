@@ -34,6 +34,8 @@
   `define MT_CLK_HZ 101606400
   `define MT_TCK_PS 9842
 `endif
+// capture clock swing swept by the calibration, in PLL phase steps (sdram_cal.v)
+`define SDT_CAL_SWMAX 30
 // datasheet figures in ns, for the simulation model
 `define SDT_TCK_NS 7.0
 `define SDT_TAC_NS 5.4

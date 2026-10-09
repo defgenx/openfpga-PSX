@@ -6,6 +6,7 @@
 // DQM lane of the byte-enable pins and must be reported as caught. See docs/pocket/MEMTEST.md.
 module tb_be;
     `include "memtest_defs.vh"
+    `include "cal_sim.vh"
 `ifdef SDRAM_135
     parameter real TCK = 1000.0 / 135.4752;
 `else
@@ -15,12 +16,13 @@ module tb_be;
 
     reg clk = 0;
     always #(TCK/2) clk = ~clk;
-`ifdef SDRAM_135
-    wire clk_cap;
-    assign #0.26 clk_cap = clk;
-`else
-    wire clk_cap = ~clk;
-`endif
+    // the capture clock comes from the PLL stand-in and is placed by the calibration
+    wire clk_cap, clk_scan, ps_en, ps_up, ps_done;
+    wire cal_done, cal_ok;
+    wire [6:0] cal_width, cal_boot, cal_centre;
+    wire [3:0] cal_flags;
+    pll_dps_model #(.SCAN_DIV(`SIM_SCAN_DIV)) pll (.clk(clk), .clk_scan(clk_scan), .phase_en(ps_en), .updn(ps_up),
+        .cntsel(5'd2), .phase_done(ps_done), .clk_cap(clk_cap));
     reg rst = 1;
 
     reg         req_valid = 0, req_we = 0, req_tag = 0;
@@ -40,7 +42,10 @@ module tb_be;
         .req_wdata(req_wdata), .req_be(req_be), .req_tag(req_tag),
         .rd_valid(rd_valid), .rd_data(rd_data), .rd_tag(rd_tag),
         .dram_a(dram_a), .dram_ba(dram_ba), .dram_dq(dram_dq), .dram_dqm(dram_dqm),
-        .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n)
+        .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n),
+        .pll_locked(1'b1), .cal_tick(1'b0), .clk_scan(clk_scan), .ps_en(ps_en), .ps_up(ps_up), .ps_done(ps_done),
+        .cal_done(cal_done), .cal_ok(cal_ok), .cal_width(cal_width), .cal_boot(cal_boot), .cal_centre(cal_centre),
+        .cal_min(), .cal_max(), .cal_moves(), .cal_flags(cal_flags)
     );
 
 `ifdef BE_FAULT
@@ -48,13 +53,8 @@ module tb_be;
 `else
     wire [1:0] dqm_m = dram_dqm;
 `endif
-`ifdef SDRAM_135
-    sdram_model #(.TCK(TCK)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dqm_m),
+    sdram_model #(.TCK(TCK), .PAD_NS(`SIM_PAD_NS)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba), .dq(dram_dq), .dqm(dqm_m),
                        .ras_n(dram_ras_n), .cas_n(dram_cas_n), .we_n(dram_we_n));
-`else
-    sdram_model #(.TCK(TCK), .T_AC(`SDT_TAC_NS + 4.2), .T_OH(`SDT_TOH_NS + 3.7)) sdram (.clk(clk), .a(dram_a), .ba(dram_ba),
-                       .dq(dram_dq), .dqm(dqm_m), .ras_n(dram_ras_n), .cas_n(dram_cas_n), .we_n(dram_we_n));
-`endif
 
     // shadow memory, indexed by the controller's word address {row[8:0], bank, col}
     reg [15:0] sh [0:(1<<21)-1];
@@ -185,11 +185,12 @@ module tb_be;
                  1000.0 / TCK, ops_done, writes, partial, zero_mask, masked_bytes, reads);
         $display("read bursts mismatching the shadow: %0d (%0d bytes); model array: %0d words (%0d bytes) compared, %0d words (%0d bytes) wrong",
                  mism, mism_bytes, words, bytes_cmp, bad_words, bad_bytes);
-        $display("model violations: sdram=%0d", sdram.violations);
+        $display("model violations: sdram=%0d; capture eye %0d steps, centre %0d, flags %b, PLL steps %0d",
+                 sdram.violations, cal_width, cal_centre, cal_flags, pll.nsteps);
 `ifdef BE_FAULT
         if (mism + bad_words > 0) $display("PASS (fault caught)"); else $display("FAIL (injected fault not caught)");
 `else
-        if (mism + bad_words == 0 && sdram.violations == 0 && partial > 1000 && zero_mask > 100) $display("PASS"); else $display("FAIL");
+        if (mism + bad_words == 0 && sdram.violations == 0 && partial > 1000 && zero_mask > 100 && cal_done && cal_ok && pll.range_viol == 0) $display("PASS"); else $display("FAIL");
 `endif
         $finish;
     end

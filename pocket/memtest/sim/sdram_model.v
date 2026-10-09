@@ -1,6 +1,9 @@
 `timescale 1ns/1ps
 // Behavioural AS4C32M16SB model for simulation: BL4 (fixed), CAS latency from the mode register,
-// 4 banks, timing checks in ns. Storage is 2^21 words; rows above bit 8 are not modelled.
+// 4 banks, timing checks in ns. Storage is 2^21 words; rows above bit 8 are not modelled, except the
+// calibration's reserved row (bank 3, row 8191), which has its own storage.
+// PAD_NS is the data path's extra delay (pad, trace, I/O cell) that places the read-data window relative to the
+// capture clock; `drift` (set by a testbench) moves it during a run. DQ is unknown from tOH to tAC after each beat.
 // Every figure defaults to the SDRAM timing table (sdram_timing.vh, docs/pocket/MEMTEST.md); TCK is the
 // test's clock period, used for the minimum-clock-count rules.
 `include "sdram_timing.vh"
@@ -16,6 +19,7 @@ module sdram_model #(
     parameter real T_REFI = `SDT_TREFI_NS,
     parameter real T_AC  = `SDT_TAC_NS,
     parameter real T_OH  = `SDT_TOH_NS,
+    parameter real PAD_NS = 0.0,
     parameter real T_CK_MIN = `SDT_TCK_NS,
     parameter integer N_MRD = `SDT_TMRD_CLK,     // clocks after the mode register set
     parameter integer N_WR  = `SDT_TWR_CLK       // clocks from the last write beat to PRECHARGE
@@ -27,7 +31,8 @@ module sdram_model #(
     input  wire [1:0]  dqm,
     input  wire        ras_n, cas_n, we_n
 );
-    reg [15:0] mem [0:(1<<21)-1];
+    reg [15:0] mem [0:(1<<21)+1023];
+    real drift = 0.0;
     integer violations = 0;
     // tWR is the longer of the ns figure and the clock count at the test's clock
     real T_WR_EFF;
@@ -76,10 +81,10 @@ module sdram_model #(
         for (i = 0; i < 8; i = i + 1) rd_used[i] = 0;
     end
 
-    function [20:0] idx;
+    function [21:0] idx;
         input [1:0] b; input [12:0] r; input [9:0] c;
         begin
-            idx = {b, r[8:0], c};
+            idx = (b == 2'd3 && r == 13'h1FFF) ? {12'h800, c} : {1'b0, b, r[8:0], c};
         end
     endfunction
 
@@ -112,13 +117,13 @@ module sdram_model #(
                 // DQM has read latency 2: DQM high two edges before a beat leaves would mask it
                 if (dqm_h2 != 2'b00) viol("DQM high on a read beat");
                 dq_en <= 1;
-                dq_o <= #(T_OH) 16'hxxxx;
-                dq_o <= #(T_AC) mem[idx(rd_ba[s], rd_row[s], rd_col[s] + b[9:0])];
+                dq_o <= #(T_OH + PAD_NS + drift) 16'hxxxx;
+                dq_o <= #(T_AC + PAD_NS + drift) mem[idx(rd_ba[s], rd_row[s], rd_col[s] + b[9:0])];
             end
             if (b >= 4) rd_used[s] = 0;
         end
         if (!beat_due && dq_en) begin
-            dq_en <= #(T_OH) 0;
+            dq_en <= #(T_OH + PAD_NS + drift) 0;
         end
 
         // ---- write data in
@@ -140,7 +145,7 @@ module sdram_model #(
                 if ($realtime - t_act[ba] < T_RC - 0.001) viol("tRC");
                 if ($realtime - t_any_act < T_RRD - 0.001) viol("tRRD");
                 if ($realtime - t_ref < T_RFC - 0.001) viol("tRFC (ACT)");
-                if (a[12:9] != 0) viol("model: row above 9 bits used");
+                if (a[12:9] != 0 && !(ba == 2'd3 && a == 13'h1FFF)) viol("model: row above 9 bits used");
                 open[ba] = 1; orow[ba] = a; t_act[ba] = $realtime; t_any_act = $realtime;
             end
             3'b101, 3'b100: begin // READ / WRITE
