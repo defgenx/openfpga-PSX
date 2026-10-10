@@ -110,7 +110,7 @@ simulate() {
 	sim/run.sh sd135
 	# random byte-enable masks against the model with a shadow memory, both clocks, plus an injected fault that must be caught
 	sim/run.sh be
-	# calibrated read capture: boot sweep, tracking under drift, clamp, lost eye, reset, no step with a read in flight, injected fault
+	# calibrated read capture: boot sweep, tracking under drift, both clamps, lost eye, resets, PLL timeout, no step with a read in flight, injected fault
 	sim/run.sh cal
 	# the same whole-core run with a tracking window every raster frame: the probes must not disturb any test (MEMTEST.md, Calibration contract)
 	EXTRA="-DCAL_FRAMES=1" sim/run.sh sd135

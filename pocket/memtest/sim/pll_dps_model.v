@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 // Simulation stand-in for the PLL's dynamic phase shift (docs/pocket/MEMTEST.md, Calibration contract):
 // clk_scan is clk divided by SCAN_DIV, aligned to it; each phase_en pulse moves clk_cap one step (1/8 VCO period)
-// later (updn = 1) or earlier, and phase_done stays low for DONE_LOW clk_scan cycles.
+// later (updn = 1) or earlier, and phase_done stays low for DONE_LOW clk_scan cycles, or for as long as `stall` is set.
 module pll_dps_model #(
     parameter real    STEP_NS  = 0.153846,
     parameter integer SCAN_DIV = 4,
@@ -22,6 +22,7 @@ module pll_dps_model #(
     real    dly = 0.0;
     integer low_cnt = 0;
     integer dcnt = 0;
+    reg     stall = 1'b0;                  // set by the testbench: phase_done does not rise
 
     initial begin clk_scan = 1'b0; phase_done = 1'b1; clk_cap = 1'b0; end
 
@@ -38,7 +39,7 @@ module pll_dps_model #(
             dly = steps * STEP_NS;
             phase_done <= 1'b0;
             low_cnt = DONE_LOW;
-        end else if (low_cnt > 0) begin
+        end else if (low_cnt > 0 && !stall) begin
             low_cnt = low_cnt - 1;
             if (low_cnt == 0) phase_done <= 1'b1;
         end

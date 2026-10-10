@@ -38,7 +38,7 @@ module sdram_cal #(
     output reg  [6:0]  cmin,
     output reg  [6:0]  cmax,
     output reg  [15:0] moves,
-    output reg  [3:0]  flags,              // 0 no eye, 1 eye touches 0 or SWMAX, 2 PLL handshake timeout, 3 tracker re-swept
+    output reg  [3:0]  flags,              // bit 0 no eye, 1 eye touches 0 or SWMAX, 2 PLL handshake timeout (stops the calibration), 3 tracker re-swept
 
     // PLL dynamic phase shift, clk_scan domain
     input  wire        clk_scan,
@@ -68,7 +68,7 @@ module sdram_cal #(
     reg [1:0]  ack_s = 2'b00;
     reg [1:0]  derr_s = 2'b00;
     reg        ack_scan = 1'b0;            // clk_scan domain: step done
-    reg        derr = 1'b0;                // clk_scan domain: phase_done handshake timed out
+    reg        derr = 1'b0;                // clk_scan domain: this step's phase_done handshake timed out; valid with ack_scan
     reg [3:0]  wi;
     reg [6:0]  nreq, nrsp;
     reg        err;
@@ -85,7 +85,6 @@ module sdram_cal #(
     always @(posedge clk) begin
         ack_s  <= {ack_s[0], ack_scan};
         derr_s <= {derr_s[0], derr};
-        if (derr_s[1]) flags[2] <= 1'b1;
         if (rst) rst_l <= 1'b1;
         if (!pll_locked) begin pos <= 7'd0; lock_cnt <= 11'd0; flags[2] <= 1'b0; end
         if (tick && done) tick_pend <= 1'b1;
@@ -94,7 +93,7 @@ module sdram_cal #(
         if (rst_l && state != S_MREQ && state != S_MREL) begin
             rst_l <= 1'b0; state <= S_LOCK; lock_cnt <= 11'd0; hold <= 1'b1; own <= 1'b0; q_valid <= 1'b0;
             done <= 1'b0; booted <= 1'b0; tick_pend <= 1'b0; ps_req <= 1'b0; ok <= 1'b0;
-            up_c <= 2'd0; dn_c <= 2'd0; lost_c <= 2'd0; flags[1:0] <= 2'b00; flags[3] <= 1'b0;
+            up_c <= 2'd0; dn_c <= 2'd0; lost_c <= 2'd0; flags[1:0] <= 2'b00; flags[3] <= 1'b0;   // flags[2] survives: `pos` is still unknown
         end else case (state)
             S_LOCK: begin
                 if (pll_locked) begin
@@ -106,13 +105,15 @@ module sdram_cal #(
                 own <= 1'b1; tgt <= 7'd0; mode <= M_SWEEP; wi <= 4'd0; ret <= S_WR; state <= S_MOVE;
             end
 
-            // one PLL step per pass, only with no read in flight
+            // one PLL step per pass, only with no read in flight. After a handshake timeout `pos` may be one step off the
+            // PLL: every move then counts as done without a step, until the PLL loses lock.
             S_MOVE: begin
-                if (pos == tgt) state <= ret;
+                if (pos == tgt || flags[2]) state <= ret;
                 else if (quiet) begin ps_dir <= (pos < tgt); ps_req <= 1'b1; state <= S_MREQ; end
             end
             S_MREQ: if (ack_s[1]) begin
                 ps_req <= 1'b0; pos <= ps_dir ? pos + 1'b1 : pos - 1'b1; state <= S_MREL;
+                if (derr_s[1]) begin flags[2] <= 1'b1; ok <= 1'b0; end
             end
             S_MREL: if (!ack_s[1]) state <= S_MOVE;
 
@@ -143,7 +144,7 @@ module sdram_cal #(
                 case (mode)
                     M_SWEEP: begin
                         eye[pos] <= !err;
-                        if (pos >= SWMAX) begin
+                        if (pos >= SWMAX || flags[2]) begin   // a frozen PLL never reaches SWMAX
                             fi <= 7'd0; run_len <= 7'd0; run_start <= 7'd0; best_len <= 7'd0; best_start <= 7'd0;
                             state <= S_FIND;
                         end else begin tgt <= pos + 1'b1; ret <= S_PINIT; state <= S_MOVE; end
@@ -166,7 +167,7 @@ module sdram_cal #(
                     fi <= fi + 1'b1;
                 end else begin
                     width <= best_len;
-                    ok    <= (best_len >= EYE_MIN);
+                    ok    <= (best_len >= EYE_MIN) && !flags[2];
                     flags[0] <= (best_len == 0);
                     flags[1] <= (best_len != 0) && (best_start == 0 || best_start + best_len > SWMAX);
                     cn = (best_len == 0) ? NOM : best_start + ((best_len - 1'b1) >> 1);
@@ -187,7 +188,7 @@ module sdram_cal #(
             end
 
             // tracking: probe centre - K and centre + K, step the centre toward the side that still passes
-            S_RUN: if (tick_pend) begin tick_pend <= 1'b0; hold <= 1'b1; state <= S_TQ; end
+            S_RUN: if (tick_pend) begin tick_pend <= 1'b0; if (!flags[2]) begin hold <= 1'b1; state <= S_TQ; end end
             S_TQ: if (quiet) begin
                 own <= 1'b1; mode <= M_TLO; tgt <= lo_t; ret <= S_PINIT; state <= S_MOVE;
             end
@@ -237,7 +238,7 @@ module sdram_cal #(
         rq_s <= {rq_s[0], ps_req};
         ps_en <= 1'b0;
         case (sst)
-            2'd0: if (rq_s[1]) begin ps_up <= ps_dir; ps_en <= 1'b1; tmo <= 12'd0; sst <= 2'd1; end
+            2'd0: if (rq_s[1]) begin ps_up <= ps_dir; ps_en <= 1'b1; tmo <= 12'd0; derr <= 1'b0; sst <= 2'd1; end
             2'd1: begin                                   // phase_done must fall ...
                 tmo <= tmo + 1'b1;
                 if (!ps_done) begin sst <= 2'd2; tmo <= 12'd0; end

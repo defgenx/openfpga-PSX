@@ -3,10 +3,13 @@
 // by `drift`, and the PLL stand-in. Tests, in order:
 //   sweep    the boot sweep finds the model's window (width, centre, PLL left at the centre)
 //   follow   traffic runs, ticks arrive, the window drifts later: the tracker follows it, no read is wrong
-//   clamp    the window drifts to the bottom of the range: the centre never goes below step 1, no shift leaves the range
+//   top      the window drifts to the top of the range: the centre never goes above SWMAX - 1
+//   clamp    the window drifts to the bottom of the range: the centre never goes below step 1
 //   lost     no window at all: the tracker re-sweeps, falls back to the nominal centre and flags it
-//   reset    an APF reset: a full re-sweep, the PLL position kept, the eye found again
+//   reset    an APF reset: a full re-sweep, the PLL position kept, the eye found again; then resets mid-step and mid-probe
+//   timeout  phase_done stalls: flag bit 2, no further step, the port released; kept by a reset, cleared by a PLL relock
 //   inflight no phase step while a read is in flight (CAL_FAULT forces the controller's "quiet" and must be caught)
+// Every phase checks that no PLL shift leaves 0 .. SWMAX, the range the clk_cap -> clk transfer is timed for.
 // SDRAM_135 selects the 135.4752 MHz variant. See docs/pocket/MEMTEST.md, Calibration contract.
 module tb_cal;
     `include "mem_defs.vh"
@@ -24,9 +27,10 @@ module tb_cal;
     always #(TCK/2) clk = ~clk;
     reg rst = 1;
     reg tick = 0;
+    reg locked = 1;
 
     wire clk_cap, clk_scan, ps_en, ps_up, ps_done;
-    pll_dps_model #(.SCAN_DIV(`SIM_SCAN_DIV)) pll (.clk(clk), .clk_scan(clk_scan), .phase_en(ps_en), .updn(ps_up),
+    pll_dps_model #(.SCAN_DIV(`SIM_SCAN_DIV), .MAX_STEP(SWMAX)) pll (.clk(clk), .clk_scan(clk_scan), .phase_en(ps_en), .updn(ps_up),
         .cntsel(5'd2), .phase_done(ps_done), .clk_cap(clk_cap));
 
     reg         req_valid = 0, req_we = 0;
@@ -48,7 +52,7 @@ module tb_cal;
         .rd_valid(rd_valid), .rd_data(rd_data), .rd_tag(rd_tag),
         .dram_a(dram_a), .dram_ba(dram_ba), .dram_dq(dram_dq), .dram_dqm(dram_dqm),
         .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n),
-        .pll_locked(1'b1), .cal_tick(tick), .clk_scan(clk_scan), .ps_en(ps_en), .ps_up(ps_up), .ps_done(ps_done),
+        .pll_locked(locked), .cal_tick(tick), .clk_scan(clk_scan), .ps_en(ps_en), .ps_up(ps_up), .ps_done(ps_done),
         .cal_done(cal_done), .cal_ok(cal_ok), .cal_width(cal_width), .cal_boot(cal_boot), .cal_centre(cal_centre),
         .cal_min(cal_min), .cal_max(cal_max), .cal_moves(cal_moves), .cal_flags(cal_flags)
     );
@@ -162,6 +166,18 @@ module tb_cal;
         end
     endtask
 
+    task wait_state;                                          // until the calibration is in state st
+        input [3:0] st;
+        integer t;
+        begin
+            t = 0;
+            while (dut.cal.state != st && t < 400000) begin @(posedge clk); t = t + 1; end
+        end
+    endtask
+    task pulse_rst;
+        begin rst = 1; cyc(3); rst = 0; end
+    endtask
+
     // stop the ticks and wait until the calibration is idle (not in a probe, a sweep or a move); the caller starts them again
     task wait_idle;
         integer t;
@@ -174,10 +190,11 @@ module tb_cal;
     endtask
 
     integer lo, hi, w, ctr, i, m0;
-    integer boot_steps;
+    integer boot_steps, n0;
     real    dr;
-    // drift that puts the window's bottom edge at step 18, and its top edge at step 2
+    // drift that puts the window's bottom edge at step 18, at step 28, and its top edge at step 2
     real    dr_up  = 18 * STEP - (`SDT_TAC_NS + `SIM_PAD_NS - TCK);
+    real    dr_top = 27.5 * STEP - (`SDT_TAC_NS + `SIM_PAD_NS - TCK);
     real    dr_low = 2.5 * STEP - (`SDT_TOH_NS + `SIM_PAD_NS);
     initial begin
         for (i = 0; i < 64; i = i + 1) shd[i] = 64'd0;
@@ -217,11 +234,28 @@ module tb_cal;
         check("no read returned wrong data", mism == 0 && reads > 200);
         check("PLL position matches the centre", pll.steps == cal_centre);
 
+        // ---- top: the window runs to the top of the range (eye 28 .. SWMAX)
+        $display("top: window drifts to the top of the range");
+        tick_en = 1;
+        for (i = 1; i <= 10; i = i + 1) begin
+            sdram.drift = dr_up + (dr_top - dr_up) * i / 10;
+            cyc(6 * TICK_EVERY);
+        end
+        cyc(8 * TICK_EVERY); wait_idle;
+        dr = dr_top;
+        lo = exp_lo(dr); hi = exp_hi(dr);
+        $display("  window now %0d .. %0d; calibration: centre %0d, max %0d, flags %b, PLL at %0d; %0d reads, %0d wrong",
+                 lo, hi, cal_centre, cal_max, cal_flags, pll.steps, reads, mism);
+        check("the window is at the top", lo == 28 && hi == SWMAX);
+        check("centre not above SWMAX - 1", cal_centre == SWMAX - 1 && cal_max == SWMAX - 1 && pll.steps == SWMAX - 1);
+        check("no PLL shift outside 0 .. SWMAX", pll.range_viol == 0);
+        check("no read returned wrong data", mism == 0);
+
         // ---- clamp: the window runs to the bottom of the range (eye 0 .. 2)
         $display("clamp: window drifts to the bottom of the range");
         traffic = 0; cyc(2000); tick_en = 1;
-        for (i = 1; i <= 14; i = i + 1) begin
-            sdram.drift = dr_up + (dr_low - dr_up) * i / 14;
+        for (i = 1; i <= 18; i = i + 1) begin
+            sdram.drift = dr_top + (dr_low - dr_top) * i / 18;
             cyc(10 * TICK_EVERY);
         end
         wait_idle;
@@ -231,7 +265,7 @@ module tb_cal;
                  lo, hi, cal_width, cal_centre, cal_min, cal_flags, pll.steps, cal_flags[3]);
         check("the window is narrow and at the bottom", lo == 0 && hi <= 4);
         check("centre not below step 1", cal_centre >= 1 && cal_min >= 1 && pll.steps >= 1);
-        check("no PLL shift outside 0 .. 63", pll.range_viol == 0);
+        check("no PLL shift outside 0 .. SWMAX", pll.range_viol == 0);
         check("centre inside the narrow window", cal_centre <= hi + 1);
 
         // ---- lost: no window at all
@@ -256,7 +290,46 @@ module tb_cal;
                  cal_width, cal_boot, cal_flags, lo, hi, pll.nsteps, boot_steps);
         check("eye found again", cal_done && cal_ok && cal_width + 1 >= hi - lo + 1 && cal_width <= hi - lo + 2);
         check("statistics restarted at the new boot centre", cal_min == cal_boot && cal_max == cal_boot && cal_moves == 0);
-        check("no PLL shift outside 0 .. 63", pll.range_viol == 0);
+        check("no PLL shift outside 0 .. SWMAX", pll.range_viol == 0);
+
+        // a reset while a step is in the handshake waits for it; one in the middle of a probe is taken at once
+        pulse_rst; wait_state(4'd3);
+        $display("  reset during a step (state %0d, PLL at %0d)", dut.cal.state, pll.steps);
+        check("reset arrives during a step", dut.cal.state == 4'd3);
+        pulse_rst; wait_done;
+        check("after a reset mid-step: eye found, PLL position counted", cal_done && cal_ok && pll.steps == dut.cal.pos && pll.steps == cal_centre);
+        pulse_rst; wait_state(4'd8);
+        while (dut.cal.state == 4'd8 && dut.cal.nreq < 4) @(posedge clk);
+        $display("  reset during a probe (state %0d, %0d reads issued)", dut.cal.state, dut.cal.nreq);
+        check("reset arrives during a probe", dut.cal.state == 4'd8 && dut.cal.nreq >= 4);
+        pulse_rst; wait_done;
+        check("after a reset mid-probe: eye found, PLL position counted", cal_done && cal_ok && pll.steps == dut.cal.pos && pll.steps == cal_centre);
+        check("no PLL shift outside 0 .. SWMAX", pll.range_viol == 0);
+
+        // ---- timeout: phase_done stops rising during a tracking window
+        $display("timeout: phase_done stalls in a tracking window");
+        tick_en = 1; pll.stall = 1;
+        i = 0;
+        while (!cal_flags[2] && i < 400000) begin @(posedge clk); i = i + 1; end
+        pll.stall = 0; n0 = pll.nsteps;
+        cyc(6 * TICK_EVERY); wait_idle;
+        $display("  calibration: done %0d, ok %0d, flags %b, centre %0d; PLL at %0d, pulses %0d (at the timeout %0d)",
+                 cal_done, cal_ok, cal_flags, cal_centre, pll.steps, pll.nsteps, n0);
+        check("timeout flagged, eye no longer trusted", cal_flags[2] && !cal_ok);
+        check("no PLL step after the timeout", pll.nsteps == n0);
+        check("requesters released", cal_done && init_done && !dut.cal_own && !dut.cal_hold);
+        check("no PLL shift outside 0 .. SWMAX", pll.range_viol == 0);
+        pulse_rst; wait_done;
+        $display("  after a reset: done %0d, init %0d, ok %0d, flags %b, pulses %0d, state %0d", cal_done, init_done, cal_ok, cal_flags, pll.nsteps, dut.cal.state);
+        check("a reset keeps the stop: flagged, no step, done", cal_done && cal_flags[2] && !cal_ok && pll.nsteps == n0);
+        // a PLL relock restores the static phase (step 0) and clears the stop
+        rst = 1; locked = 0; cyc(5); pll.steps = 0; pll.dly = 0.0; locked = 1; cyc(5); rst = 0;
+        wait_done;
+        lo = exp_lo(0.0); hi = exp_hi(0.0);
+        $display("  after a relock: width %0d, centre %0d, flags %b, PLL at %0d", cal_width, cal_centre, cal_flags, pll.steps);
+        check("relock: flag cleared, eye found again", cal_done && cal_ok && !cal_flags[2] && cal_width + 1 >= hi - lo + 1);
+        check("relock: PLL at the centre", pll.steps == cal_centre && dut.cal.pos == cal_centre);
+        check("no PLL shift outside 0 .. SWMAX", pll.range_viol == 0);
 
         // ---- in flight
         check("PLL stepped (every pulse counted)", steps_seen > 100 && steps_seen == pll.nsteps);

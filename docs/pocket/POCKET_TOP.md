@@ -180,7 +180,7 @@ window read 0; the values are crossed to `clk_74a` without a handshake, so read 
 
 | Word | Address | Content |
 |---|---|---|
-| 0 | `0x80000100` | bit 0 `init_done`, 1 `cal_done`, 2 `cal_ok`, 3 PLL locked, 7:4 `cal_flags` (0 no eye, 1 eye touches 0 or 30, 2 PLL handshake timeout, 3 tracker re-swept) |
+| 0 | `0x80000100` | bit 0 `init_done`, 1 `cal_done`, 2 `cal_ok`, 3 PLL locked, 7:4 `cal_flags`: bit 4 no eye, bit 5 eye touches 0 or 30, bit 6 PLL handshake timeout (calibration stopped), bit 7 tracker re-swept |
 | 1 | `0x80000104` | 6:0 `cal_width`, 14:8 `cal_boot` (centre of the boot sweep), 22:16 `cal_centre` (now) |
 | 2 | `0x80000108` | 6:0 `cal_min`, 14:8 `cal_max` (lowest and highest centre since boot) |
 | 3 | `0x8000010C` | 15:0 `cal_moves` (tracker moves of the centre) |
@@ -239,7 +239,7 @@ cannot analyse memtest's `sdram_model.v` (arrays of `real`), so `sim/mixed/sdram
 `build.sh sim` runs the stub and bridge testbenches and the mixed bench: the stub drives the glue, the
 arbiter and `sdram_ctl` for 1,500 µs, the boot sweep runs against `sim/mixed/sdram_simple.v` and a stand-in for the PLL's phase
 shift, `init_done` rises with `cal_ok` set (eye 31 steps wide, centre 15: the model's data window is wider than the sweep, so
-the eye touches both ends and `cal_flags` is 2) and one request is accepted. It proves the wiring, not the controller or the
+the eye touches both ends and `cal_flags` is 2, its bit 1 set) and one request is accepted. It proves the wiring, not the controller or the
 calibration (memtest's `build.sh sim` does that). The stand-in is `sim/mixed/pll_dps_nvc.v`, not memtest's `pll_dps_model.v`:
 nvc evaluates that model's real-valued delay as 0, so `clk_cap` never moves; the same holds for real-valued delays in the
 SDRAM model, which therefore delays its read data with a second clock. The bridge status window itself is not simulated. The real core elaborates under nvc but does not
