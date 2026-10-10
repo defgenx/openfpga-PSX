@@ -5,7 +5,7 @@
 #   pocket/psx/build.sh package          package fpga/output_files/ap_core.rbf; refuses a missing or negative-slack timing summary
 #                                        unless ALLOW_TIMING_FAIL=1
 #   pocket/psx/build.sh timing           print the worst slack per clock and model of a finished compile
-#   pocket/psx/build.sh check            validate the dist JSON (no bitstream needed)
+#   pocket/psx/build.sh check            validate the dist JSON (no bitstream needed) and that the generated port files are current
 #   pocket/psx/build.sh sim              stub and bridge testbenches (Icarus Verilog) and the mixed-language spike (nvc)
 # Layout and clocks: docs/pocket/POCKET_TOP.md, "Shell skeleton".
 set -euo pipefail
@@ -18,6 +18,18 @@ REV=ap_core
 # the generated SDRAM timing files must match common/tools/sdram_timing.py's table
 timing_check() {
 	python3 ../common/tools/sdram_timing.py --check
+}
+
+# the committed stub, flat wrapper and ports_t.json must match what tools/gen_ports regenerates from the entity
+gen_check() {
+	local tmp rc=0 f
+	tmp=$(mktemp -d)
+	(cd "$tmp" && for g in ports gen_stub gen_flat; do python3 "$OLDPWD/tools/gen_ports/$g.py" >/dev/null; done) || { rm -rf "$tmp"; return 1; }
+	for f in fpga/core/psx_top_stub.v fpga/core/psx_top_pocket_flat.vhd sim/mixed/ports_t.json; do
+		diff -u "$f" "$tmp/$(basename "$f")" >&2 || { echo "$f is stale: rerun tools/gen_ports (see its header)" >&2; rc=1; }
+	done
+	rm -rf "$tmp"
+	return $rc
 }
 
 compile() {
@@ -96,7 +108,7 @@ case "${1:-all}" in
 	compile) compile ;;
 	package) package ;;
 	timing) timing ;;
-	check) python3 tools/check_json.py --no-bitstream ;;
+	check) gen_check; python3 tools/check_json.py --no-bitstream ;;
 	sim) simulate ;;
 	*) echo "usage: $0 [all|compile|package|timing|check|sim]" >&2; exit 1 ;;
 esac
