@@ -309,8 +309,8 @@ Results, peak over a 1 ms window, worst of s1/s2/s3:
 | L1 at 1× / mixed / 4× | 76.4% / 77.4% / 78.4% | the earlier single-lever replay gave 80.6% at 4×; the difference is this model's pitch phase and block pointer |
 | L1 + L2 at 4× | 76.2% | ≤ 80%: **L4 is not needed** at this clock |
 | L1 + L2 + L3 at 4× | **72.9%** (71.2% at 1×) | replaces the "~66–71%" projection. L3 gains 3.3 points on the worst trace (3.1 / 3.3 / 1.5 on s1 / s2 / s3): **L3 is built** |
-| closed-loop inflation, L1 + L2 + L3 at 4× | +3.2% (+3.3% with QoS) | Gate M (b) ≤ 5%: pass |
-| SPU slot overruns / late scan-out lines, `--qos` | 0 / 0 | without QoS 13–14% of SPU reads overrun (2,113 of 15,095 on s1). Scan-out max latency falls from 27–38 µs to ~3.5 µs |
+| closed-loop inflation, L1 + L2 + L3 at 4× | +3.2% (+3.3% with QoS) | Gate M (b) ≤ 5%: model bound met; the cross-check with the real GPU in nvc against `vram_model` has not run |
+| SPU slot overruns / late scan-out lines, `--qos` | 0 / 0 | late lines provisional until P1d's scan-out FIFO deadline (below). Without QoS 13–14% of SPU reads overrun (2,113 of 15,095 on s1). Scan-out max latency falls from 27–38 µs to ~3.5 µs |
 
 | At 116.1223 MHz, SPU RAM off SDRAM | Peak |
 |---|---|
@@ -340,7 +340,9 @@ traces are game-derived and never committed: outputs go under the gitignored `si
   become `RD n`, and each VSync becomes `W <tick delta>` in clk1x cycles (about 565,045 per NTSC frame).
 - **Limits:**
   - the initial 1 MiB VRAM snapshot is dropped by default (`--vram-init` replays it, but its write burst then
-    dominates the peak window), so textures are blank;
+    dominates the peak window), so textures are blank. A blank texel (0x0000) is transparent: textured draws
+    write nothing and do no semi-transparent destination reads, so a trace under-reports bandwidth and its
+    Gate M (d) figure is a lower bound until the snapshot is replayed with its window kept out of the peak;
   - frames before `--first-frame` keep only state, uploads, fills and copies;
   - GPUREAD data is not in the dump, so reads are replayed but only golden and pocket are compared;
   - commands are serialised unless `--queue`;

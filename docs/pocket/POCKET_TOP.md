@@ -65,9 +65,10 @@ The two-step protocol every block follows:
 
 A `*_pocket` block that drops savestates must still reach the same post-reset state: either keep the
 `SS_reset` load and the `reset` consumption, or fold the defaults directly into its `reset` branch. If
-the defaults live only in the `reset` branch, it still must hold them for 61 cycles. If a clear needs
-clocks started by `SS_reset`, it must finish within the 61 `reset_intern` cycles (the CPU register file
-needs 32).
+the defaults live only in the `reset` branch, it still must hold them for 61 cycles. A clear that needs
+clocks started by `SS_reset` must finish before the block's first use after reset, not within the 61
+`reset_intern` cycles: the golden SPU's voice-register clear (`spu.vhd:837-848`) runs 192 clk1x cycles and
+continues after `reset_intern` releases; the CPU register file needs 32.
 
 Other blocks that ignore `SS_reset` and clear on `reset` alone: `dma`, `memorymux`, `timer`, `sio`,
 `gte_serial` declare the port but do not use it (`dma.vhd:84`, `memorymux.vhd:154`).
