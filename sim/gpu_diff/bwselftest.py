@@ -103,12 +103,12 @@ def main():
 
     # 1. pins: every option off
     for i, (mhz, opts, want) in enumerate(PINS):
-        got = tuple(r[4] for r in rows(res[('pin', i)]))
-        want = want[:len(got)]
-        check(got == want, f"pin {mhz:g} MHz {' '.join(opts)}: s1/s2/s3 peak {got} == {want}")
+        got = {os.path.basename(r[0]): r[4] for r in rows(res[('pin', i)])}
+        want = {f'trace_s{n}.txt': w for n, w in zip((1, 2, 3), want) if os.path.exists(os.path.join(run, f'trace_s{n}.txt'))}
+        check(got == want, f"pin {mhz:g} MHz {' '.join(opts)}: peak by trace {got} == {want}")
     fast, eng = res['fast'], res['engine']
     strip = lambda t: [l for l in t.splitlines() if not l.startswith('BW options')]
-    check(strip(fast) == strip(eng), 'event engine with every option off prints the same as the plain replay (s1)')
+    check(rows(fast) != [] and strip(fast) == strip(eng), 'event engine with every option off prints the same as the plain replay (s1)')
 
     # 2. --spu-cache
     pk = lambda k: rows(res[k])[0][4]
@@ -150,7 +150,7 @@ def main():
     got_head = field(res['tex'], r'(\d+) single-beat reads dropped', int)
     check(got_head == exp_head, f"--tex-lines huge on s1 head: {got_head} dropped, independent count {exp_head}")
     t256 = field(res['tex256'], r'(\d+) single-beat reads dropped', int)
-    check(0 < t256 <= got_head, f"--tex-lines 256 drops {t256} <= huge {got_head}")
+    check(0 < t256 < got_head, f"--tex-lines 256 drops {t256} < huge {got_head}")
 
     # 4. --lookahead never adds time or peak
     for a, b, what in (('base', 'la', 'default SPU'), ('c4', 'c4la', '4x cached SPU')):
