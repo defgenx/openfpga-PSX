@@ -28,15 +28,6 @@
         "extensions": ["trk"],
         "size_maximum": 2048,
         "address": "0x30000000"
-      },
-      {
-        "name": "Memory card 1",
-        "id": 3,
-        "required": false,
-        "parameters": "0x4",
-        "filename": "memcard1.sav",
-        "size_exact": 131072,
-        "address": "0x40000000"
       }
     ]
   }

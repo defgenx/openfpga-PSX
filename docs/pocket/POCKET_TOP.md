@@ -195,9 +195,10 @@ The GPU stall counters the plan also wants readable over the bridge are not here
 | 0 | BIOS `psxbios.bin` | core-specific, required | exactly 524,288 | 0x20000000 |
 | 1 | CD image (`.bin`) | user-reloadable, deferload | — | none: read by target command into 0x50000000 |
 | 2 | Track table (`.trk`) | user-reloadable, deferload | ≤ 2,048 | 0x30000000 |
-| 3 | Memory card 1 `memcard1.sav` | nonvolatile | exactly 131,072 | 0x40000000 |
 
-Only card 1 is declared (FEASIBILITY: port 2 has no card). Settings words: 0x80000000 core, 0x80000004
+Memory card 1 (`memcard1.sav`, nonvolatile, exactly 131,072, 0x40000000) is left out until P1c's memcard store exists: the
+host saves a nonvolatile slot by reading it back, and the skeleton's window at 0x40000000 returns placeholder data, so declaring
+it would overwrite the user's card. P1c declares card 1 only (FEASIBILITY: port 2 has no card). Settings words: 0x80000000 core, 0x80000004
 memory controllers. `tools/check_json.py` validates `dist/`.
 
 ### Measured size (5CEBA4F23C8, revision `ap_core`, seed 2)

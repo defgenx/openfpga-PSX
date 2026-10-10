@@ -379,7 +379,8 @@ core_bridge_cmd icb (
 ///////////////////////////////////////////////////////////////////////////////
 // bridge windows (clk_74a), the slots of dist/Cores/*/data.json:
 //   0x80000000 core settings, 0x80000004 memory-controller settings
-//   0x20000000 BIOS, 0x30000000 track table, 0x40000000 memory card, 0x50000000 CD sector sink (target read)
+//   0x20000000 BIOS, 0x30000000 track table, 0x40000000 memory card (not declared until its store exists),
+//   0x50000000 CD sector sink (target read)
 // Every write to a slot window is held in one register and crossed to clk1x: placeholder for the slot stores.
 reg [31:0] cfg;
 reg [31:0] cfg_mem;
