@@ -744,6 +744,8 @@ set_global_assignment -name VERILOG_FILE ../../common/mem/sdram_arb.v
 set_global_assignment -name VERILOG_FILE ../../common/mem/psram32.v
 set_global_assignment -name VERILOG_FILE ../../common/mem/sram_ctl.v
 set_global_assignment -name VERILOG_FILE core/mem_glue_placeholder.v
+set_global_assignment -name VERILOG_FILE core/status_fmt.v
+set_global_assignment -name VERILOG_FILE core/status_screen.v
 # PSX core: this stub is replaced by core/psx_top_pocket_flat.vhd and the rtl/*.vhd files (docs/pocket/POCKET_TOP.md)
 set_global_assignment -name VERILOG_FILE core/psx_top_stub.v
 

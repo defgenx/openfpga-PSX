@@ -102,6 +102,11 @@ simulate() {
 	vvp_pass sim/out/stub.vvp
 	iverilog -g2005 -o sim/out/bridge.vvp sim/tb_bridge.v fpga/core/core_bridge_cmd.v ../common/apf/common.v
 	vvp_pass sim/out/bridge.vvp
+	# status screen: the labels must be current; renders sim/out/status.ppm
+	python3 tools/gen_screen.py >/dev/null
+	git diff --quiet -- fpga/core/status_text.vh || { echo "fpga/core/status_text.vh is stale: commit the output of tools/gen_screen.py" >&2; exit 1; }
+	iverilog -g2012 -o sim/out/status.vvp -I fpga/core sim/tb_status.v fpga/core/status_fmt.v fpga/core/status_screen.v
+	vvp_pass sim/out/status.vvp
 	sim/mixed/run.sh
 }
 

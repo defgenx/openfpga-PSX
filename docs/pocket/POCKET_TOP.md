@@ -189,6 +189,26 @@ window read 0; the values are crossed to `clk_74a` without a handshake, so read 
 
 The GPU stall counters the plan also wants readable over the bridge are not here; they belong to the core.
 
+### Status screen (while the core is a stub)
+
+The shell's video output is a 320 × 240 text screen, not the stub's video. `status_screen.v` is memtest's `video_text.v`
+renderer (same timing on the placeholder 6.3504 MHz pixel clock) with its own labels (`tools/gen_screen.py` →
+`status_text.vh`). `status_fmt.v`, on `clk_74a`, rewrites the values continuously. `build.sh sim` checks them in `tb_status.v`
+and renders `sim/out/status.ppm`. The rows:
+
+| Row | Shows |
+|---|---|
+| SDRAM | `init_done`, `cal_done`, eye OK (green) or FAIL (red), PLL locked, eye width / boot centre / centre now, min / max / moves, `cal_flags` as bits 3..0 (bit 0 no eye, 1 eye touches an end, 2 PLL timeout, 3 re-swept), tracking windows started. The same values as the bridge window above |
+| BIOS | bytes written to the BIOS window and the sum of their 32-bit words. `BIOS IS` says OPENBIOS (the sum of the bundled file, read either endian), OWN (another 524,288-byte file), NONE or SIZE?. A write at offset 0 starts a new count |
+| Track table | the same count and sum for the track-table window |
+| Input | `cont1_key[15:0]` and `cont1_joy`: they change when a button or stick moves |
+| Core output | a 64 × 64 box with the stub's video outputs, its syncs XOR-folded in. This keeps the stub's video logic from being pruned |
+
+The uptime counts seconds of `clk_74a` from configuration. The screen goes when the real core's video path (P1c) replaces it.
+
+With the screen the shell fits in 2,349 ALMs (13%) and 14 M10K at seed 2, timing met (worst slack +0.086 ns, hold): about
+470 ALMs above the skeleton measured below, which had the stub's video wired straight to the output.
+
 ### Data slots (`dist/Cores/defgenx.PSX/data.json`)
 
 | id | Slot | Parameters | Size | Bridge address |

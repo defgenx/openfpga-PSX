@@ -71,7 +71,9 @@ the card is kept, and it asks before replacing one. By hand: copy your dump over
 
 ## 3. Start it
 
-On the Pocket, go to *openFPGA → PlayStation*. The BIOS slot is required: without `psxbios.bin` the Pocket
+On the Pocket, go to *openFPGA → PlayStation*. Until the PlayStation core is in the build, it shows a status screen:
+the SDRAM calibration, whether the BIOS arrived (`BIOS IS OPENBIOS` or `OWN`) and the pad input. A photo of it is
+useful feedback. The BIOS slot is required: without `psxbios.bin` the Pocket
 reports a missing file instead of starting the core.
 
 ## Troubleshooting

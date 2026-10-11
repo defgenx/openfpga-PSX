@@ -402,6 +402,25 @@ always @(posedge clk_74a) begin
     end
 end
 
+// status screen: bytes and word sum received by the BIOS and track-table windows; a write at offset 0 starts a new load
+reg [31:0] bios_bytes = 32'd0, bios_sum = 32'd0, trk_bytes = 32'd0, trk_sum = 32'd0;
+always @(posedge clk_74a) begin
+    if (bridge_wr && bridge_addr[31:28] == 4'h2) begin
+        bios_bytes <= (bridge_addr[27:0] == 28'd0) ? 32'd4 : bios_bytes + 32'd4;
+        bios_sum   <= (bridge_addr[27:0] == 28'd0) ? bridge_wr_data : bios_sum + bridge_wr_data;
+    end
+    if (bridge_wr && bridge_addr[31:28] == 4'h3) begin
+        trk_bytes <= (bridge_addr[27:0] == 28'd0) ? 32'd4 : trk_bytes + 32'd4;
+        trk_sum   <= (bridge_addr[27:0] == 28'd0) ? bridge_wr_data : trk_sum + bridge_wr_data;
+    end
+end
+reg [26:0] up_cnt = 27'd0;
+reg [31:0] uptime_s = 32'd0;
+always @(posedge clk_74a) begin
+    up_cnt <= (up_cnt == 27'd74_249_999) ? 27'd0 : up_cnt + 1'b1;
+    if (up_cnt == 27'd74_249_999) uptime_s <= uptime_s + 1'b1;
+end
+
 wire [31:0]  cfg_1x;
 wire [31:0]  cfg_sys;
 wire [31:0]  win_data_1x;
@@ -1152,24 +1171,6 @@ sram_ctl sr (
     .sram_ub_n(sram_ub_n), .sram_lb_n(sram_lb_n)
 );
 
-///////////////////////////////////////////////////////////////////////////////
-// video: fixed mode from the stub's video outputs (placeholder pixel clock, clk_vid domain)
-reg [23:0] vid_rgb;
-reg        vid_de, vid_hs, vid_vs;
-always @(posedge clk_vid) begin
-    vid_rgb <= {psx_video_r, psx_video_g, psx_video_b};
-    vid_de  <= ~psx_hblank & ~psx_vblank;
-    vid_hs  <= psx_hsync;
-    vid_vs  <= psx_vsync;
-end
-
-assign video_rgb_clock    = clk_vid;
-assign video_rgb_clock_90 = clk_vid_90;
-assign video_rgb          = vid_rgb;
-assign video_de           = vid_de;
-assign video_skip         = 1'b0;
-assign video_vs           = vid_vs;
-assign video_hs           = vid_hs;
 
 ///////////////////////////////////////////////////////////////////////////////
 // bridge reads: command handler, and the stub's memory-card stream for the slot windows
@@ -1195,6 +1196,38 @@ always @(*) begin
     default:      bridge_rd_data <= 0;
     endcase
 end
+
+///////////////////////////////////////////////////////////////////////////////
+// video: the status screen (placeholder pixel clock, clk_vid domain). The stub's video outputs, syncs folded in, fill
+// the screen's box, so nothing behind them is pruned.
+reg [23:0] stub_rgb;
+always @(posedge clk_vid)
+    stub_rgb <= {psx_video_r, psx_video_g, psx_video_b} ^ {24{psx_hblank ^ psx_vblank ^ psx_hsync ^ psx_vsync}};
+
+wire        tx_we;
+wire [9:0]  tx_wa;
+wire [8:0]  tx_wd;
+status_fmt sfmt (
+    .clk(clk_74a), .cal_st(cal_st), .uptime_s(uptime_s), .bios_bytes(bios_bytes), .bios_sum(bios_sum),
+    .trk_bytes(trk_bytes), .trk_sum(trk_sum), .pad_keys(cont1_key[15:0]), .pad_joy(cont1_joy),
+    .tx_we(tx_we), .tx_wa(tx_wa), .tx_wd(tx_wd)
+);
+
+wire [23:0] vid_rgb;
+wire        vid_de, vid_hs, vid_vs;
+status_screen sscr (
+    .clk_s(clk_74a), .tx_we(tx_we), .tx_wa(tx_wa), .tx_wd(tx_wd),
+    .clk_v(clk_vid), .reset_n(reset_n), .box_rgb(stub_rgb),
+    .rgb(vid_rgb), .de(vid_de), .hs(vid_hs), .vs(vid_vs)
+);
+
+assign video_rgb_clock    = clk_vid;
+assign video_rgb_clock_90 = clk_vid_90;
+assign video_rgb          = vid_rgb;
+assign video_de           = vid_de;
+assign video_skip         = 1'b0;
+assign video_vs           = vid_vs;
+assign video_hs           = vid_hs;
 
 //
 // audio i2s: the stub's samples are crossed to clk_74a and shifted out; mclk and lrck as in the silence generator
