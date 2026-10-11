@@ -135,13 +135,13 @@ try {
     # 2b. The BIOS: the user's own dump (it cannot ship with the core), 512 KB, as Assets\psx\defgenx.PSX\psxbios.bin
     # -----------------------------------------------------------------------
 
+    # your own BIOS wins; else the one already on the card is kept; else the bundled OpenBIOS is copied
     $cardBios = Join-Path $SD $BiosRel
+    $skipBundled = $false
     if ($Bios) {
         if (-not (Test-Bios $Bios)) { Fail "$Bios is not a PlayStation BIOS (a file of exactly $BiosSize bytes)" }
-    } elseif (Test-Bios $cardBios) {
-        Write-Host "BIOS already on the card ($BiosRel)."
     } else {
-        # psxbios.bin first, then scph*.bin, in the usual places
+        # psxbios.bin first, then scph*.bin, in the usual places (not the card's installed psxbios.bin)
         $dirs = @($Here, (Join-Path $Here "bios"), (Join-Path $SD "Assets/psx/common"), $SD,
             (Join-Path $env:USERPROFILE "Downloads"), $env:USERPROFILE) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
         foreach ($dir in $dirs) {
@@ -150,13 +150,19 @@ try {
                 Sort-Object @{ Expression = { $_.Name -ne "psxbios.bin" } }, Name)
             if ($f.Count -gt 0) { $Bios = $f[0].FullName; break }
         }
-        if ($Bios) {
-            Write-Host "Found a BIOS: $Bios"
-        } else {
-            Write-Host "No PlayStation BIOS found (a 512 KB file such as scph1001.bin; see INSTALL.md)."
-            $Bios = (Ask "Path to your BIOS file (drag it into this window), or Enter to skip" "").Trim().Trim('"')
-            if ($Bios -and -not (Test-Bios $Bios)) { Fail "$Bios is not a PlayStation BIOS (a file of exactly $BiosSize bytes)" }
-        }
+    }
+    if ($Bios) {
+        Write-Host "Using your BIOS: $Bios"
+        $skipBundled = $true
+    } elseif (Test-Bios $cardBios) {
+        Write-Host "BIOS already on the card ($BiosRel): kept."
+        $skipBundled = $true
+    } elseif (Test-Path -LiteralPath (Join-Path $Src $BiosRel)) {
+        Write-Host "No BIOS of your own found: installing OpenBIOS, the free replacement that comes with the core (see INSTALL.md)."
+    } else {
+        Write-Host "No PlayStation BIOS found (a 512 KB file such as scph1001.bin; see INSTALL.md)."
+        $Bios = (Ask "Path to your BIOS file (drag it into this window), or Enter to skip" "").Trim().Trim('"')
+        if ($Bios -and -not (Test-Bios $Bios)) { Fail "$Bios is not a PlayStation BIOS (a file of exactly $BiosSize bytes)" }
     }
 
     # -----------------------------------------------------------------------
@@ -193,7 +199,10 @@ try {
         if (Test-Path -LiteralPath $p) { Get-ChildItem -LiteralPath $p -Recurse -File -Force }
     }) | Where-Object { $_.Name -notin ".DS_Store", ".keep" -and -not $_.Name.StartsWith("._") } | Sort-Object FullName
 
-    $items = @($files | ForEach-Object { @{ From = $_.FullName; Rel = $_.FullName.Substring($srcFull.Length + 1) } })
+    $items = @($files | ForEach-Object { @{ From = $_.FullName; Rel = $_.FullName.Substring($srcFull.Length + 1) } } |
+        Where-Object { $r = $_.Rel -replace '\\', '/'
+            # the bundled OpenBIOS and its licence and readme go only where it is the BIOS used
+            -not ($skipBundled -and ($r -eq $BiosRel -or $r -like "Assets/psx/$Core/OpenBIOS-*")) })
     if ($Bios) { $items += @{ From = (Resolve-Path -LiteralPath $Bios).Path; Rel = $BiosRel } }
     # the install guide goes along (a release zip already carries it as PSX-INSTALL.md)
     $guide = Join-Path $srcFull "PSX-INSTALL.md"

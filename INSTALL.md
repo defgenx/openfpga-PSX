@@ -13,7 +13,7 @@
 | Windows       | double-click **`install.bat`** (or `.\install.ps1` in PowerShell)  |
 | macOS / Linux | `./install.sh`                                                      |
 
-It finds the Pocket SD card, asks you to confirm, copies the core, your BIOS (step 2) and this guide, and
+It finds the Pocket SD card, asks you to confirm, copies the core, the BIOS (step 2) and this guide, and
 offers to eject the card. Options:
 - `--dry-run` / `-DryRun` shows what would be copied and changes nothing.
 - `--sd /Volumes/POCKET` / `-SD E:\` names the card yourself.
@@ -36,7 +36,8 @@ SD card root
 │   └── psx/
 │       ├── common/
 │       └── defgenx.PSX/
-│           └── psxbios.bin      <- your BIOS (step 2)
+│           ├── psxbios.bin      <- OpenBIOS, or your own BIOS (step 2)
+│           └── OpenBIOS-LICENSE.txt  OpenBIOS-README.txt
 ├── Cores/
 │   └── defgenx.PSX/
 │       ├── psx.rbf_r            <- the core bitstream
@@ -48,30 +49,36 @@ SD card root
 On macOS, copy the folders with Finder or `ditto`. Don't replace the existing `Assets`, `Cores` or
 `Platforms` folders; merge into them. Eject the card cleanly afterwards.
 
-## 2. BIOS (required)
+## 2. BIOS (nothing to do)
 
-The core needs a PlayStation BIOS. It is Sony's code, so it can't be shipped with the core: use a dump of your
-own console's BIOS. The file must be a raw 512 KB image (exactly 524,288 bytes), for example `scph1001.bin`
-(US), `scph5502.bin` (EU) or `scph5500.bin` (JP). On the card it must be named
-`Assets/psx/defgenx.PSX/psxbios.bin`.
+The PlayStation needs its BIOS. Sony's BIOS can't be shipped, so the core comes with **OpenBIOS**, a free,
+open-source replacement written by the PCSX-Redux authors (MIT licence, https://github.com/grumpycoders/pcsx-redux).
+It is in `Assets/psx/defgenx.PSX/` as `psxbios.bin`, with `OpenBIOS-LICENSE.txt` and `OpenBIOS-README.txt`.
 
-The installer copies it for you. It uses the file you name with `--bios`, and otherwise looks for `psxbios.bin`
-or `scph*.bin` in these places, in order:
+OpenBIOS has limits: not all games boot with it, it has no memory card save handler (games cannot save), and it
+does not play music CDs. For full compatibility, use a dump of your own console's BIOS. It must be a raw 512 KB
+image (exactly 524,288 bytes), for example `scph1001.bin` (US), `scph5502.bin` (EU) or `scph5500.bin` (JP).
+
+**Your own BIOS always wins.** The installer uses the file you name with `--bios`. Otherwise it looks for
+`psxbios.bin` or `scph*.bin` in these places, in order:
 1. beside the installer, and in its `bios/` folder;
 2. on the card, in `Assets/psx/common/` and at the root;
 3. in your Downloads folder and your home folder.
 
-If it finds none, it asks for the path; you can drag the file into the window. A BIOS already on the card is
-kept.
+It copies the first one it finds to `Assets/psx/defgenx.PSX/psxbios.bin`, in place of OpenBIOS. A BIOS already on
+the card is kept, and it asks before replacing one. By hand: copy your dump over
+`Assets/psx/defgenx.PSX/psxbios.bin`.
 
 ## 3. Start it
 
-On the Pocket, go to *openFPGA → PlayStation*. The BIOS slot is required, so without `psxbios.bin` the Pocket
+On the Pocket, go to *openFPGA → PlayStation*. The BIOS slot is required: without `psxbios.bin` the Pocket
 reports a missing file instead of starting the core.
 
 ## Troubleshooting
 
 * **The core is not in the list:** `Cores/defgenx.PSX/` or `Platforms/psx.json` is missing. Run the installer again.
 * **The Pocket reports a missing file:** the BIOS is not at `Assets/psx/defgenx.PSX/psxbios.bin`, or it is not exactly 524,288 bytes.
+  Run the installer again: it puts OpenBIOS there.
+* **A game does not boot, or cannot save:** it may need an original BIOS rather than OpenBIOS (step 2).
 * **Stuck with odd settings:** erase the saved settings with `./install.sh --reset-settings` (Windows:
   `install.bat -ResetSettings`), or delete the folder `Settings/defgenx.PSX/` on the card.

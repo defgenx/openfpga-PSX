@@ -142,26 +142,32 @@ is_pocket_card "$SD" || say "Note: $SD has no Cores/Platforms/Assets folders yet
 
 is_bios() { [ -f "$1" ] && [ "$(fsize "$1")" = "$BIOS_SIZE" ]; }
 
+# your own BIOS wins; else the one already on the card is kept; else the bundled OpenBIOS is copied
+SKIP_BUNDLED=0
 if [ -n "$BIOS" ]; then
 	is_bios "$BIOS" || die "$BIOS is not a PlayStation BIOS (a file of exactly $BIOS_SIZE bytes)"
-elif is_bios "$SD/$BIOS_REL"; then
-	say "BIOS already on the card ($BIOS_REL)."
 else
-	# psxbios.bin first, then scph*.bin, in the usual places
+	# psxbios.bin first, then scph*.bin, in the usual places (not the card's installed psxbios.bin)
 	for dir in "$HERE" "$HERE/bios" "$SD/Assets/psx/common" "$SD" "$HOME/Downloads" "$HOME"; do
 		for f in "$dir"/psxbios.bin "$dir"/[sS][cC][pP][hH]*.[bB][iI][nN]; do
 			is_bios "$f" && { BIOS="$f"; break 2; }
 		done
 	done
-	if [ -n "$BIOS" ]; then
-		say "Found a BIOS: $BIOS"
-	else
-		say "No PlayStation BIOS found (a 512 KB file such as scph1001.bin; see INSTALL.md)."
-		BIOS="$(ask "Path to your BIOS file, or Enter to skip:" "")"
-		BIOS="${BIOS%\'}"; BIOS="${BIOS#\'}"; BIOS="${BIOS%\"}"; BIOS="${BIOS#\"}"   # drag-and-drop quotes
-		BIOS="${BIOS/#\~/$HOME}"
-		[ -z "$BIOS" ] || is_bios "$BIOS" || die "$BIOS is not a PlayStation BIOS (a file of exactly $BIOS_SIZE bytes)"
-	fi
+fi
+if [ -n "$BIOS" ]; then
+	say "Using your BIOS: $BIOS"
+	SKIP_BUNDLED=1
+elif is_bios "$SD/$BIOS_REL"; then
+	say "BIOS already on the card ($BIOS_REL): kept."
+	SKIP_BUNDLED=1
+elif [ -f "$SRC/$BIOS_REL" ]; then
+	say "No BIOS of your own found: installing OpenBIOS, the free replacement that comes with the core (see INSTALL.md)."
+else
+	say "No PlayStation BIOS found (a 512 KB file such as scph1001.bin; see INSTALL.md)."
+	BIOS="$(ask "Path to your BIOS file, or Enter to skip:" "")"
+	BIOS="${BIOS%\'}"; BIOS="${BIOS#\'}"; BIOS="${BIOS%\"}"; BIOS="${BIOS#\"}"   # drag-and-drop quotes
+	BIOS="${BIOS/#\~/$HOME}"
+	[ -z "$BIOS" ] || is_bios "$BIOS" || die "$BIOS is not a PlayStation BIOS (a file of exactly $BIOS_SIZE bytes)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -232,6 +238,8 @@ for top in Assets Cores Platforms; do
 	while IFS= read -r -d '' f <&3; do
 		rel="${f#"$SRC"/}"
 		case "$(basename "$rel")" in .DS_Store|._*|.keep) continue ;; esac
+		# the bundled OpenBIOS and its licence and readme go only where it is the BIOS used
+		case "$rel" in "$BIOS_REL"|"Assets/psx/$CORE/OpenBIOS-"*) [ $SKIP_BUNDLED -eq 1 ] && continue ;; esac
 		install_file "$f" "$rel"
 	done 3< <(find "$SRC/$top" -type f -print0 | sort -z)
 done

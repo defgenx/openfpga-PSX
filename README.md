@@ -9,7 +9,7 @@ level holds a stub core. The plan, the measurements and what blocks a first boot
 ## Install
 
 Put the Pocket's microSD card in your computer and run **`install.bat`** (Windows, double-click) or **`./install.sh`**
-(macOS, Linux). It finds the card, copies the core and your PlayStation BIOS, and never replaces a file without asking.
+(macOS, Linux). It finds the card, copies the core and a BIOS (the free OpenBIOS, or your own dump), and never replaces a file without asking.
 Details, and how to do it by hand: [INSTALL.md](INSTALL.md).
 
 The PSX memory test core (`pocket/memtest/`) checks the Pocket's SDRAM, PSRAM and SRAM at the PSX core's clocks; see
@@ -33,3 +33,7 @@ This core is based on [PSX_MiSTer](https://github.com/MiSTer-devel/PSX_MiSTer) b
 is their PlayStation implementation, modified and extended here for the Pocket. Their copyright notices remain in the files.
 
 Licensed under the GNU General Public License v2, like the original: see [LICENSE](LICENSE).
+
+The bundled BIOS, `pocket/psx/dist/Assets/psx/defgenx.PSX/psxbios.bin`, is
+[OpenBIOS](https://github.com/grumpycoders/pcsx-redux) by the PCSX-Redux authors, under the MIT licence
+(`OpenBIOS-LICENSE.txt` beside it). The binary is Libreboot's 20241206 build.
