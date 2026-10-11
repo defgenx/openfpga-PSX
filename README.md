@@ -6,10 +6,13 @@ A port of the PlayStation core to the [Analogue Pocket](https://www.analogue.co/
 level holds a stub core. The plan, the measurements and what blocks a first boot are in
 [docs/pocket/ROADMAP.md](docs/pocket/ROADMAP.md).
 
-## What you can run today
+## Install
 
-The PSX memory test core (`pocket/memtest/`) checks the Pocket's SDRAM, PSRAM and SRAM at the PSX core's clocks. To install it,
-double-click `install-windows.bat` or `install-linux.sh` next to the packaged zips. What to read on the screen is in
+Put the Pocket's microSD card in your computer and run **`install.bat`** (Windows, double-click) or **`./install.sh`**
+(macOS, Linux). It finds the card, copies the core and your PlayStation BIOS, and never replaces a file without asking.
+Details, and how to do it by hand: [INSTALL.md](INSTALL.md).
+
+The PSX memory test core (`pocket/memtest/`) checks the Pocket's SDRAM, PSRAM and SRAM at the PSX core's clocks; see
 [docs/pocket/MEMTEST.md](docs/pocket/MEMTEST.md).
 
 ## Layout
