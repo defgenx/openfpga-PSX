@@ -81,6 +81,8 @@ package() {
 	rm -rf release && mkdir -p release
 	cp -R dist/Cores dist/Platforms dist/Assets release/
 	find release -name .keep -delete
+	cp ../../INSTALL.md release/PSX-INSTALL.md
+	rm -f "$CORE.zip"
 	(cd release && zip -qr "../$CORE.zip" .)
 	echo "packaged $CORE.zip - unzip it onto the root of the Pocket SD card"
 }
