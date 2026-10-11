@@ -1,1 +1,0 @@
-vsim tb.etb -t 1ns -suppress 8684

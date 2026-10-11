@@ -138,7 +138,7 @@ state), measured by `sim/gpu_diff` on every primitive it runs.
 
 Because the setup time changes, the CPU can see different GPUSTAT busy/ready timing than with the
 golden; `sim/gpu_diff` compares those bits as timing, not data. With `REPRODUCIBLEGPUTIMING` tied
-off (as in the MiSTer build, `PSX.sv:924`) the core never padded to a target time anyway.
+off (as in the MiSTer build, PSX_MiSTer `PSX.sv:924`) the core never padded to a target time anyway.
 
 ## Gate metric
 

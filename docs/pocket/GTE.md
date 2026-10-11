@@ -434,8 +434,8 @@ then `quartus_sta -t report_gte.tcl <rev>` for the worst paths per clock and
 
 These are default-settings, single-seed numbers: Balanced optimization, no physical synthesis,
 fitter seed 1, clocks on ports with no PLL. The full build uses AGGRESSIVE PERFORMANCE with
-physical-synthesis register duplication and retiming (`PSX.qsf:31-52`) and PLL clocks
-(`derive_pll_clocks`, `PSX.sdc:1-2`). Register duplication can add ALMs and PLL jitter costs
+physical-synthesis register duplication and retiming (PSX_MiSTer `PSX.qsf:31-52`) and PLL clocks
+(`derive_pll_clocks`, PSX_MiSTer `PSX.sdc:1-2`). Register duplication can add ALMs and PLL jitter costs
 slack, so both are re-measured inside the full build. The ROADMAP gate asks for setup slack of at
 least 10% of the period on the GTE's fastest clock: on clk2x that is +1.48 ns, which +2.025 ns
 (13.7%) meets.
