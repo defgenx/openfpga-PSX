@@ -519,8 +519,8 @@ to find out: the calibrated capture has not run on hardware.
 
 | Resource | default (`ap_core`) | 135 (`ap_core_135`) |
 |---|---|---|
-| ALMs | 5,995 / 18,480 (32%) | 6,261 / 18,480 (34%) |
-| Registers | 8,465 | 8,481 |
+| ALMs | 5,949 / 18,480 (32%) | 6,107 / 18,480 (33%) |
+| Registers | 8,416 | 8,484 |
 | Block memory | 45,936 bits in 14 M10K / 308 | 45,936 bits in 14 M10K / 308 |
 | DSP | 2 | 2 |
 | PLL | 1 fractional, VCO 812.8512 MHz; outputs 101.6064 MHz (0°, 281.3° SDRAM pin, capture clock moved at run time), 6.3504 MHz (0°, 90°), 33.8688 MHz scan clock | the same VCO; 135.4752 MHz (0°, 217.5° SDRAM pin, capture clock moved at run time), 6.3504 MHz (0°, 90°), 33.8688 MHz scan clock |
@@ -531,18 +531,20 @@ fitter that now works harder add 360 and 545 ALMs. The two DSP blocks were not a
 
 Worst slack per clock, minimum over the four models (the model that produced it in brackets), from
 `fpga/output_files/<rev>.sta.summary`. Setup is worst in the slow models, hold in the fast ones, as the analyser does. The system-clock setup
-of the 135 variant (+0.053 ns) is a path inside the core, not the calibration's; the next one is +0.163 ns.
+of the 135 variant (+0.210 ns) is the `dq_cap3` → `dq_r` transfer itself; the core's own paths have more since `sdram_cal`'s tracking
+statistics and eye scan and `ps_traffic`'s address walk were taken off the critical cycle. That transfer depends on where the fitter
+puts `dq_r`: with `SEED` 2 or 3 it misses by 0.22 / 0.27 ns while every other path meets, so after a change try another seed first.
 
 | Clock | default: worst setup | default: worst hold | 135: worst setup | 135: worst hold |
 |---|---|---|---|---|
-| `clk_sys` | +1.750 ns (slow 85 °C) | +0.107 ns (fast 0 °C) | +0.053 ns (slow 0 °C) | +0.091 ns (fast 0 °C) |
-| `clk_cap` (`dq_cap` → `dq_cap2` → `dq_cap3`; the pin path is excluded) | +2.948 ns (slow 0 °C) | +0.214 ns (fast 0 °C) | +0.605 ns (slow 0 °C) | +0.230 ns (fast 0 °C) |
-| `clk_cap` → `clk_sys` (`dq_cap3` → `dq_r`, 30 steps of swing as uncertainty), in `sdram_paths.rpt` | +1.750 ns (slow 85 °C) | +0.107 ns (fast 0 °C) | +0.163 ns (slow 85 °C) | +0.091 ns (fast 0 °C) |
+| `clk_sys` | +1.643 ns (slow 85 °C) | +0.100 ns (fast 0 °C) | +0.210 ns (slow 85 °C) | +0.096 ns (fast 0 °C) |
+| `clk_cap` (`dq_cap` → `dq_cap2` → `dq_cap3`; the pin path is excluded) | +3.126 ns (slow 0 °C) | +0.153 ns (fast 0 °C) | +0.337 ns (slow 0 °C) | +0.165 ns (fast 0 °C) |
+| `clk_cap` → `clk_sys` (`dq_cap3` → `dq_r`, 30 steps of swing as uncertainty), in `sdram_paths.rpt` | +1.643 ns (slow 85 °C) | +0.100 ns (fast 0 °C) | +0.210 ns (slow 85 °C) | +0.096 ns (fast 0 °C) |
 | `clk_sd` SDRAM clock source | no register paths | | no register paths | |
-| `dram_clk_pin` (SDRAM command, address and write data pins) | +2.966 ns (slow 85 °C) | +1.682 ns (fast 0 °C) | +0.908 ns (slow 85 °C) | +1.731 ns (slow 85 °C) |
-| `clk_vid` 6.3504 MHz | +149.842 ns (slow 0 °C) | +0.154 ns (fast 0 °C) | +150.040 ns (slow 0 °C) | +0.180 ns (fast 0 °C) |
+| `dram_clk_pin` (SDRAM command, address and write data pins) | +2.966 ns (slow 85 °C) | +1.682 ns (fast 0 °C) | +0.887 ns (slow 85 °C) | +1.746 ns (slow 85 °C) |
+| `clk_vid` 6.3504 MHz | +148.918 ns (slow 0 °C) | +0.180 ns (fast 0 °C) | +149.869 ns (slow 0 °C) | +0.162 ns (fast 0 °C) |
 | `clk_vid_90` | no register paths | | no register paths | |
-| `clk_scan` 33.8688 MHz | +4.530 ns (slow 85 °C) | +0.171 ns (fast 0 °C) | +2.819 ns (slow 85 °C) | +0.170 ns (fast 0 °C) |
+| `clk_scan` 33.8688 MHz | +2.789 ns (slow 85 °C) | +0.170 ns (fast 0 °C) | +2.614 ns (slow 85 °C) | +0.171 ns (fast 0 °C) |
 | `clk_74a` | +3.031 ns (slow 85 °C) | +0.162 ns (fast 0 °C) | +2.712 ns (slow 0 °C) | +0.133 ns (fast 0 °C) |
 | `bridge_spiclk` | +10.402 ns (slow 85 °C) | +0.175 ns (fast 0 °C) | +10.797 ns (slow 85 °C) | +0.160 ns (fast 0 °C) |
 

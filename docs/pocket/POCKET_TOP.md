@@ -204,30 +204,31 @@ memory controllers. `tools/check_json.py` validates `dist/`.
 
 ### Measured size (5CEBA4F23C8, revision `ap_core`, seed 2)
 
-1,840.5 ALMs (10%), 3,929 registers, 10 M10K (the data table and three `synch_3` shift registers), 1 PLL, 0 DSP. The stub is
-388.0 ALMs, so the shell is **1,452.5 ALMs**, part of it placeholders (glue, synchronisers, the status window). Per
-entity: APF 198.5, `core_top` own logic 162.2 (frame timer, status window), `core_bridge_cmd` 175.9 (+ the data table),
-`sdram_ctl` 309.5 plus `sdram_cal` 343.3, `sdram_arb` 6.6, `psram32` 118.4, `sram_ctl` 27.8, glue 33.4, PLL 22.3, status
-synchroniser 18.0 (the calibration is `sdram_cal`'s 343.3). This is a floor: the adapters, the
+1,876.5 ALMs (10%), 3,905 registers, 10 M10K (the data table and three `synch_3` shift registers), 1 PLL, 0 DSP. The stub is
+389.4 ALMs, so the shell is **1,487.1 ALMs**, part of it placeholders (glue, synchronisers, the status window). Per
+entity: APF 198.8, `core_top` own logic 165.1 (frame timer, status window), `core_bridge_cmd` 181.2 (+ the data table),
+`sdram_ctl` 312.3 plus `sdram_cal` 366.2, `sdram_arb` 6.3, `psram32` 123.3, `sram_ctl` 24.4, glue 36.4, PLL 21.5, status
+synchroniser 17.0 (the calibration is `sdram_cal`'s 366.2). This is a floor: the adapters, the
 3-client arbiter, the loaders and the video and audio paths are not in it yet.
 
-Worst setup slack in ns, by clock (counter) and corner; every hold slack is at least +0.07 ns (clk_sys, fast models):
+Worst setup slack in ns, by clock (counter) and corner; every hold slack is at least +0.09 ns (clk_sys, fast models):
 
 | Clock | slow 85 °C | slow 0 °C | fast 85 °C | fast 0 °C |
 |---|---|---|---|---|
-| clk_sys (C0) | +0.181 | +0.059 | +1.668 | +1.757 |
-| clk_cap (C2) | +0.937 | +0.878 | +4.607 | +4.689 |
-| clk1x (C3) | +21.49 | +21.29 | +25.48 | +25.71 |
-| clk2x (C4) | +9.23 | +9.20 | +12.17 | +12.40 |
-| clk3x (C5) | +4.28 | +4.22 | +6.97 | +7.22 |
-| clk_vid (C6) | +153.1 | +153.0 | +155.5 | +155.7 |
+| clk_sys (C0) | +0.318 | +0.347 | +1.673 | +1.745 |
+| clk_cap (C2) | +1.111 | +1.105 | +4.604 | +4.707 |
+| clk1x (C3) | +22.67 | +22.56 | +25.47 | +25.59 |
+| clk2x (C4) | +9.65 | +9.54 | +12.52 | +12.69 |
+| clk3x (C5) | +4.55 | +4.43 | +7.47 | +7.66 |
+| clk_vid (C6) | +151.2 | +151.2 | +154.7 | +154.9 |
 | `dram_clk_pin` | +0.891 | +0.992 | +1.872 | +1.910 |
-| `clk_74a` | +5.21 | +5.46 | +9.17 | +9.71 |
-| `bridge_spiclk` | +10.80 | +10.89 | +12.53 | +12.60 |
+| `clk_74a` | +6.18 | +6.11 | +10.12 | +10.41 |
+| `bridge_spiclk` | +11.01 | +11.24 | +12.53 | +12.62 |
 
-All clocks meet timing in all four corners, so `build.sh package` accepts the build. The critical clk_sys path is inside
-`sdram_cal` (`centre` to `cmax`, 7.1 ns of data delay): with the default seed it misses by 0.19 ns (slow 0 °C), with
-`SEED 2` it meets. Any change to the shell can move it again; the first thing to try is another seed.
+All clocks meet timing in all four corners, so `build.sh package` accepts the build. `sdram_cal` counts its tracking
+statistics a state after the decision and scans the eye by shifting it, which took its two deep clk_sys paths (`centre` to
+`cmin`/`cmax`, `fi` to `best_len`) off the critical list; clk_sys is now limited by placement. Any change to the shell can
+move it; the first thing to try is another seed.
 
 ### Simulating the whole top
 

@@ -78,6 +78,7 @@ module sdram_cal #(
     reg [1:0]  up_c, dn_c, lost_c;
     reg [6:0]  nc, cn;
     reg        resweep;
+    reg        moved;                      // the last tracking decision moved the centre; counted in S_TFIN
 
     wire [6:0] lo_t = (centre >= K) ? centre - K : 7'd0;
     wire [6:0] hi_t = (centre + K > SWMAX) ? SWMAX : centre + K;
@@ -154,10 +155,11 @@ module sdram_cal #(
                 endcase
             end
 
-            // longest run of passing steps; the first one wins a tie
+            // longest run of passing steps; the first one wins a tie. `eye` is shifted out (the next sweep rewrites it)
             S_FIND: begin
                 if (fi <= SWMAX) begin
-                    if (eye[fi]) begin
+                    eye <= eye >> 1;
+                    if (eye[0]) begin
                         run_len <= run_len + 1'b1;
                         if (run_len == 0) run_start <= fi;
                         if (run_len + 1'b1 > best_len) begin
@@ -211,15 +213,17 @@ module sdram_cal #(
                 if (resweep) begin
                     flags[3] <= 1'b1; mode <= M_SWEEP; tgt <= 7'd0; ret <= S_PINIT; state <= S_MOVE;
                 end else begin
-                    if (nc != centre) begin
-                        moves <= moves + 1'b1;
-                        if (nc < cmin) cmin <= nc;
-                        if (nc > cmax) cmax <= nc;
-                    end
-                    centre <= nc; tgt <= nc; ret <= S_TFIN; state <= S_MOVE;
+                    moved <= (nc != centre); centre <= nc; tgt <= nc; ret <= S_TFIN; state <= S_MOVE;
                 end
             end
-            S_TFIN: begin own <= 1'b0; hold <= 1'b0; state <= S_RUN; end
+            S_TFIN: begin
+                if (moved) begin
+                    moves <= moves + 1'b1;
+                    if (centre < cmin) cmin <= centre;
+                    if (centre > cmax) cmax <= centre;
+                end
+                own <= 1'b0; hold <= 1'b0; state <= S_RUN;
+            end
             default: state <= S_LOCK;
         endcase
     end
