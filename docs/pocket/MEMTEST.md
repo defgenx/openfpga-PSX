@@ -498,8 +498,12 @@ clock against the timing table).
 
 ## Install
 
-1. Run `build.sh` (or take `dist/` if it already holds `memtest.rbf_r`).
-2. Copy the contents of `pocket/memtest/dist/` (`Cores/`, `Platforms/`, `Assets/`) to the root of the Pocket's SD card.
+1. Run `build.sh package 135` and `build.sh package 101`. Each run writes `memtest-<variant>.zip` (and `defgenx.PSXMemTest.zip`,
+   the last one packaged) in `pocket/memtest/`.
+2. Double-click `install-windows.bat` or `install-linux.sh` in the same folder (they need the zips beside them): pick the
+   variant and the SD card, confirm, and it unzips onto the card's root. It writes only `Cores/defgenx.PSXMemTest`,
+   `Platforms/psxmemtest.json` and `Assets/psxmemtest`. Both variants are the same core, so the card holds one at a time. By hand: unzip one of
+   the zips onto the root of the SD card.
 3. Start **PSX Memory Test** from the core list. The tests start on their own; the full run takes well under a second,
    after which the first row shows `DONE`.
 4. To try the synchronous PSRAM bursts: set *PSRAM sync burst* to *On*, choose *Restart tests*, read the SYNC and DMA SYNC rows,

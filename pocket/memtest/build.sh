@@ -83,7 +83,9 @@ package() {
 	cp -R dist/Cores dist/Platforms dist/Assets release/
 	find release -name .keep -delete
 	(cd release && zip -qr "../$CORE.zip" .)
-	echo "packaged $CORE.zip ($rev) - unzip it onto the root of the Pocket SD card"
+	# the copy named by variant is what install-windows.bat and install-linux.sh offer
+	cp "$CORE.zip" "memtest-${1:-$RELEASE}.zip"
+	echo "packaged $CORE.zip and memtest-${1:-$RELEASE}.zip ($rev) - unzip onto the root of the Pocket SD card, or run install-windows.bat / install-linux.sh"
 }
 
 # vvp exits 0 whatever the result: a testbench passes only if it prints PASS on a line of its own
