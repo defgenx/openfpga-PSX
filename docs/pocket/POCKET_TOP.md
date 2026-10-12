@@ -311,7 +311,7 @@ and `video_fl` against behavioural PSRAM and SDRAM request ports (the controller
 preloaded. It writes every frame the APF would get to `sim/system/out/frame_<n>.ppm` and traces the RAM bus to `ram_trace.txt`;
 about 2 s of wall time per emulated millisecond.
 
-**Fit** (5CEBA4F23C8, seed 3): 16,622 ALMs (90%), 146 of 308 M10K, 19 DSP; every clock meets timing (worst slack +0.083 ns, hold). Seed 2 left a −0.076 ns hold miss inside the GPU (`gpu_pocket_div` → `gpu_poly_pocket`): at 90% the first thing to try after a change is another seed.
+**Fit** (5CEBA4F23C8, seed 3): 16,600 ALMs (90%), 146 of 308 M10K, 19 DSP; every clock meets timing (worst slack +0.081 ns, hold). Seed 2 left a −0.076 ns hold miss inside the GPU (`gpu_pocket_div` → `gpu_poly_pocket`): at 90% the first thing to try after a change is another seed.
 
 ## CD loader
 
