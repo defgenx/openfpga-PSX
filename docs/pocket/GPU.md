@@ -19,9 +19,9 @@ harness cannot run a primitive that long.
   `gpu_pocket` behaves as `gpu` with the values `sizing/psx_min_wrap.vhd:97-131` ties them to
   (`syncVideoOut = '1'`, every other option `'0'`/`"00"`). Removed outputs are driven to constants.
   Kept as live inputs: `ditherOff`, `noTexture`, `pal60`, `syncInterlace`, `fixedVBlank`, `videoout_on`.
-- Units other than the polygon and line units are the golden's, unchanged: `gpu_rect`,
-  `gpu_pixelpipeline`, `gpu_fillVram`, `gpu_cpu2vram`, `gpu_vram2vram`, `gpu_vram2cpu`,
-  `gpu_videoout`.
+- The pixel pipeline is the golden's, unchanged (`gpu_pixelpipeline`). The other units are Pocket units:
+  `gpu_poly_pocket`, `gpu_line_pocket`, `gpu_rect_pocket`, `gpu_copy_pocket` (fill, upload, VRAM copy and
+  download in one engine) and `gpu_videoout_pocket` (the sync path only).
 
 ## Baseline (5CEBA4F23C8, fitter "ALMs needed")
 
@@ -110,6 +110,58 @@ Same states and per-pixel output as `gpu_poly`; the differences are all exact:
   which forces the unit back to IDLE (`gpu_poly.vhd:446-456`); `error` is driven '0'. The line
   unit keeps its watchdog. The texture-filter outputs are still computed but `gpu_pocket` leaves
   them open, so synthesis removes them; the poly unit's filter and dither inputs are unused.
+
+## Rectangle unit (`rtl/gpu_rect_pocket.vhd`)
+
+Same states, same cycle counts and the same pixel stream as `gpu_rect`. The clip and loop logic is restated
+with limits instead of counters, all exact:
+- **Last pixel and last row.** `CHECKPOS` computes the first pixel (`x0 = max(posx, left)`, `y0` the same on
+  `top`, plus one row when interlaced drawing and `activeLineLSB` equal its parity) and the last
+  (`xLim = min(posx + width - 1, right)`, `yLim = min(y + height - 1, bottom)`, unclipped sums). A row ends
+  at `xPos = xLim`, the rectangle at `yPos + yAdd > yLim`. This is the golden's `xCnt + 1 >= sizex or xPos + 1 > right`
+  and `yCnt + yAdd >= sizey or ypos + yAdd > bottom`, because `xLim` and `yLim` are the clipped sizes added to
+  the clipped start.
+- **Nothing to draw** (`x0 > xLim`, `y0 > yLim`, `left > right` or `top > bottom`): done at `CHECKPOS`. The golden
+  reaches the same end after `CHECKPOS` (or one row later when interlaced skips the only row), writing nothing; a
+  transparent rectangle also reads one line first, which the Pocket unit does not.
+- **No area test per pixel**: every pixel of a row lies inside the area by construction (`x0 >= left`,
+  `xLim <= right`, rows `top <= y <= yLim <= bottom`).
+- The line read of a transparent or mask-checked rectangle asks for the pixels the row draws (`xLim - x0 + 1`),
+  the golden for the clipped width. The pixels in between are never used.
+- **Removed:** `REPRODUCIBLEGPUTIMING` padding and the 2^20-cycle watchdog. A rectangle that keeps the unit busy
+  for more than 2^20 clk2x is drawn completely, where the golden aborts it (as for the polygon unit above). The
+  harness cannot run one that long.
+
+## Transfer engine (`rtl/gpu_copy_pocket.vhd`)
+
+One state machine for the fill (`02`), CPU-to-VRAM (`A0`), VRAM-to-VRAM (`80`) and VRAM-to-CPU (`C0`) commands, with
+the golden units' states and cycle counts, so the harness reports no timing difference for them. What is shared:
+- **Command words.** Source and destination position registers (`srcX/Y`, `dstX/Y`) are loaded from the same words
+  as the golden's; width is stored as `width - 1` (`size - 1` mod 1024 gives the golden's 0 means 1024 for free; a fill
+  rounds up to 16 pixels first) and the rows left as a down counter.
+- **Address steppers.** One `xSrc` (+1 or -1), one `xDst` (+4 fill, +1, -1) and one `xCnt` (+4 or +1) adder, each used
+  by every command that needs it. The copy direction (`dir`) is decided in `REQUESTFIRST` from `srcX + width - 1` and
+  `dstX + width - 1` (mod 1024, the same sums that start a backwards row), as the golden decides it from the size word.
+- **Colour, halfword and FIFO low half share one 16 bit register**: the fill colour, the second halfword of an upload
+  word and the low half of a download word are never live together.
+- **Download FIFO** (1024 x 32) is the golden's `SyncFifoFallThrough` with the same thresholds.
+- `drawer_reset` (GP1 01) stops an upload or a download only, as in the golden; a fill and a copy run on.
+- The fill's four-pixel writes leave through `fillWrite` with the other writes' address and colour wires, and `doneWr`
+  is `done` of every command except the download (the golden clears the texture cache after the other three).
+
+## Video out (`rtl/gpu_videoout_pocket.vhd`)
+
+`gpu_videoout` with `syncVideoOut = '1'` and the options tied off: `gpu_videoout_sync` and the line fetch in one entity.
+The async path, the overlays (fps, CD, error, LBA, debug), the crosshairs and light-gun sensors, the 24-bit mirror
+(`render24`) and the savestate ports are gone. Everything the Pocket reads is the golden's, on every clock:
+`hsync`, `vsync`, `hblank`, `vblank`, `ce`, `r/g/b`, the display size and offset outputs, `isPal`, `hResMode`, the
+timer outputs and `GPUSTAT` bits. Restated arithmetic, all exact:
+- The window tests (`vposNew < start`, `>= end`, and the same one line later) come from one subtraction each
+  (`rel = vposNew - start`, `toEnd = end - vposNew`), and the line indices (`lineIn`, `lineInNext`) from `rel`.
+- The display-start adjustment of the fetch line is one 5 bit subtraction and one addition (threshold 19 on PAL, 16
+  otherwise, doubled when interlaced) instead of four adders.
+- The vsync line counter saturates at 15: only counts 5 to 7 (480-line) and 10 to 12 are decoded.
+- `gpu_videoout`'s `clkvid` input still clocks the line RAM read port. The shell passes clk2x.
 
 ## DSP allocation
 
@@ -354,6 +406,15 @@ traces are game-derived and never committed: outputs go under the gitignored `si
 - `make -C sim/gpu_divtest`: both dividers match `divider.vhd` over every use's range.
 - `make -C sim/gpu_diff diff`: 0 VRAM, GPUREAD and GPUSTAT data mismatches, 0 span mismatches,
   setup within the criterion above, every coverage counter non-zero.
+- `make -C sim/gpu_diff diff SUITES=xfer SEEDS="1 2 3 4 5 6" COUNT=400`: the transfer commands with random sizes,
+  overlaps and wraps, and GP1 01 in the middle of an upload or a download (the engine's `drawer_reset` path). The
+  transfer commands have no timing difference.
+- `make -C sim/gpu_diff video`: one display mode per seed (`VSEEDS`, 16 modes: every width, 240 and 480 lines,
+  interlace, NTSC and PAL, 24 bit, display offsets, display range, display off, `videoout_on` low, `pal60`,
+  `syncInterlace`, `fixedVBlank`), a painted VRAM, 3 idle frames with mode changes in the middle. `tb_diff` compares
+  every video output and the VBLANK IRQ on every clk2x (`VC 1` in the vector file); the run reports `video_mismatches`
+  and the number of non-black pixels compared. The other suites do not compare video: with drawing in flight the
+  line fetch timing differs between units.
 
 ## Measurements
 
@@ -420,3 +481,26 @@ How far these figures overstate a game:
 - `bwmodel.py` also prints a peak per scanline (`peak/line`). For an open-loop trace it only shows
   that some line-length window is saturated: it reads 99.9% at either clock and says nothing about
   how long the GPU would stall.
+
+### B6 area v2 (rect, transfer engine, video out)
+
+Fitter "ALMs needed" for `gpu_pocket`. In context is `sizing/psx_pocket_a6_gpu.qsf` (5CSEBA6, whole core); the fitter's noise between
+runs is about ±25 ALMs per entity.
+
+| Unit | Before (standalone) | After (standalone) | Saving | After, in context |
+|---|---|---|---|---|
+| rect (`gpu_rect` / `gpu_rect_pocket`) | 299.7 | 209.6 (rect alone in the tree: 204.8) | 90 to 95 | 216.8 |
+| fill + upload + copy + download (4 units / `gpu_copy_pocket`, FIFO included) | 329.4 | 247.0 | 82 | 245.8 |
+| video out (`gpu_videoout` + `_sync` / `gpu_videoout_pocket`) | 260.2 | 233.1 | 27 | 199.6 |
+| `gpu_pocket` total | 4,785.3 | **4,592.0** | 193 | **4,449.4** (before: 4,620.3) |
+
+DSP 10 of 66 (unchanged). Timing, standalone at clk2x 67.7376 MHz: setup +0.818 ns (slow 85 C), +0.393 ns (slow 0 C), hold +0.281 ns.
+In context the sizing revision has no SDC, so its slack is as negative as before (clk2x -11.246 ns against -11.363 ns for
+`psx_pocket_a6`): no regression, no verdict.
+
+**Gate (4,000 in context): not met, 4,449.4.** Not done: the rectangle through the polygon unit (would remove the 217 ALMs
+of `gpu_rect_pocket` for an estimated 60 to 80 in `gpu_poly_pocket`, but needs a rectangle mode in a copy of that unit, since the
+two-triangle route changes the write order), and line-unit width trims (`workx/worky`, `stepDx/Dy`: the 32-bit fractions
+are not provably removable).
+`psx_pocket_a6.qsf` and `pocket/psx/fpga/ap_core.qsf` list the RTL files and need `gpu_rect_pocket.vhd`, `gpu_copy_pocket.vhd` and
+`gpu_videoout_pocket.vhd` added.

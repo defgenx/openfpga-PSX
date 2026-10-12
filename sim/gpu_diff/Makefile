@@ -1,6 +1,7 @@
 # GPU differential test: frozen gpu vs gpu_dut under nvc (VHDL-2008), one VRAM model per side.
 #
 #   make golden                golden vs golden, smoke test of the harness
+#   make video                 golden vs gpu_pocket video outputs, cycle by cycle, one display mode per seed (VSEEDS)
 #   make selftest              fault injection: each injected fault must be reported exactly
 #   make diff                  golden vs gpu_pocket (needs POCKET_SRCS, see pocket.mk)
 #   make trace SEED=n          VRAM access trace of the game-like suite: golden -> run/trace_sN.txt,
@@ -102,6 +103,11 @@ ifeq ($(strip $(POCKET_ABS)),)
 else
 	@$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) diff-run
 endif
+
+.PHONY: video
+VSEEDS ?= 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+video:
+	@$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) diff SUITES=video SEEDS="$(VSEEDS)"
 
 .PHONY: diff-run
 diff-run: $(RESULTS_pocket)

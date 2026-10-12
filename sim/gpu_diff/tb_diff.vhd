@@ -83,6 +83,8 @@ architecture arch of tb_diff is
    );
    ---------------------------------------------------------------- end TIE-OFF block
 
+   signal opts_s : t_gpu_opts := OPTS;   -- vector op "OPT name 0|1" changes the live options of the video suite
+
    constant HALF2X : time := 7382 ps;
    constant NOBUSY_WAIT : integer := 40;   -- idle wait for commands that never drop GPUSTAT bit 26
 
@@ -110,6 +112,11 @@ architecture arch of tb_diff is
    signal d_errs        : std_logic_vector(5 downto 0);
    signal g_irq         : std_logic;
    signal d_irq         : std_logic;
+   signal g_vid, d_vid  : std_logic_vector(76 downto 0);
+   signal vid_on        : std_logic := '0';          -- vector op "VC 1": compare the video outputs every clk2x
+   signal vid_mm        : integer := 0;
+   signal vid_cmp       : integer := 0;
+   signal vid_px        : integer := 0;               -- compared pixels (ce, not blanked) with a non-zero colour
 
    signal g_mon_we, g_mon_re, d_mon_we, d_mon_re : std_logic;
    signal g_mon_addr, d_mon_addr   : std_logic_vector(27 downto 0);
@@ -293,9 +300,9 @@ begin
    )
    port map
    (
-      clk1x => clk1x, clk2x => clk2x, clk2xIndex => clk2xIndex, clkvid => clkvid, reset => reset, ss_reset => ss_reset, opts => OPTS,
+      clk1x => clk1x, clk2x => clk2x, clk2xIndex => clk2xIndex, clkvid => clkvid, reset => reset, ss_reset => ss_reset, opts => opts_s,
       bus_addr => bus_addr, bus_dataWrite => bus_dataWrite, bus_read => bus_read, bus_write => bus_write,
-      bus_dataRead => g_dataRead, bus_stall => g_stall, gpus => g_gpus, errs => g_errs, irq_vblank => g_irq,
+      bus_dataRead => g_dataRead, bus_stall => g_stall, gpus => g_gpus, errs => g_errs, irq_vblank => g_irq, vid => g_vid,
       mon_we => g_mon_we, mon_re => g_mon_re, mon_addr => g_mon_addr, mon_din => g_mon_din, mon_be => g_mon_be,
       mon_burst => g_mon_burst, dump_idx => dump_idx, dump_q => g_dump_q
    );
@@ -313,9 +320,9 @@ begin
    )
    port map
    (
-      clk1x => clk1x, clk2x => clk2x, clk2xIndex => clk2xIndex, clkvid => clkvid, reset => reset, ss_reset => ss_reset, opts => OPTS,
+      clk1x => clk1x, clk2x => clk2x, clk2xIndex => clk2xIndex, clkvid => clkvid, reset => reset, ss_reset => ss_reset, opts => opts_s,
       bus_addr => bus_addr, bus_dataWrite => bus_dataWrite, bus_read => bus_read, bus_write => bus_write,
-      bus_dataRead => d_dataRead, bus_stall => d_stall, gpus => d_gpus, errs => d_errs, irq_vblank => d_irq,
+      bus_dataRead => d_dataRead, bus_stall => d_stall, gpus => d_gpus, errs => d_errs, irq_vblank => d_irq, vid => d_vid,
       mon_we => d_mon_we, mon_re => d_mon_re, mon_addr => d_mon_addr, mon_din => d_mon_din, mon_be => d_mon_be,
       mon_burst => d_mon_burst, dump_idx => dump_idx, dump_q => d_dump_q
    );
@@ -352,6 +359,24 @@ begin
          end if;
          err_g <= err_g or g_errs;
          err_d <= err_d or d_errs;
+      end if;
+   end process;
+
+   ---------------------------------------------------------------- video outputs (video suite)
+   -- Cycle-exact: with no drawing in flight the video path is a function of the display registers and VRAM alone.
+   process (clk2x)
+   begin
+      if rising_edge(clk2x) then
+         if vid_on = '1' then
+            vid_cmp <= vid_cmp + 1;
+            if g_vid(72) = '1' and g_vid(74) = '0' and g_vid(66 downto 43) /= x"000000" then vid_px <= vid_px + 1; end if;
+            if g_vid /= d_vid or g_irq /= d_irq then
+               vid_mm <= vid_mm + 1;
+               if vid_mm < G_MAX_REPORT then
+                  say("MISMATCH video cyc=" & integer'image(cyc) & " gold=" & to_hstring("000" & g_vid) & " dut=" & to_hstring("000" & d_vid));
+               end if;
+            end if;
+         end if;
       end if;
    end process;
 
@@ -578,6 +603,8 @@ begin
       variable nwords           : integer;
       variable suite            : string(1 to 16) := "unknown         ";
       variable suite_len        : integer := 7;
+      variable opt_name         : string(1 to 32);
+      variable opt_len          : integer := 0;
 
       variable fifo_words       : integer := 0;
       variable arm_v            : integer := 0;
@@ -898,6 +925,27 @@ begin
             gettok;
             idle_clk1x(parse_int(tok(1 to tl)));
 
+         elsif tok(1 to tl) = "OPT" then
+            gettok;
+            opt_name := (others => ' ');
+            opt_name(1 to tl) := tok(1 to tl);
+            opt_len := tl;
+            gettok;
+            if opt_name(1 to opt_len) = "pal60" then opts_s.pal60 <= to_sl(tok(1) = '1');
+            elsif opt_name(1 to opt_len) = "syncInterlace" then opts_s.syncInterlace <= to_sl(tok(1) = '1');
+            elsif opt_name(1 to opt_len) = "fixedVBlank" then opts_s.fixedVBlank <= to_sl(tok(1) = '1');
+            elsif opt_name(1 to opt_len) = "isPal" then opts_s.isPal <= to_sl(tok(1) = '1');
+            elsif opt_name(1 to opt_len) = "videoout_on" then opts_s.videoout_on <= to_sl(tok(1) = '1');
+            else
+               say("ERROR unknown option " & opt_name(1 to opt_len));
+               stim_err := stim_err + 1;
+               abort := true;
+            end if;
+
+         elsif tok(1 to tl) = "VC" then
+            gettok;
+            if tok(1) = '1' then vid_on <= '1'; else vid_on <= '0'; end if;
+
          else
             say("ERROR unknown vector op " & tok(1 to tl));
             stim_err := stim_err + 1;
@@ -968,11 +1016,13 @@ begin
          say("COV " & suite(1 to suite_len) & " tag_" & tag_name(i)(1 to tag_len(i)) & " " & integer'image(tag_cnt(i)));
       end loop;
 
-      fail := (mm_wr + mm_span + vram_mm + mm_rd + stim_err > 0) or sg.count /= 0 or sd.count /= 0 or err_g(5) = '1' or
+      say("VIDEO compared=" & integer'image(vid_cmp) & " pixels=" & integer'image(vid_px) & " mismatches=" & integer'image(vid_mm));
+      fail := (mm_wr + mm_span + vram_mm + mm_rd + stim_err + vid_mm > 0) or sg.count /= 0 or sd.count /= 0 or err_g(5) = '1' or
               (G_TIMING_STRICT and (timing_diffs + stat_diffs > 0)) or sc_viol > 0 or
               qg.count /= 0 or qd.count /= 0;
       say("RESULT commands=" & integer'image(n_cmds) & " prims=" & integer'image(prim_v) & " words=" & integer'image(n_words) &
           " wr_mismatches=" & integer'image(mm_wr + qg.count + qd.count) & " span_mismatches=" & integer'image(mm_span + sg.count + sd.count) & " vram_mismatches=" & integer'image(vram_mm) &
+          " video_mismatches=" & integer'image(vid_mm) &
           " rd_mismatches=" & integer'image(mm_rd) & " stim_errors=" & integer'image(stim_err) &
           " timing_diffs=" & integer'image(timing_diffs) & " stat_diffs=" & integer'image(stat_diffs) &
           " timing_maxdelta=" & integer'image(timing_maxdelta) & " cycles=" & integer'image(cyc) & " " & verdict(fail));

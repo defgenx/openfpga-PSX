@@ -37,6 +37,7 @@ entity gpu_side is
       gpus             : out std_logic_vector(31 downto 0);   -- live GPUSTAT
       errs             : out std_logic_vector(5 downto 0);    -- LINE, RECT, POLY, GPU, MASK, FIFO
       irq_vblank       : out std_logic;
+      vid              : out std_logic_vector(76 downto 0);   -- video outputs, compared by the video suite
 
       mon_we           : out std_logic;
       mon_re           : out std_logic;
@@ -62,10 +63,21 @@ architecture arch of gpu_side is
    signal vram_WE         : std_logic;
    signal vram_RD         : std_logic;
    signal gpus_u          : unsigned(31 downto 0);
+   signal v_hblank_tmr, v_vblank_tmr, v_dotclock, v_hsync, v_vsync, v_hblank, v_vblank, v_ce, v_interlace, v_isPal : std_logic;
+   signal v_width         : unsigned(10 downto 0);
+   signal v_height        : unsigned(9 downto 0);
+   signal v_offx          : unsigned(9 downto 0);
+   signal v_offy          : unsigned(8 downto 0);
+   signal v_r, v_g, v_b   : std_logic_vector(7 downto 0);
+   signal v_hres          : std_logic_vector(2 downto 0);
 
 begin
 
    gpus <= std_logic_vector(gpus_u);
+
+   vid <= v_hsync & v_vsync & v_hblank & v_vblank & v_ce & v_interlace & v_isPal & v_hres & v_r & v_g & v_b &
+          std_logic_vector(v_width) & std_logic_vector(v_height) & std_logic_vector(v_offx) & std_logic_vector(v_offy) &
+          v_hblank_tmr & v_vblank_tmr & v_dotclock;
 
    ivram : entity work.vram_model
    generic map
@@ -182,26 +194,26 @@ begin
             vram_BE               => vram_BE,
             vram_WE               => vram_WE,
             vram_RD               => vram_RD,
-            hblank_tmr            => open,
-            vblank_tmr            => open,
-            dotclock              => open,
-            video_hsync           => open,
-            video_vsync           => open,
-            video_hblank          => open,
-            video_vblank          => open,
-            video_DisplayWidth    => open,
-            video_DisplayHeight   => open,
-            video_DisplayOffsetX  => open,
-            video_DisplayOffsetY  => open,
-            video_ce              => open,
-            video_interlace       => open,
-            video_r               => open,
-            video_g               => open,
-            video_b               => open,
-            video_isPal           => open,
+            hblank_tmr            => v_hblank_tmr,
+            vblank_tmr            => v_vblank_tmr,
+            dotclock              => v_dotclock,
+            video_hsync           => v_hsync,
+            video_vsync           => v_vsync,
+            video_hblank          => v_hblank,
+            video_vblank          => v_vblank,
+            video_DisplayWidth    => v_width,
+            video_DisplayHeight   => v_height,
+            video_DisplayOffsetX  => v_offx,
+            video_DisplayOffsetY  => v_offy,
+            video_ce              => v_ce,
+            video_interlace       => v_interlace,
+            video_r               => v_r,
+            video_g               => v_g,
+            video_b               => v_b,
+            video_isPal           => v_isPal,
             video_fbmode          => open,
             video_fb24            => open,
-            video_hResMode        => open,
+            video_hResMode        => v_hres,
             video_frameindex      => open,
             export_gtm            => open,
             export_line           => open,
@@ -304,26 +316,26 @@ begin
             vram_BE               => vram_BE,
             vram_WE               => vram_WE,
             vram_RD               => vram_RD,
-            hblank_tmr            => open,
-            vblank_tmr            => open,
-            dotclock              => open,
-            video_hsync           => open,
-            video_vsync           => open,
-            video_hblank          => open,
-            video_vblank          => open,
-            video_DisplayWidth    => open,
-            video_DisplayHeight   => open,
-            video_DisplayOffsetX  => open,
-            video_DisplayOffsetY  => open,
-            video_ce              => open,
-            video_interlace       => open,
-            video_r               => open,
-            video_g               => open,
-            video_b               => open,
-            video_isPal           => open,
+            hblank_tmr            => v_hblank_tmr,
+            vblank_tmr            => v_vblank_tmr,
+            dotclock              => v_dotclock,
+            video_hsync           => v_hsync,
+            video_vsync           => v_vsync,
+            video_hblank          => v_hblank,
+            video_vblank          => v_vblank,
+            video_DisplayWidth    => v_width,
+            video_DisplayHeight   => v_height,
+            video_DisplayOffsetX  => v_offx,
+            video_DisplayOffsetY  => v_offy,
+            video_ce              => v_ce,
+            video_interlace       => v_interlace,
+            video_r               => v_r,
+            video_g               => v_g,
+            video_b               => v_b,
+            video_isPal           => v_isPal,
             video_fbmode          => open,
             video_fb24            => open,
-            video_hResMode        => open,
+            video_hResMode        => v_hres,
             video_frameindex      => open,
             export_gtm            => open,
             export_line           => open,

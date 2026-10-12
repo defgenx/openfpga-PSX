@@ -15,6 +15,8 @@ Vector file: one op per line, '#' comment, all words 8 hex digits, numbers decim
   RG n                n GPUREAD reads without waiting (GPU info results)
   RDS n               wait for the command to start, then n GPUREAD reads relying on bus_stall
   W n                 n idle clk1x cycles
+  OPT name 0|1        set a live GPU option (pal60 syncInterlace fixedVBlank isPal videoout_on)
+  VC 0|1              compare the video outputs every clk2x
 suites: directed (every command class), edge (degenerate, limits, clipping, wrap, mask, interlace),
         uniform (any word, magnitudes vary), game (on-screen 320x240, textured), random = uniform + game
         (--count primitives in total), smoke (short, ends with a draw; used by selftest).
@@ -573,9 +575,123 @@ def suite_smoke(g):
     g.rs()
 
 
+def suite_xfer(g, count):
+    """Transfer commands (fill, upload, copy, download) with random sizes, overlaps and wraps, and GP1 01 (clear FIFO)
+    in the middle of an upload or a download."""
+    r = g.r
+    g.setup()
+    g.upload(0, 0, 64, 64)
+    for _ in range(count):
+        k = r.randrange(8)
+        x, y = r.randrange(1024), r.randrange(512)
+        w = r.choice([0, 1, 2, 3, 4, 5, 7, 8, 15, 16, 17, 31, 63, 64, 100, 255, 256, 511, 513, 1023])
+        h = r.choice([0, 1, 2, 3, 5, 8, 16, 33])
+        if k == 0:
+            g.fill(x & ~15, y, w, h)
+        elif k == 1:
+            g.upload(x, y, w, h)
+        elif k == 2:
+            g.download(x, y, w, h)
+        elif k == 3:
+            g.copy(x, y, (x + r.choice([0, 1, 2, 3, 7, 64, w, 1023])) & 1023, (y + r.choice([0, 1, 3, 100, 511])) & 511, w, h)
+        elif k == 4:
+            g.copy(x, y, (x - r.choice([0, 1, 2, 3, 7, 64, w, 1023])) & 1023, y, w, h)
+        elif k == 5:
+            # upload cut short, then clear FIFO
+            n = (((w or 1024) * (h or 512)) + 1) // 2
+            have = r.randrange(n)
+            g.t("upload")
+            g.q([0xA0000000, xy(x, y), (h << 16) | w] + [r.randrange(1 << 32) for _ in range(have)])
+            g.w(r.randrange(10, 120))
+            g.g1(0x01000000)
+            g.idle()
+            g.fill(0, 0, 16, 1)
+        elif k == 6:
+            # download read only partly, then clear FIFO
+            n = (((w or 1024) * (h or 512)) + 1) // 2
+            g.t("download")
+            g.q([0xC0000000, xy(x, y), (h << 16) | w])
+            g.out.append("RD %d" % r.randrange(1, min(n, 40) + 1))
+            g.w(r.randrange(0, 200))
+            g.g1(0x01000000)
+            g.idle()
+            g.download(x, y, 8, 2)
+        else:
+            g.fill(x & ~15, y, w, h)
+            g.rs()
+    g.rs()
+
+
+# (hres1, hres2, vres, interlace, pal, depth24, offx, offy, vstart, vend, options) per seed. An interlaced window
+# stays within 256 lines: the golden's unused async path raises a range error above 512 doubled lines.
+VIDEO_MODES = [
+    (0, 0, 0, 0, 0, 0, 0, 0, 16, 256, ()),
+    (1, 0, 0, 0, 0, 0, 3, 5, 16, 256, ()),
+    (2, 0, 0, 0, 1, 0, 0, 0, 20, 308, ()),
+    (3, 0, 1, 1, 0, 0, 0, 1, 16, 256, ()),
+    (0, 1, 0, 0, 0, 0, 2, 0, 16, 256, ()),
+    (1, 0, 0, 0, 0, 1, 1, 0, 16, 256, ()),
+    (3, 0, 1, 1, 1, 1, 0, 0, 20, 276, ()),
+    (0, 0, 0, 0, 0, 1, 2, 3, 16, 256, ()),
+    (2, 0, 1, 1, 0, 0, 1, 0, 16, 256, ()),
+    (1, 0, 0, 0, 1, 0, 0, 0, 8, 250, ()),
+    (1, 0, 0, 0, 0, 0, 1, 0, 4, 250, ("toggle",)),
+    (1, 0, 0, 0, 1, 0, 0, 0, 20, 308, (("pal60", 1),)),
+    (3, 0, 1, 1, 0, 0, 0, 0, 16, 256, (("syncInterlace", 1),)),
+    (1, 0, 0, 0, 0, 0, 0, 0, 16, 256, (("fixedVBlank", 1),)),
+    (1, 0, 1, 1, 1, 0, 3, 2, 20, 276, ()),
+    (2, 0, 1, 0, 0, 0, 0, 0, 16, 256, ()),
+]
+
+
+def suite_video(g, seed):
+    """Display configurations over a painted VRAM, then idle frames; tb_diff compares the video outputs every clk2x."""
+    (hres, hres2, vres, il, pal, d24, ox, oy, vs, ve, opts) = VIDEO_MODES[(seed - 1) % len(VIDEO_MODES)]
+    r = g.r
+    g.g1(0x00000000)
+    g.g1(0x04000000)
+    for o in opts:
+        if o != "toggle":
+            g.out.append("OPT %s %d" % o)
+    if pal:
+        g.out.append("OPT isPal 1")
+    g.g1(0x08000000 | hres | vres << 2 | pal << 3 | d24 << 4 | il << 5 | hres2 << 6)
+    g.g1(0x05000000 | (oy << 10) | ox)
+    g.g1(0x07000000 | vs | (ve << 10))
+    g.g1(0x03000000)
+    g.e1(depth=2)
+    g.area(0, 0, 1023, 511)
+    g.offset(0, 0)
+    # colour bands (fill widths are multiples of 16) and random rows over the displayed area
+    for i in range(8):
+        g.fill(i * 128, 0, 128, 512)
+    for y in (oy, oy + 1, oy + 2, oy + 7, oy + 30, oy + 119, oy + 120, oy + 239):
+        g.upload(0, y, 640, 1)
+    g.upload(ox & ~3, oy + 3, 8, 2)
+    g.idle()
+    g.out.append("VC 1")
+    frames = 3
+    per_frame = 580000 if not pal else 690000
+    for f in range(frames):
+        g.w(per_frame // 2)
+        if "toggle" in opts and f == 0:
+            g.g1(0x03000001)
+            g.w(150000)
+            g.g1(0x03000000)
+            g.out.append("OPT videoout_on 0")
+            g.w(150000)
+            g.out.append("OPT videoout_on 1")
+        elif f == 0:
+            g.g1(0x05000000 | ((oy + 1) << 10) | (ox + 1))
+        elif f == 1:
+            g.g1(0x07000000 | (vs + 3) | ((ve - 5) << 10))
+        g.w(per_frame // 2)
+    g.out.append("VC 0")
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--suite", required=True, choices=["directed", "edge", "random", "uniform", "game", "smoke"])
+    ap.add_argument("--suite", required=True, choices=["directed", "edge", "random", "uniform", "game", "smoke", "video", "xfer"])
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--count", type=int, default=2000)
     ap.add_argument("--tail", type=int, default=0, help="idle clk1x cycles appended to the game suite (video scan-out)")
@@ -587,6 +703,10 @@ def main():
         suite_directed(g)
     elif name == "edge":
         suite_edge(g)
+    elif name == "video":
+        suite_video(g, a.seed)
+    elif name == "xfer":
+        suite_xfer(g, a.count // 4)
     elif name == "uniform":
         suite_uniform(g, a.count)
     elif name == "game":

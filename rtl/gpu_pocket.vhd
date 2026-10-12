@@ -243,42 +243,23 @@ architecture arch of gpu_pocket is
    signal line_slot0_upd            : std_logic;
    signal line_slot0_val            : std_logic;
 
-   signal vramFill_requestFifo      : std_logic;
-   signal vramFill_done             : std_logic;
-   signal vramFill_pixelColor       : std_logic_vector(15 downto 0);
-   signal vramFill_pixelAddr        : unsigned(19 downto 0);
-   signal vramFill_pixelWrite       : std_logic;
-
-   signal cpu2vram_requestFifo      : std_logic;
-   signal cpu2vram_done             : std_logic;
-   signal cpu2vram_pixelColor       : std_logic_vector(15 downto 0);
-   signal cpu2vram_pixelAddr        : unsigned(19 downto 0);
-   signal cpu2vram_pixelWrite       : std_logic;
-
-   signal vram2vram_requestFifo     : std_logic;
-   signal vram2vram_done            : std_logic;
-   signal vram2vram_pixelColor      : std_logic_vector(15 downto 0);
-   signal vram2vram_pixelAddr       : unsigned(19 downto 0);
-   signal vram2vram_pixelWrite      : std_logic;
-   signal vram2vram_reqVRAMEnable   : std_logic;
-   signal vram2vram_reqVRAMXPos     : unsigned(9 downto 0);
-   signal vram2vram_reqVRAMYPos     : unsigned(8 downto 0);
-   signal vram2vram_reqVRAMSize     : unsigned(10 downto 0);
-   signal vram2vram_vramLineEna     : std_logic;
-   signal vram2vram_vramLineAddr    : unsigned(9 downto 0);
-
-   signal vram2cpu_requestFifo      : std_logic;
-   signal vram2cpu_done             : std_logic;
-   signal vram2cpu_reqVRAMEnable    : std_logic;
-   signal vram2cpu_reqVRAMXPos      : unsigned(9 downto 0);
-   signal vram2cpu_reqVRAMYPos      : unsigned(8 downto 0);
-   signal vram2cpu_reqVRAMSize      : unsigned(10 downto 0);
-   signal vram2cpu_vramLineEna      : std_logic;
-   signal vram2cpu_vramLineAddr     : unsigned(9 downto 0);
-   signal vram2cpu_Fifo_Dout        : std_logic_vector(31 downto 0);
-   signal vram2cpu_Fifo_Rd          : std_logic;
-   signal vram2cpu_Fifo_Empty       : std_logic;
-   signal vram2cpu_Fifo_ready       : std_logic;
+   -- transfer engine: fill, CPU to VRAM, VRAM to VRAM, VRAM to CPU
+   signal copy_requestFifo          : std_logic;
+   signal copy_done                 : std_logic;
+   signal copy_doneWr               : std_logic;
+   signal copy_pixelColor           : std_logic_vector(15 downto 0);
+   signal copy_pixelAddr            : unsigned(19 downto 0);
+   signal copy_pixelWrite           : std_logic;
+   signal copy_fillWrite            : std_logic;
+   signal copy_reqVRAMEnable        : std_logic;
+   signal copy_reqVRAMXPos          : unsigned(9 downto 0);
+   signal copy_reqVRAMYPos          : unsigned(8 downto 0);
+   signal copy_reqVRAMSize          : unsigned(10 downto 0);
+   signal copy_vramLineAddr         : unsigned(9 downto 0);
+   signal copy_Fifo_Dout            : std_logic_vector(31 downto 0);
+   signal copy_Fifo_Rd              : std_logic;
+   signal copy_Fifo_Empty           : std_logic;
+   signal copy_Fifo_ready           : std_logic;
 
    signal line_requestFifo          : std_logic;
    signal line_done                 : std_logic;
@@ -420,18 +401,6 @@ architecture arch of gpu_pocket is
    signal videoout_reqVRAMYPos      : unsigned(8 downto 0);
    signal videoout_reqVRAMSize      : unsigned(10 downto 0);
 
-   -- video-out reset state: the golden's ss_timing_in after SS_reset (gpu.vhd:1982-1991), all zero
-   constant videoout_ss_in          : tvideoout_ss :=
-   (
-      interlacedDisplayField => '0',
-      nextHCount             => (others => '0'),
-      vpos                   => (others => '0'),
-      vdisp                  => (others => '0'),
-      inVsync                => '0',
-      activeLineLSB          => '0',
-      GPUSTAT_InterlaceField => '0',
-      GPUSTAT_DrawingOddline => '0'
-   );
    signal videoout_ss_out           : tvideoout_ss;
 
    -- Read size rounded up to whole 4x16-bit words, one word more when an unaligned start spills into it,
@@ -512,7 +481,7 @@ begin
    GPUSTAT_DMADataRequest <= '0' when (GPUSTAT_DMADirection = "00") else
                              GPUSTAT_ReadyRecDMA when (GPUSTAT_DMADirection = "01") else
                              GPUSTAT_ReadyRecDMA when (GPUSTAT_DMADirection = "10") else
-                             not vram2cpu_Fifo_Empty; -- GPUSTAT_ReadySendVRAM cannot be used, because data is read earlier
+                             not copy_Fifo_Empty; -- GPUSTAT_ReadySendVRAM cannot be used, because data is read earlier
 
    -- video out
    irq_VBLANK             <= videoout_reports.irq_VBLANK;
@@ -564,14 +533,14 @@ begin
             if (bus_read = '1') then
                if (bus_addr(3 downto 2) = "00") then
 
-                  if (vram2cpu_Fifo_Empty = '0') then
-                     bus_dataRead <= vram2cpu_Fifo_Dout;
-                     GPUREAD      <= vram2cpu_Fifo_Dout;
+                  if (copy_Fifo_Empty = '0') then
+                     bus_dataRead <= copy_Fifo_Dout;
+                     GPUREAD      <= copy_Fifo_Dout;
                   else
                      bus_dataRead <= GPUREAD;
                   end if;
 
-                  if (vram2cpu_Fifo_ready = '0') then
+                  if (copy_Fifo_ready = '0') then
                      bus_stall <= '1';
                   end if;
 
@@ -582,9 +551,9 @@ begin
                end if;
             end if;
 
-            if (bus_stall = '1' and vram2cpu_Fifo_ready = '1') then
-               bus_dataRead <= vram2cpu_Fifo_Dout;
-               GPUREAD      <= vram2cpu_Fifo_Dout;
+            if (bus_stall = '1' and copy_Fifo_ready = '1') then
+               bus_dataRead <= copy_Fifo_Dout;
+               GPUREAD      <= copy_Fifo_Dout;
                bus_stall    <= '0';
             end if;
 
@@ -853,7 +822,7 @@ begin
                GPUSTAT_ReadyRecCmd  <= '1';
             end if;
 
-            if (vramFill_done = '1' or cpu2vram_done = '1' or vram2vram_done = '1') then
+            if (copy_doneWr = '1') then
                pipeline_clearCacheTexture <= '1';
             end if;
 
@@ -884,143 +853,64 @@ begin
       end if;
    end process;
 
-   proc_done        <= vramFill_done        or cpu2vram_done        or vram2vram_done        or vram2cpu_done        or line_done        or rect_done        or poly_done       ;
-   proc_requestFifo <= vramFill_requestFifo or cpu2vram_requestFifo or vram2vram_requestFifo or vram2cpu_requestFifo or line_requestFifo or rect_requestFifo or poly_requestFifo;
+   proc_done        <= copy_done        or line_done        or rect_done        or poly_done       ;
+   proc_requestFifo <= copy_requestFifo or line_requestFifo or rect_requestFifo or poly_requestFifo;
 
    pixelStall <= fifoOut_NearFull;
 
    -- workers
-   igpu_fillVram : entity work.gpu_fillVram
+   copy_Fifo_Rd <= '1' when (copy_Fifo_Empty = '0' and clk2xIndex = '0' and DMA_GPU_readEna = '1') else
+                   '1' when (copy_Fifo_Empty = '0' and clk2xIndex = '0' and bus_read = '1' and bus_addr(3 downto 2) = "00") else
+                   '1' when (copy_Fifo_Empty = '0' and clk2xIndex = '0' and bus_stall = '1') else
+                   '0';
+
+   DMA_GPU_read <= copy_Fifo_Dout when (copy_Fifo_Empty = '0') else (others => '1');
+
+   GPUSTAT_ReadySendVRAM <= not copy_Fifo_Empty;
+
+   igpu_copy : entity work.gpu_copy_pocket
    port map
    (
       clk2x                => clk2x,
-      clk2xIndex           => clk2xIndex,
       ce                   => ce,
       reset                => softreset,
-
-      REPRODUCIBLEGPUTIMING=> '0',
+      drawer_reset         => drawer_reset,
 
       interlacedDrawing    => interlacedDrawing,
       activeLineLSB        => videoout_reports.activeLineLSB,
-
-      proc_idle            => proc_idle,
-      fifo_Valid           => fifoIn_Valid,
-      fifo_data            => fifoIn_Dout,
-      requestFifo          => vramFill_requestFifo,
-      done                 => vramFill_done,
-
-      pixelStall           => pixelStall,
-      pixelColor           => vramFill_pixelColor,
-      pixelAddr            => vramFill_pixelAddr,
-      pixelWrite           => vramFill_pixelWrite
-   );
-
-   igpu_cpu2vram : entity work.gpu_cpu2vram
-   port map
-   (
-      clk2x                => clk2x,
-      clk2xIndex           => clk2xIndex,
-      ce                   => ce,
-      reset                => softreset,
-      drawer_reset         => drawer_reset,
-
-      DrawPixelsMask       => GPUSTAT_DrawPixelsMask,
-      SetMask              => GPUSTAT_SetMask,
-      errorMASK            => open,
-
-      proc_idle            => proc_idle,
-      fifo_Valid           => fifoIn_Valid,
-      fifo_data            => fifoIn_Dout,
-      requestFifo          => cpu2vram_requestFifo,
-      done                 => cpu2vram_done,
-
-      pixelStall           => pixelStall,
-      pixelColor           => cpu2vram_pixelColor,
-      pixelAddr            => cpu2vram_pixelAddr,
-      pixelWrite           => cpu2vram_pixelWrite
-   );
-
-   igpu_vram2vram : entity work.gpu_vram2vram
-   port map
-   (
-      clk2x                => clk2x,
-      clk2xIndex           => clk2xIndex,
-      ce                   => ce,
-      reset                => softreset,
-
       DrawPixelsMask       => GPUSTAT_DrawPixelsMask,
       SetMask              => GPUSTAT_SetMask,
 
-      REPRODUCIBLEGPUTIMING=> '0',
-
       proc_idle            => proc_idle,
       fifo_Valid           => fifoIn_Valid,
       fifo_data            => fifoIn_Dout,
-      requestFifo          => vram2vram_requestFifo,
-      done                 => vram2vram_done,
+      requestFifo          => copy_requestFifo,
+      done                 => copy_done,
+      doneWr               => copy_doneWr,
 
       pipeline_busy        => pipeline_busy,
       fifoOut_idle         => fifoOut_idle,
-      requestVRAMEnable    => vram2vram_reqVRAMEnable,
-      requestVRAMXPos      => vram2vram_reqVRAMXPos,
-      requestVRAMYPos      => vram2vram_reqVRAMYPos,
-      requestVRAMSize      => vram2vram_reqVRAMSize,
-      requestVRAMIdle      => reqVRAMIdle,
-      requestVRAMDone      => reqVRAMDone,
-
-      vramLineEna          => vram2vram_vramLineEna,
-      vramLineAddr         => vram2vram_vramLineAddr,
-      vramLineData         => vramLineData,
-
       pixelEmpty           => fifoOut_Empty,
       pixelStall           => pixelStall,
-      pixelColor           => vram2vram_pixelColor,
-      pixelAddr            => vram2vram_pixelAddr,
-      pixelWrite           => vram2vram_pixelWrite
-   );
+      pixelColor           => copy_pixelColor,
+      pixelAddr            => copy_pixelAddr,
+      pixelWrite           => copy_pixelWrite,
+      fillWrite            => copy_fillWrite,
 
-   vram2cpu_Fifo_Rd <= '1' when (vram2cpu_Fifo_Empty = '0' and clk2xIndex = '0' and DMA_GPU_readEna = '1') else
-                       '1' when (vram2cpu_Fifo_Empty = '0' and clk2xIndex = '0' and bus_read = '1' and bus_addr(3 downto 2) = "00") else
-                       '1' when (vram2cpu_Fifo_Empty = '0' and clk2xIndex = '0' and bus_stall = '1') else
-                       '0';
-
-   DMA_GPU_read <= vram2cpu_Fifo_Dout when (vram2cpu_Fifo_Empty = '0') else (others => '1');
-
-   GPUSTAT_ReadySendVRAM <= not vram2cpu_Fifo_Empty;
-
-   igpu_vram2cpu : entity work.gpu_vram2cpu
-   port map
-   (
-      clk2x                => clk2x,
-      ce                   => ce,
-      reset                => softreset,
-      drawer_reset         => drawer_reset,
-
-      REPRODUCIBLEGPUTIMING=> '0',
-
-      proc_idle            => proc_idle,
-      fifo_Valid           => fifoIn_Valid,
-      fifo_data            => fifoIn_Dout,
-      requestFifo          => vram2cpu_requestFifo,
-      done                 => vram2cpu_done,
-
-      pipeline_busy        => pipeline_busy,
-      fifoOut_idle         => fifoOut_idle,
-      requestVRAMEnable    => vram2cpu_reqVRAMEnable,
-      requestVRAMXPos      => vram2cpu_reqVRAMXPos,
-      requestVRAMYPos      => vram2cpu_reqVRAMYPos,
-      requestVRAMSize      => vram2cpu_reqVRAMSize,
+      requestVRAMEnable    => copy_reqVRAMEnable,
+      requestVRAMXPos      => copy_reqVRAMXPos,
+      requestVRAMYPos      => copy_reqVRAMYPos,
+      requestVRAMSize      => copy_reqVRAMSize,
       requestVRAMIdle      => reqVRAMIdle,
       requestVRAMDone      => reqVRAMDone,
 
-      vramLineEna          => vram2cpu_vramLineEna,
-      vramLineAddr         => vram2cpu_vramLineAddr,
+      vramLineAddr         => copy_vramLineAddr,
       vramLineData         => vramLineData,
 
-      Fifo_Dout            => vram2cpu_Fifo_Dout,
-      Fifo_Rd              => vram2cpu_Fifo_Rd,
-      Fifo_Empty           => vram2cpu_Fifo_Empty,
-      Fifo_ready           => vram2cpu_Fifo_ready
+      Fifo_Dout            => copy_Fifo_Dout,
+      Fifo_Rd              => copy_Fifo_Rd,
+      Fifo_Empty           => copy_Fifo_Empty,
+      Fifo_ready           => copy_Fifo_ready
    );
 
    igpu_line : entity work.gpu_line_pocket
@@ -1081,17 +971,12 @@ begin
       vramLineAddr         => line_vramLineAddr
    );
 
-   igpu_rect : entity work.gpu_rect
+   igpu_rect : entity work.gpu_rect_pocket
    port map
    (
       clk2x                => clk2x,
-      clk2xIndex           => clk2xIndex,
       ce                   => ce,
       reset                => softreset,
-
-      REPRODUCIBLEGPUTIMING=> '0',
-
-      error                => open,
 
       DrawPixelsMask       => GPUSTAT_DrawPixelsMask,
       interlacedDrawing    => interlacedDrawing,
@@ -1348,9 +1233,9 @@ begin
       end if;
    end process;
 
-   pixelColor  <= cpu2vram_pixelColor or vram2vram_pixelColor or pipeline_pixelColor;
-   pixelAddr   <= cpu2vram_pixelAddr  or vram2vram_pixelAddr  or pipeline_pixelAddr ;
-   pixelWrite  <= cpu2vram_pixelWrite or vram2vram_pixelWrite or pipeline_pixelWrite;
+   pixelColor  <= copy_pixelColor or pipeline_pixelColor;
+   pixelAddr   <= copy_pixelAddr  or pipeline_pixelAddr ;
+   pixelWrite  <= copy_pixelWrite or pipeline_pixelWrite;
 
    -- pixel writing fifo: 64bit data + 17 bit address + 4bit word enable
    iSyncFifo_OUT: entity mem.SyncFifoFallThrough
@@ -1388,10 +1273,10 @@ begin
 
          elsif (ce = '1') then
 
-            if (vramFill_pixelWrite = '1') then
+            if (copy_fillWrite = '1') then
 
                fifoOut_Wr    <= '1';
-               fifoOut_Din   <=  "1111" & std_logic_vector(vramFill_pixelAddr(19 downto 3)) & vramFill_pixelColor & vramFill_pixelColor & vramFill_pixelColor & vramFill_pixelColor;
+               fifoOut_Din   <=  "1111" & std_logic_vector(copy_pixelAddr(19 downto 3)) & copy_pixelColor & copy_pixelColor & copy_pixelColor & copy_pixelColor;
                pixel64filled <= '0';
 
             elsif (pixelWrite = '1') then
@@ -1448,13 +1333,13 @@ begin
    VRAMIdle    <= '1' when (vramState = IDLE and (vram_WE = '0' or vram_BUSY = '0')) else '0';
    reqVRAMIdle <= VRAMIdle and (not videoout_reqVRAMEnable) and (not vram_pause);
 
-   reqVRAMEnable <= vram2vram_reqVRAMEnable or vram2cpu_reqVRAMEnable or line_reqVRAMEnable or rect_reqVRAMEnable or poly_reqVRAMEnable or pipeline_reqVRAMEnable or videoout_reqVRAMEnable;
-   reqVRAMXPos   <= vram2vram_reqVRAMXPos   or vram2cpu_reqVRAMXPos   or line_reqVRAMXPos   or rect_reqVRAMXPos   or poly_reqVRAMXPos   or pipeline_reqVRAMXPos   or videoout_reqVRAMXPos  ;
-   reqVRAMYPos   <= vram2vram_reqVRAMYPos   or vram2cpu_reqVRAMYPos   or line_reqVRAMYPos   or rect_reqVRAMYPos   or poly_reqVRAMYPos   or pipeline_reqVRAMYPos   or videoout_reqVRAMYPos  ;
-   reqVRAMSize   <= vram2vram_reqVRAMSize   or vram2cpu_reqVRAMSize   or line_reqVRAMSize   or rect_reqVRAMSize   or poly_reqVRAMSize   or pipeline_reqVRAMSize   or videoout_reqVRAMSize  ;
+   reqVRAMEnable <= copy_reqVRAMEnable or line_reqVRAMEnable or rect_reqVRAMEnable or poly_reqVRAMEnable or pipeline_reqVRAMEnable or videoout_reqVRAMEnable;
+   reqVRAMXPos   <= copy_reqVRAMXPos        or line_reqVRAMXPos   or rect_reqVRAMXPos   or poly_reqVRAMXPos   or pipeline_reqVRAMXPos   or videoout_reqVRAMXPos  ;
+   reqVRAMYPos   <= copy_reqVRAMYPos        or line_reqVRAMYPos   or rect_reqVRAMYPos   or poly_reqVRAMYPos   or pipeline_reqVRAMYPos   or videoout_reqVRAMYPos  ;
+   reqVRAMSize   <= copy_reqVRAMSize        or line_reqVRAMSize   or rect_reqVRAMSize   or poly_reqVRAMSize   or pipeline_reqVRAMSize   or videoout_reqVRAMSize  ;
 
    -- every unit drives zero while its enable is low, and at most one is enabled
-   vramLineAddr  <= vram2vram_vramLineAddr or vram2cpu_vramLineAddr or line_vramLineAddr or rect_vramLineAddr or poly_vramLineAddr;
+   vramLineAddr  <= copy_vramLineAddr or line_vramLineAddr or rect_vramLineAddr or poly_vramLineAddr;
 
    -- vram access
    process (clk2x)
@@ -1508,7 +1393,7 @@ begin
                            reqVRAMnext    <= (others => '0');
                         end if;
                         reqVRAMwrap <= (others => '0');
-                        if (vram2vram_reqVRAMEnable = '1' or vram2cpu_reqVRAMEnable = '1') then
+                        if (copy_reqVRAMEnable = '1') then
                            -- sum <= 2047: sum > 1024 and sum(9:2) = (sum - 1024) / 4
                            reqVRAMWrapSum := resize(reqVRAMXPos, 11) + reqVRAMSizeRounded;
                            if (reqVRAMWrapSum(10) = '1' and reqVRAMWrapSum(9 downto 0) /= 0) then
@@ -1607,7 +1492,9 @@ begin
    videoout_settings.dither24                <= '0';
    videoout_settings.render24                <= '0';
 
-   igpu_videoout : entity work.gpu_videoout
+   allowunpause <= '1';
+
+   igpu_videoout : entity work.gpu_videoout_pocket
    port map
    (
       clk1x                      => clk1x,
@@ -1617,44 +1504,12 @@ begin
       reset                      => reset,
       softReset                  => softReset,
 
-      allowunpause               => allowunpause,
-      savestate_pause            => '0',
-      system_paused              => system_paused,
-
       videoout_settings          => videoout_settings,
       videoout_reports           => videoout_reports,
 
       videoout_on                => videoout_on,
-      syncVideoOut               => '1',
-
-      debugmodeOn                => '0',
-
-      fpscountOn                 => '0',
-      fpscountBCD                => (others => '0'),
-
-      Gun1CrosshairOn            => '0',
-      Gun1X                      => (others => '0'),
-      Gun1Y_scanlines            => (others => '0'),
-      Gun1offscreen              => '0',
-      Gun1IRQ10                  => open,
-
-      Gun2CrosshairOn            => '0',
-      Gun2X                      => (others => '0'),
-      Gun2Y_scanlines            => (others => '0'),
-      Gun2offscreen              => '0',
-      Gun2IRQ10                  => open,
-
-      cdSlow                     => '0',
-
-      errorOn                    => '0',
-      errorEna                   => '0',
-      errorCode                  => (others => '0'),
-
-      LBAOn                      => '0',
-      LBAdisplay                 => (others => '0'),
 
       requestVRAMEnable          => videoout_reqVRAMEnable,
-      requestVRAMMirror          => open,
       requestVRAMXPos            => videoout_reqVRAMXPos,
       requestVRAMYPos            => videoout_reqVRAMYPos,
       requestVRAMSize            => videoout_reqVRAMSize,
@@ -1666,7 +1521,6 @@ begin
 
       videoout_out               => videoout_out,
 
-      videoout_ss_in             => videoout_ss_in,
       videoout_ss_out            => videoout_ss_out
    );
 
