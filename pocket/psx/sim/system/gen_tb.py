@@ -126,7 +126,7 @@ a("""   signal req_valid, req_ready, req_we, rd_valid, init_done : std_logic;
       port (
          clk : in std_logic;
          r, g, b : in std_logic_vector(7 downto 0);
-         hblank, vblank : in std_logic;
+         hblank, vblank, hsync : in std_logic;
          rgb : out std_logic_vector(23 downto 0);
          de, hs, vs : out std_logic);
    end component;
@@ -185,11 +185,11 @@ a("""
       cmd_wdata => pc_wdata, cmd_be => pc_be, rd_valid => pr_valid, rd_data => pr_data, done => pr_done);
 
    vfl : video_fl port map (
-      clk => clk_vid, r => c_video_r, g => c_video_g, b => c_video_b, hblank => c_hblank, vblank => c_vblank,
+      clk => clk_vid, r => c_video_r, g => c_video_g, b => c_video_b, hblank => c_hblank, vblank => c_vblank, hsync => c_hsync,
       rgb => fl_rgb, de => fl_de, hs => fl_hs, vs => fl_vs);
 
    grab : entity work.frame_grab generic map (PREFIX => "frame_") port map (
-      clk => clk_vid, rgb => fl_rgb, de => fl_de, vs => fl_vs, frames => frames);
+      clk => clk_vid, rgb => fl_rgb, de => fl_de, hs => fl_hs, vs => fl_vs, frames => frames);
 
    -- the memory path comes out of reset first, the core once the SDRAM is up (the BIOS is preloaded)
    process

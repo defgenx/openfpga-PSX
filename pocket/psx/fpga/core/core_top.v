@@ -1146,7 +1146,7 @@ end
 wire [23:0] fl_rgb;
 wire        fl_de, fl_hs, fl_vs;
 video_fl vfl (
-    .clk(clk_vid), .r(psx_video_r), .g(psx_video_g), .b(psx_video_b), .hblank(psx_hblank), .vblank(psx_vblank),
+    .clk(clk_vid), .r(psx_video_r), .g(psx_video_g), .b(psx_video_b), .hblank(psx_hblank), .vblank(psx_vblank), .hsync(psx_hsync),
     .rgb(fl_rgb), .de(fl_de), .hs(fl_hs), .vs(fl_vs)
 );
 reg [15:0] frames_vid = 16'd0;

@@ -87,7 +87,9 @@ module vram_adapter #(
     // A read request is issued only if its beat is guaranteed room: FIFO level (stale, so high) + in flight < depth.
     // The level only falls and inflight only falls when a beat moves into the level, so once true it stays true
     // until we issue: req_valid never drops while pending. Beats are never lost: push happens only against reserved room.
-    wire        credit = ({1'b0, rlevel} + inflight) < RDEPTH;
+    // Registered for timing, so it reserves one more beat: level + inflight rises by at most one (one issue) per cycle.
+    reg         credit = 1'b0;
+    always @(posedge clk_sys) credit <= ({1'b0, rlevel} + inflight + 1'b1) < RDEPTH;
     assign req_valid = have & (c_we | credit);
     wire        sacc = req_valid & req_ready;
     assign cpop = ~have & ~cempty;

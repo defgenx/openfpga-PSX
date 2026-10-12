@@ -295,10 +295,12 @@ the BIOS at word 0x200000). Measured in `tb_ram.v`: a plain read takes 8 clk1x c
 in. The loader and `ram_adapter` reset on PLL lock only, because the host may load the slot while it holds `reset_n` low.
 
 **Video.** `video_fl.v` samples the GPU's RGB once per clk_vid (clk2x / 10, exact for 320-wide modes; other widths are
-resampled) into one fixed 320 × 240 scaler slot: HS 16 clocks after hblank rises, VS 4 clocks before the HS that starts a
-frame, 240 lines from the end of vblank, a 320-clock DE window from the start of each active line, black outside the GPU's
-active area. 480i shows each field as a frame. The GPU's `clkvid` input is clk2x, because `gpu_videoout` reads its line RAM on
-that clock in sync mode.
+resampled) into one fixed 320 × 240 scaler slot. The GPU's sync video out holds hblank high on vblank lines and ends vblank at
+the line boundary, just before the first active line's pixels; its `hsync` comes once per line, blank lines included, in the
+blanking after the pixels. So: HS on every `hsync` rise; VS when vblank ends; the frame starts on the next HS, which means the
+GPU's first active line is not shown; 240 lines counted on HS; on each window line a 320-clock DE window from the active
+pixels, or, on a blank line, from where they started on the last active line, black outside the GPU's active area. 480i shows
+each field as a frame. The GPU's `clkvid` input is clk2x, because `gpu_videoout` reads its line RAM on that clock in sync mode.
 
 **Pad.** Pad 1 is a digital pad: Pocket A, B, X, Y on Circle, Cross, Triangle, Square; L/R and the triggers on L1/R1, L2/R2.
 Ports 2 to 4 are unplugged.
@@ -310,3 +312,91 @@ preloaded. It writes every frame the APF would get to `sim/system/out/frame_<n>.
 about 2 s of wall time per emulated millisecond.
 
 **Fit** (5CEBA4F23C8, seed 3): 16,622 ALMs (90%), 146 of 308 M10K, 19 DSP; every clock meets timing (worst slack +0.083 ns, hold). Seed 2 left a −0.076 ns hold miss inside the GPU (`gpu_pocket_div` → `gpu_poly_pocket`): at 90% the first thing to try after a change is another seed.
+
+## CD loader
+
+`pocket/psx/fpga/core/cd_loader.v` serves `cd_top`'s sector requests from the CD image slot (id 1) with `target_dataslot_read`, and
+writes the track table slot (id 2, bridge window 0x30000000) into `trackinfo_*`. `pocket/psx/tools/cue2pocket.py` makes both files
+from a CUE/BIN. Test: `iverilog -g2005 -o sim/out/cd_loader.vvp sim/tb_cd_loader.v fpga/core/cd_loader.v && vvp sim/out/cd_loader.vvp`
+(from `pocket/psx`); `cue2pocket.py --selftest`.
+
+### Core protocol (`cd_top.vhd`)
+
+| Signal | Behaviour |
+|---|---|
+| `cd_hps_req`, `cd_hps_lba` | `SFETCH_START` (2594-2606) sets `lba` (an absolute disc LBA, 32 bits) and `req` on the same edge; `req` stays high until ack (2637-2643), or drops at once with `hasCD = 0` (2632-2635). A request is made only when `lba` differs from the last one (2595) |
+| `cd_hps_ack` | Must be 0 before a new request (2578). The core takes the state change on seeing `ack = 1` (`SFETCH_HPSACK`, 2637); the first word may come one cycle later, not in the same cycle |
+| `cd_hps_write`, `cd_hps_data` | Exactly 1,176 pulses, 16-bit words, consecutive pulses allowed (`SFETCH_HPSWORD` / `HPSDATA`, 2646-2685; `fetchCount` 0..587, low half first). Words are the sector's raw 2,352 bytes, little-endian: file bytes 0,1 are `[7:0]`, `[15:8]` of the first word. This is what the MiSTer HPS sent (`git show 47a82ef^:PSX.sv`, 1003-1007) |
+| `trackinfo_*` | One 32-bit word per pulse, `addr` = word index (9 bits); the old top fed `ioctl_addr[10:2]` and the little-endian pair of 16-bit `ioctl_dout` (`PSX.sv` 548-553, 999-1001) |
+
+The core zeroes the data itself while `positionInIndex < 0` (2583-2590, the first 150 LBAs of a data track 1), so no data is needed
+for LBA < 150.
+
+### `cd_loader` ports and behaviour
+
+Parameters `SLOT_BIN` (1) and `SEC_WIN` (0x50000000). Ports: `rst`, `clk_74a`, `clk_sys` (= `clk1x`); `bridge_wr/addr/wr_data`
+(`clk_74a`, big-endian: the first file byte is `[31:24]`, as `bios_loader`); `tgt_read/id/off/baddr/len` out and `tgt_done/err` in
+(`core_bridge_cmd`, `clk_74a`; `tgt_ack` is not used); the `cd_hps_*` and `trackinfo_*` of `cd_top` (`clk_sys`); `trk_done` and
+`err` out (`clk_sys`).
+
+- **Sector.** A request is a toggle `clk_sys` -> `clk_74a`. `lba` < 150 (and an invalid `lba` >= 2^20) read nothing and answer zeros.
+  Otherwise file sector = `lba - 150`, byte offset = that × 2,352 (four shifted adds), one `target_dataslot_read` of 2,352 bytes to
+  0x50000000, `read` held 4 cycles, `done` ignored for 8 (the stale level, as `slot_bench`). The 588 bridge words go to a 588-word RAM
+  written in `clk_74a`; 16 cycles after `done` a toggle hands the sector to `clk_sys`, which raises `ack`, waits 3 cycles, streams the
+  1,176 words from the RAM and drops `ack` 3 cycles after the last. The latency added after `done` is 70 µs in the testbench (3 `clk_sys`
+  cycles per half-word); the deadline is the host's read time, 6.67 ms per sector at 2×.
+- **Failure.** `tgt_err` nonzero, fewer than 588 words received, or no `done` within 2^27 `clk_74a` cycles (1.8 s): the sector is delivered
+  as zeros, so the core never hangs, and `err` goes high (sticky until `rst`). A missing file shows as this (the APF is assumed to
+  return an error code for a slot without a file; unverified).
+- **Track table.** The slot's bridge writes (window 0x30000000, 2,048 bytes) fill a 512-word RAM, byte-swapped to the little-endian words of
+  the file. The table is complete after word 511 or 2^19 `clk_74a` idle cycles (7 ms) after the last write; then the words 0..n-1 (n = highest
+  word written + 1) are replayed in order to `trackinfo_*` on `clk_sys`, one pulse per 4 cycles, and `trk_done` rises (it falls when a
+  new table starts replaying). The core marks a new disc from the writes (`newCDCounter`, 3139-3141) and drops its cached sector.
+- **Integration (not done in `core_top.v`).** Wire `bridge_*` and the `target_dataslot_*` of `core_bridge_cmd` (`id`, `slotoffset`,
+  `bridgeaddr`, `length` are driven by the loader), `cd_top.cd_hps_*` and `trackinfo_*`. The reset gate's `track_done` is `trk_done`; `hasCD`
+  and `resetFromCD`'s source are `cd_top`'s (`resetFromCD` = bit 18 of header word 3 and not `LIDopen`). The loader does not know whether
+  slot 1 holds a file: the user must load the `.trk` with the `.bin`, and `hasCD` follows `trk_done` (the lead's choice). Loading a new
+  `.trk` while the previous replay still runs is not supported (a replay takes 8 µs per 100 words; a reload takes ms).
+
+Size: not synthesised. By count, about 190 registers on `clk_74a` and 100 on `clk_sys`, five adders of 19-32 bits: 200-250 ALMs and
+6 M10K (588 × 32 and 512 × 32 bits, two of each rounded up).
+
+### `.trk` format (derived from `cd_top.vhd:3139-3180`, `3199-3204`, `1030`, `2583`, `2698-2710`)
+
+Little-endian 32-bit words, at most 512 (2,048 bytes). Word *n* is written to `trackinfo_addr = n`.
+
+| Word | Bits | Meaning |
+|---|---|---|
+| 0 | `[7:0]`, `[15:8]` | track count, binary and BCD (the BCD byte is what `GetTN` answers, 1563) |
+| 1 | `[18:0]` | total LBAs (not used by the core, 3149) |
+| 2 | `[7:0]`, `[15:8]` | lead-out seconds and minutes, BCD (`GetTD 0`, 1574) |
+| 3 | `[15:0]`, `[17:16]`, `[18]` | libcrypt key (bit 15 = first pair at 14105/14110, 2612-2628), region (0 unknown, 1 JP, 2 US, 3 EU: `region_out`), reset the core when the table is loaded |
+| 4*n | `[18:0]` | track n (1..99): `lbaStart` |
+| 4*n+1 | `[18:0]` | `lbaEnd` (inclusive) |
+| 4*n+2 | `[7:0]`, `[15:8]`, `[16]` | minutes and seconds BCD of the track's INDEX 01 as a disc time (`GetTD n`), isAudio |
+| 4*n+3 | | unused, but the write of this word stores the entry (3179-3181), so it must be present |
+
+Track 1 is at words 4..7 (the track search starts at entry 1, 3111, and `isAudioCD` is word 6). The track containing an LBA is the first
+entry with `lbaStart <= lba <= lbaEnd` (3119).
+
+The layout the core implies, and `cue2pocket.py` builds: the file is the disc from INDEX 01 of track 1 at file sector 0, and
+disc LBA = file sector + 150. A track's INDEX 01 is at LBA `s + 150` (`s` its file sector), and the core takes `lbaStart + 150` as INDEX 01
+(`playLBA` 1030) and treats the 150 LBAs before it as index 0 (2701-2710), so `lbaStart = s`, `lbaEnd` = next `lbaStart` - 1, and for the last
+track `lbaEnd` = file sectors + 149. The time of track *n* is that of LBA `s + 150`, the lead-out that of file sectors + 150.
+
+`cue2pocket.py game.cue [-o PREFIX] [--sbi game.sbi] [--region auto|jp|us|eu|none] [--no-reset] [--trk-only]` takes MODE1/2352,
+MODE2/2352 and AUDIO tracks in one or several BIN files, concatenates them (a `PREGAP` becomes zero sectors, sectors before track 1's
+INDEX 01 are dropped) and writes `PREFIX.bin` and `PREFIX.trk`. The region is read from the licence text in the system area
+(`Sony Computer Entertainment Inc. for Japan / of America / for Europe area`). The SBI key: an entry whose absolute MSF sector is listed
+in a libcrypt pair sets that pair's bit. A pregap in the file other than 150 sectors is kept as it is (the core assumes 150).
+
+### Not verified
+
+- The MiSTer HPS's own mapping of `lba` to the file (the Main_MiSTer sources are not in the repository). `file sector = lba - 150` and
+  the `.trk` ranges are derived from the VHDL alone; a disc whose pregaps are not 150 sectors, or a gapless audio-to-audio boundary, will
+  show index 0 for the 150 sectors before each INDEX 01.
+- The SBI entry sizes (14 bytes for type 1, 7 for types 2 and 3) are from memory of the format.
+- APF: that `target_dataslot_read` accepts an offset that is not a multiple of 512, delivers the 2,352 bytes before `done`, fails with a
+  nonzero code for an unloaded slot, and the `done` / `err` timing are the assumptions of [Bridge throughput bench](MEMTEST.md#bridge-throughput-bench-slot_benchv),
+  not measured. The loader tolerates writes trailing `done` by 16 cycles.
+- The track table slot is 2,048 bytes at most in `data.json`; the loader's fixed window is 0x30000000 + 2,048.

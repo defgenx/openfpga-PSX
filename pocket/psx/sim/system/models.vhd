@@ -171,6 +171,7 @@ entity frame_grab is
       clk : in std_logic;
       rgb : in std_logic_vector(23 downto 0);
       de  : in std_logic;
+      hs  : in std_logic := '0';
       vs  : in std_logic;
       frames : out natural
    );
@@ -181,7 +182,7 @@ architecture beh of frame_grab is
 begin
    process (clk)
       variable img  : img_t;
-      variable n, px, lines, nonblack : integer := 0;
+      variable n, px, lines, nonblack, hsn, de_first, de_last : integer := 0;
       variable de_d : std_logic := '0';
       file f : text;
       variable l : line;
@@ -202,12 +203,16 @@ begin
             end if;
             if n > 0 then
                report "frame " & integer'image(n) & ": " & integer'image(lines) & " DE lines, " & integer'image(px) &
-                      " pixels, " & integer'image(nonblack) & " not black";
+                      " pixels, " & integer'image(nonblack) & " not black; " & integer'image(hsn) & " HS, DE on HS lines " &
+                      integer'image(de_first) & " .. " & integer'image(de_last);
             end if;
-            n := n + 1; px := 0; lines := 0; nonblack := 0;
+            n := n + 1; px := 0; lines := 0; nonblack := 0; hsn := 0; de_first := -1; de_last := -1;
             for i in img'range loop img(i) := (others => '0'); end loop;
          end if;
+         if hs = '1' then hsn := hsn + 1; end if;
          if de = '1' then
+            if de_first < 0 then de_first := hsn; end if;
+            de_last := hsn;
             if px < img'length then img(px) := rgb; end if;
             if rgb /= x"000000" then nonblack := nonblack + 1; end if;
             px := px + 1;
