@@ -12,7 +12,7 @@ entity psx_top_pocket_flat is
    generic
    (
       is_simu               : std_logic := '0';
-      NO_MDEC               : boolean   := false;
+      NO_MDEC               : integer   := 0;          -- 0/1: a Verilog parent cannot set a boolean
       G_GPU_IMPL            : string    := "pocket";
       G_CPU_IMPL            : string    := "golden";
       G_SPU_IMPL            : string    := "golden";
@@ -284,7 +284,7 @@ architecture arch of psx_top_pocket_flat is
    signal core_DisplayOffsetY : unsigned(8 downto 0);
 begin
    core : entity work.psx_top_pocket
-      generic map (is_simu => is_simu, NO_MDEC => NO_MDEC, G_GPU_IMPL => G_GPU_IMPL, G_CPU_IMPL => G_CPU_IMPL, G_SPU_IMPL => G_SPU_IMPL,
+      generic map (is_simu => is_simu, NO_MDEC => (NO_MDEC /= 0), G_GPU_IMPL => G_GPU_IMPL, G_CPU_IMPL => G_CPU_IMPL, G_SPU_IMPL => G_SPU_IMPL,
                    G_CD_IMPL => G_CD_IMPL, G_DMA_IMPL => G_DMA_IMPL, G_BUS_IMPL => G_BUS_IMPL, G_JOYPAD_IMPL => G_JOYPAD_IMPL,
                    G_MEMCARD_IMPL => G_MEMCARD_IMPL, G_MDEC_IMPL => G_MDEC_IMPL)
       port map (

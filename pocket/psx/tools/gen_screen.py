@@ -24,9 +24,9 @@ def line(text, head=False):
 
 
 ROWS = [
-    row("PSX POCKET SHELL", "", "UPTIME", "", HEAD),        # 0   uptime in seconds (slot 2)
-    line("THE PLAYSTATION CORE IS NOT IN THIS"),           # 1
-    line("BUILD YET: THIS SCREEN TESTS THE SHELL."),       # 2
+    row("PSX POCKET  FL", "", "UPTIME", "", HEAD),          # 0   uptime in seconds (slot 2)
+    line("DEBUG SCREEN. FOR THE PICTURE SET"),             # 1
+    line("CORE SETTINGS > SCREEN > PLAYSTATION."),         # 2
     line(""),                                              # 3
     row("SDRAM 135.5MHZ", "INIT", "CAL", "EYE", HEAD),     # 4
     row("INIT/CAL/EYE OK"),                                # 5   init done, calibration done, eye ok
@@ -38,16 +38,16 @@ ROWS = [
     row("DATA SLOTS", "BYTES", "SUM", "", HEAD),           # 11
     row("BIOS"),                                           # 12  bytes received, word sum
     row("BIOS IS"),                                        # 13  OPENBIOS, OWN (another 512 KB BIOS), NONE or SIZE?
-    row("TRACK TABLE"),                                    # 14  bytes received, word sum
+    row("PSX CORE"),                                       # 14  RUNNING, or HELD in reset (SDRAM or BIOS not ready)
     line(""),                                              # 15
     row("INPUT", "", "", "", HEAD),                        # 16
     row("PAD 1 KEYS"),                                     # 17  cont1_key[15:0]
     row("PAD 1 STICKS"),                                   # 18  cont1_joy
-    line("PRESS BUTTONS: THE KEY VALUE CHANGES."),         # 19
-    line(""),                                              # 20
-    line(""),                                              # 21
+    row("PSX BUS", "RAM REQ", "FILLS", "DMA WR", HEAD),    # 19
+    row("MAIN RAM"),                                       # 20  accepted requests, icache fills, DMA words written
+    row("VRAM RD/WR/FRM"),                                 # 21  GPU VRAM reads and writes accepted, frames out
     row("CORE OUTPUT", "", "", "", HEAD),                  # 22  the box at columns 32-39, rows 22-29
-    line("RAW PIXELS OF THE CORE   ->"),                   # 23
+    line("LIVE PSX PIXELS          ->"),                   # 23
     line(""),                                              # 24
     line(""),                                              # 25
     line(""),                                              # 26

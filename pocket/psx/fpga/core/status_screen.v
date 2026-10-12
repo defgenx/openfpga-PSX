@@ -1,8 +1,9 @@
-// 320 x 240 status screen (40 x 30 characters of 8 x 8) for the APF scaler, 6.3504 MHz pixel clock, shown while the PSX
-// core is a stub. Labels from status_text.vh (tools/gen_screen.py), values from the text RAM written by status_fmt.v.
+// 320 x 240 status screen (40 x 30 characters of 8 x 8) for the APF scaler on the 6.77376 MHz pixel clock: the debug
+// screen. Labels from status_text.vh (tools/gen_screen.py), values from the text RAM written by status_fmt.v.
 // The renderer is pocket/memtest/fpga/core/video_text.v plus the box; keep the two in step. Screen: docs/pocket/POCKET_TOP.md.
 module status_screen #(
-    parameter FONT_FILE = "core/font8x8.hex"
+    parameter FONT_FILE = "core/font8x8.hex",
+    parameter H_TOTAL   = 428              // 59.95 Hz at 6.77376 MHz (memtest: 400 at 6.3504 MHz)
 ) (
     input  wire        clk_s,          // text RAM write clock
     input  wire        tx_we,
@@ -19,7 +20,7 @@ module status_screen #(
 );
     `include "status_text.vh"
 
-    localparam H_TOTAL = 400, H_ACTIVE = 320, H_BP = 10;
+    localparam H_ACTIVE = 320, H_BP = 10;
     localparam V_TOTAL = 264, V_ACTIVE = 240, V_BP = 10;
 
     // ---- memories

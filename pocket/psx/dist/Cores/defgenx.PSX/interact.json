@@ -1,7 +1,27 @@
 {
   "interact": {
     "magic": "APF_VER_1",
-    "variables": [],
+    "variables": [
+      {
+        "name": "Screen",
+        "id": 1,
+        "type": "list",
+        "enabled": true,
+        "persist": true,
+        "address": "0x80000008",
+        "defaultval": 0,
+        "options": [
+          {
+            "value": 0,
+            "name": "PlayStation"
+          },
+          {
+            "value": 1,
+            "name": "Debug"
+          }
+        ]
+      }
+    ],
     "messages": []
   }
 }

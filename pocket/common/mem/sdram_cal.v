@@ -79,11 +79,13 @@ module sdram_cal #(
     reg [6:0]  nc, cn;
     reg        resweep;
     reg        moved;                      // the last tracking decision moved the centre; counted in S_TFIN
+    reg        c_lt, c_gt;                 // centre < cmin, centre > cmax, a cycle late: centre is set two states before S_FIN / S_TFIN
 
     wire [6:0] lo_t = (centre >= K) ? centre - K : 7'd0;
     wire [6:0] hi_t = (centre + K > SWMAX) ? SWMAX : centre + K;
 
     always @(posedge clk) begin
+        c_lt <= (centre < cmin); c_gt <= (centre > cmax);
         ack_s  <= {ack_s[0], ack_scan};
         derr_s <= {derr_s[0], derr};
         if (rst) rst_l <= 1'b1;
@@ -183,8 +185,8 @@ module sdram_cal #(
                     boot_c <= centre; cmin <= centre; cmax <= centre; moves <= 16'd0; booted <= 1'b1;
                 end else begin
                     moves <= moves + 1'b1;
-                    if (centre < cmin) cmin <= centre;
-                    if (centre > cmax) cmax <= centre;
+                    if (c_lt) cmin <= centre;
+                    if (c_gt) cmax <= centre;
                 end
                 done <= 1'b1; own <= 1'b0; hold <= 1'b0; state <= S_RUN;
             end
@@ -219,8 +221,8 @@ module sdram_cal #(
             S_TFIN: begin
                 if (moved) begin
                     moves <= moves + 1'b1;
-                    if (centre < cmin) cmin <= centre;
-                    if (centre > cmax) cmax <= centre;
+                    if (c_lt) cmin <= centre;
+                    if (c_gt) cmax <= centre;
                 end
                 own <= 1'b0; hold <= 1'b0; state <= S_RUN;
             end

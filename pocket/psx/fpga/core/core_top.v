@@ -378,40 +378,29 @@ core_bridge_cmd icb (
 
 ///////////////////////////////////////////////////////////////////////////////
 // bridge windows (clk_74a), the slots of dist/Cores/*/data.json:
-//   0x80000000 core settings, 0x80000004 memory-controller settings
+//   0x80000000 core settings, 0x80000004 memory-controller settings, 0x80000008 screen (bit 0: debug screen)
 //   0x20000000 BIOS, 0x30000000 track table, 0x40000000 memory card (not declared until its store exists),
 //   0x50000000 CD sector sink (target read)
-// Every write to a slot window is held in one register and crossed to clk1x: placeholder for the slot stores.
 reg [31:0] cfg;
 reg [31:0] cfg_mem;
-reg [31:0] win_data;
-reg [25:0] win_addr;
-reg        win_tog;
+reg [31:0] cfg_screen = 32'd0;
 always @(posedge clk_74a) begin
     if (bridge_wr) begin
         case (bridge_addr)
             32'h80000000: cfg     <= bridge_wr_data;
             32'h80000004: cfg_mem <= bridge_wr_data;
+            32'h80000008: cfg_screen <= bridge_wr_data;
             default: ;
         endcase
-        if (bridge_addr[31:30] == 2'b00 && bridge_addr[29:28] != 2'b00) begin
-            win_data <= bridge_wr_data;
-            win_addr <= bridge_addr[27:2];
-            win_tog  <= ~win_tog;
-        end
     end
 end
 
-// status screen: bytes and word sum received by the BIOS and track-table windows; a write at offset 0 starts a new load
-reg [31:0] bios_bytes = 32'd0, bios_sum = 32'd0, trk_bytes = 32'd0, trk_sum = 32'd0;
+// status screen: bytes and word sum received by the BIOS window; a write at offset 0 starts a new load
+reg [31:0] bios_bytes = 32'd0, bios_sum = 32'd0;
 always @(posedge clk_74a) begin
     if (bridge_wr && bridge_addr[31:28] == 4'h2) begin
         bios_bytes <= (bridge_addr[27:0] == 28'd0) ? 32'd4 : bios_bytes + 32'd4;
         bios_sum   <= (bridge_addr[27:0] == 28'd0) ? bridge_wr_data : bios_sum + bridge_wr_data;
-    end
-    if (bridge_wr && bridge_addr[31:28] == 4'h3) begin
-        trk_bytes <= (bridge_addr[27:0] == 28'd0) ? 32'd4 : trk_bytes + 32'd4;
-        trk_sum   <= (bridge_addr[27:0] == 28'd0) ? bridge_wr_data : trk_sum + bridge_wr_data;
     end
 end
 reg [26:0] up_cnt = 27'd0;
@@ -421,20 +410,9 @@ always @(posedge clk_74a) begin
     if (up_cnt == 27'd74_249_999) uptime_s <= uptime_s + 1'b1;
 end
 
-wire [31:0]  cfg_1x;
 wire [31:0]  cfg_sys;
-wire [31:0]  win_data_1x;
-wire [25:0]  win_addr_1x;
-wire         win_tog_1x;
 wire [191:0] pad_1x;
-synch_3 #(.WIDTH(32))  s_cfg  (cfg, cfg_1x, clk1x);
 synch_3 #(.WIDTH(32))  s_cfgm (cfg_mem, cfg_sys, clk_sys);
-synch_3 #(.WIDTH(32))  s_wd   (win_data, win_data_1x, clk1x);
-synch_3 #(.WIDTH(26))  s_wa   (win_addr, win_addr_1x, clk1x);
-synch_3                s_wt   (win_tog, win_tog_1x, clk1x);
-reg win_tog_1x_d;
-always @(posedge clk1x) win_tog_1x_d <= win_tog_1x;
-wire win_wr_1x = win_tog_1x ^ win_tog_1x_d;
 
 // controllers: buttons [15:0] and sticks [31:0] of the four pads
 synch_3 #(.WIDTH(192)) s_pad (
@@ -467,20 +445,7 @@ always @(posedge clk_sys) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// the PSX core (stub until the VHDL entity replaces it)
-wire         cd_ack_1x;
-wire         g_ddr3_busy;
-wire [63:0]  g_ddr3_dout;
-wire         g_ddr3_dout_ready;
-wire [31:0]  g_ram_data_read;
-wire         g_ram_done;
-wire [31:0]  g_spuram_data_read;
-wire         g_spuram_done;
-wire         g_memcard1_ack;
-wire [15:0]  g_memcard1_data_in;
-
-wire [281:0] pool_1x = {cfg_1x, win_data_1x, win_addr_1x, pad_1x};
-wire [95:0]  pool_3x = {g_ddr3_dout, g_ram_data_read};
+// the PSX core, first-light configuration: no SPU, no CD, no MDEC
 
 wire psx_reset;
 wire psx_isPaused;
@@ -688,145 +653,137 @@ wire psx_Cheats_Bus_ena;
 wire [31:0] psx_Cheats_BusReadData;
 wire psx_Cheats_BusDone;
 
-assign psx_reset = rst_1x;
-assign psx_pause = pool_1x[0:0];
-assign psx_hps_busy = pool_1x[1:1];
-assign psx_loadExe = pool_1x[2:2];
-assign psx_exe_initial_pc = pool_1x[34:3];
-assign psx_exe_initial_gp = pool_1x[66:35];
-assign psx_exe_load_address = pool_1x[98:67];
-assign psx_exe_file_size = pool_1x[130:99];
-assign psx_exe_stackpointer = pool_1x[162:131];
-assign psx_fastboot = pool_1x[163:163];
-assign psx_ram8mb = pool_1x[164:164];
-assign psx_TURBO_MEM = pool_1x[165:165];
-assign psx_TURBO_COMP = pool_1x[166:166];
-assign psx_TURBO_CACHE = pool_1x[167:167];
-assign psx_TURBO_CACHE50 = pool_1x[168:168];
-assign psx_REPRODUCIBLEGPUTIMING = pool_1x[169:169];
-assign psx_INSTANTSEEK = pool_1x[170:170];
-assign psx_FORCECDSPEED = pool_1x[173:171];
-assign psx_LIMITREADSPEED = pool_1x[174:174];
-assign psx_IGNORECDDMATIMING = pool_1x[175:175];
-assign psx_ditherOff = pool_1x[176:176];
-assign psx_interlaced480pHack = pool_1x[177:177];
-assign psx_showGunCrosshairs = pool_1x[178:178];
-assign psx_enableNeGconRumble = pool_1x[179:179];
-assign psx_fpscountOn = pool_1x[180:180];
-assign psx_cdslowOn = pool_1x[181:181];
-assign psx_testSeek = pool_1x[182:182];
-assign psx_pauseOnCDSlow = pool_1x[183:183];
-assign psx_errorOn = pool_1x[184:184];
-assign psx_LBAOn = pool_1x[185:185];
-assign psx_PATCHSERIAL = pool_1x[186:186];
-assign psx_noTexture = pool_1x[187:187];
-assign psx_textureFilter = pool_1x[189:188];
-assign psx_textureFilterStrength = pool_1x[191:190];
-assign psx_textureFilter2DOff = pool_1x[192:192];
-assign psx_dither24 = pool_1x[193:193];
-assign psx_render24 = pool_1x[194:194];
-assign psx_drawSlow = pool_1x[195:195];
-assign psx_syncVideoOut = pool_1x[196:196];
-assign psx_syncInterlace = pool_1x[197:197];
-assign psx_rotate180 = pool_1x[198:198];
-assign psx_fixedVBlank = pool_1x[199:199];
-assign psx_vCrop = pool_1x[201:200];
-assign psx_hCrop = pool_1x[202:202];
-assign psx_SPUon = pool_1x[203:203];
-assign psx_SPUIRQTrigger = pool_1x[204:204];
-assign psx_SPUSDRAM = pool_1x[205:205];
-assign psx_REVERBOFF = pool_1x[206:206];
-assign psx_REPRODUCIBLESPUDMA = pool_1x[207:207];
-assign psx_WIDESCREEN = pool_1x[209:208];
-assign psx_oldGPU = pool_1x[210:210];
-assign psx_biosregion = pool_1x[212:211];
-assign psx_ram_dataRead32 = g_ram_data_read;
-assign psx_ram_done = g_ram_done;
-assign psx_ram_dmafifo_read = pool_3x[0:0];
-assign psx_cache_wr = pool_3x[4:1];
-assign psx_cache_data = pool_3x[36:5];
-assign psx_cache_addr = pool_3x[44:37];
-assign psx_dma_wr = pool_3x[45:45];
-assign psx_dma_reqprocessed = pool_3x[46:46];
-assign psx_dma_data = pool_3x[78:47];
-assign psx_ddr3_BUSY = g_ddr3_busy;
-assign psx_ddr3_DOUT = g_ddr3_dout;
-assign psx_ddr3_DOUT_READY = g_ddr3_dout_ready;
-assign psx_region = pool_1x[214:213];
-assign psx_hasCD = pool_1x[215:215];
-assign psx_fastCD = pool_1x[216:216];
-assign psx_LIDopen = pool_1x[217:217];
-assign psx_trackinfo_data = win_data_1x;
-assign psx_trackinfo_addr = win_addr_1x[8:0];
-assign psx_trackinfo_write = win_wr_1x;
-assign psx_cd_hps_ack = cd_ack_1x;
-assign psx_cd_hps_write = win_wr_1x;
-assign psx_cd_hps_data = win_data_1x[15:0];
-assign psx_spuram_dataRead = g_spuram_data_read;
-assign psx_spuram_done = g_spuram_done;
-assign psx_memcard1_load = pool_1x[218:218];
-assign psx_memcard2_load = pool_1x[219:219];
-assign psx_memcard_save = pool_1x[220:220];
-assign psx_memcard1_mounted = pool_1x[221:221];
-assign psx_memcard1_available = pool_1x[222:222];
-assign psx_memcard1_ack = g_memcard1_ack;
-assign psx_memcard1_write = pool_1x[223:223];
-assign psx_memcard1_addr = pool_1x[232:224];
-assign psx_memcard1_dataIn = g_memcard1_data_in;
-assign psx_memcard2_mounted = pool_1x[233:233];
-assign psx_memcard2_available = pool_1x[234:234];
-assign psx_memcard2_ack = pool_1x[235:235];
-assign psx_memcard2_write = pool_1x[236:236];
-assign psx_memcard2_addr = pool_1x[245:237];
-assign psx_memcard2_dataIn = pool_1x[261:246];
-assign psx_videoout_on = pool_1x[262:262];
-assign psx_isPal = pool_1x[263:263];
-assign psx_pal60 = pool_1x[264:264];
-assign psx_DSAltSwitchMode = pool_1x[265:265];
-assign psx_joypad1 = {cfg_1x[11:0], pad_1x[47:0]};
-assign psx_joypad2 = {cfg_1x[23:12], pad_1x[95:48]};
-assign psx_joypad3 = {cfg_1x[11:0] ^ cfg_1x[23:12], pad_1x[143:96]};
-assign psx_joypad4 = {cfg_1x[31:20], pad_1x[191:144]};
-assign psx_multitap = pool_1x[266:266];
-assign psx_multitapDigital = pool_1x[267:267];
-assign psx_multitapAnalog = pool_1x[268:268];
-assign psx_neGconRumble = pool_1x[269:269];
-assign psx_MouseEvent = pool_1x[270:270];
-assign psx_MouseLeft = pool_1x[271:271];
-assign psx_MouseRight = pool_1x[272:272];
-assign psx_MouseX = pool_1x[281:273];
-assign psx_MouseY = pool_1x[8:0];
-assign psx_snacPort1 = pool_1x[9:9];
-assign psx_snacPort2 = pool_1x[10:10];
-assign psx_irq10Snac = pool_1x[11:11];
-assign psx_actionNextSnac = pool_1x[12:12];
-assign psx_receiveValidSnac = pool_1x[13:13];
-assign psx_ackSnac = pool_1x[14:14];
-assign psx_snacMC = pool_1x[15:15];
-assign psx_receiveBufferSnac = pool_1x[23:16];
-assign psx_increaseSSHeaderCount = pool_1x[24:24];
-assign psx_save_state = pool_1x[25:25];
-assign psx_load_state = pool_1x[26:26];
-assign psx_savestate_number = pool_1x[28:27];
-assign psx_rewind_on = pool_1x[29:29];
-assign psx_rewind_active = pool_1x[30:30];
-assign psx_cheat_clear = pool_1x[31:31];
-assign psx_cheats_enabled = pool_1x[32:32];
-assign psx_cheat_on = pool_1x[33:33];
-assign psx_cheat_in = pool_1x[161:34];
-assign psx_Cheats_BusReadData = {pool_3x[14:0], pool_3x[95:79]};
-assign psx_Cheats_BusDone = pool_3x[15:15];
+// pad 1 as a digital pad, Pocket A/B/X/Y on Circle/Cross/Triangle/Square (joypad_t order: psx_top_pocket_flat.vhd)
+wire [15:0] pk = pad_1x[15:0];
+wire [59:0] pad1_1x = {1'b1, 1'b1, 10'd0, pk[6], pk[4], pk[5], pk[7], pk[14], pk[15], pk[3], pk[2], pk[0], pk[1],
+                       pk[9], pk[11], pk[13], pk[8], pk[10], pk[12], 32'd0};
+wire core_go_1x;
 
-wire left_1x_i = ^{psx_isPaused, psx_region_out, psx_resetFromCD, psx_cd_hps_lba_sim, psx_memcard_changed, psx_saving_memcard, psx_memcard2_rd, psx_memcard2_wr, psx_memcard2_lba, psx_memcard2_dataOut, psx_joypad1_rumble, psx_joypad2_rumble, psx_joypad3_rumble, psx_joypad4_rumble, psx_padMode, psx_transmitValueSnac, psx_selectedPort1Snac, psx_selectedPort2Snac, psx_clk9Snac, psx_beginTransferSnac, psx_state_loaded, psx_validSStates, psx_cheats_active};
-wire left_2x_i = ^{psx_spuram_dataWrite, psx_spuram_be, psx_spuram_rnw};
-wire left_3x_i = ^{psx_ram_refresh, psx_ram_cntDMA, psx_ram_dma, psx_ram_cache, psx_ram_dmafifo_adr, psx_ram_dmafifo_data, psx_ram_dmafifo_empty, psx_ddr3_BURSTCNT, psx_Cheats_BusAddr, psx_Cheats_BusRnW, psx_Cheats_BusByteEnable, psx_Cheats_BusWriteData, psx_Cheats_Bus_ena};
-wire left_vid_i = ^{psx_DisplayWidth, psx_DisplayHeight, psx_DisplayOffsetX, psx_DisplayOffsetY, psx_video_ce, psx_video_interlace, psx_video_isPal, psx_video_fbmode, psx_video_fb24, psx_video_hResMode, psx_video_frameindex};
+// first light: the core's inputs (docs/pocket/POCKET_TOP.md, "First light"). Main RAM, VRAM and the pad come from the
+// adapters below; everything without a Pocket source yet is held at its MiSTer default.
+assign psx_reset = rst_1x | ~core_go_1x;
+assign psx_pause = 1'b0;
+assign psx_hps_busy = 1'b0;
+assign psx_loadExe = 1'b0;
+assign psx_exe_initial_pc = 32'd0;
+assign psx_exe_initial_gp = 32'd0;
+assign psx_exe_load_address = 32'd0;
+assign psx_exe_file_size = 32'd0;
+assign psx_exe_stackpointer = 32'd0;
+assign psx_fastboot = 1'b0;
+assign psx_ram8mb = 1'b0;
+assign psx_TURBO_MEM = 1'b0;
+assign psx_TURBO_COMP = 1'b0;
+assign psx_TURBO_CACHE = 1'b0;
+assign psx_TURBO_CACHE50 = 1'b0;
+assign psx_REPRODUCIBLEGPUTIMING = 1'b0;
+assign psx_INSTANTSEEK = 1'b0;
+assign psx_FORCECDSPEED = 3'd0;
+assign psx_LIMITREADSPEED = 1'b0;
+assign psx_IGNORECDDMATIMING = 1'b0;
+assign psx_ditherOff = 1'b0;
+assign psx_interlaced480pHack = 1'b0;
+assign psx_showGunCrosshairs = 1'b0;
+assign psx_enableNeGconRumble = 1'b0;
+assign psx_fpscountOn = 1'b0;
+assign psx_cdslowOn = 1'b0;
+assign psx_testSeek = 1'b0;
+assign psx_pauseOnCDSlow = 1'b0;
+assign psx_errorOn = 1'b0;
+assign psx_LBAOn = 1'b0;
+assign psx_PATCHSERIAL = 1'b0;
+assign psx_noTexture = 1'b0;
+assign psx_textureFilter = 2'd0;
+assign psx_textureFilterStrength = 2'd0;
+assign psx_textureFilter2DOff = 1'b0;
+assign psx_dither24 = 1'b0;
+assign psx_render24 = 1'b0;
+assign psx_drawSlow = 1'b0;
+assign psx_syncVideoOut = 1'b1;
+assign psx_syncInterlace = 1'b0;
+assign psx_rotate180 = 1'b0;
+assign psx_fixedVBlank = 1'b0;
+assign psx_vCrop = 2'd0;
+assign psx_hCrop = 1'b0;
+assign psx_SPUon = 1'b0;
+assign psx_SPUIRQTrigger = 1'b0;
+assign psx_SPUSDRAM = 1'b1;
+assign psx_REVERBOFF = 1'b1;
+assign psx_REPRODUCIBLESPUDMA = 1'b0;
+assign psx_WIDESCREEN = 2'd0;
+assign psx_oldGPU = 1'b0;
+assign psx_biosregion = 2'd0;
+assign psx_region = 2'd0;
+assign psx_hasCD = 1'b0;
+assign psx_fastCD = 1'b0;
+assign psx_LIDopen = 1'b1;
+assign psx_trackinfo_data = 32'd0;
+assign psx_trackinfo_addr = 9'd0;
+assign psx_trackinfo_write = 1'b0;
+assign psx_cd_hps_ack = 1'b0;
+assign psx_cd_hps_write = 1'b0;
+assign psx_cd_hps_data = 16'd0;
+assign psx_spuram_dataRead = 32'd0;
+assign psx_spuram_done = 1'b0;
+assign psx_memcard1_load = 1'b0;
+assign psx_memcard2_load = 1'b0;
+assign psx_memcard_save = 1'b0;
+assign psx_memcard1_mounted = 1'b0;
+assign psx_memcard1_available = 1'b0;
+assign psx_memcard1_ack = 1'b0;
+assign psx_memcard1_write = 1'b0;
+assign psx_memcard1_addr = 9'd0;
+assign psx_memcard1_dataIn = 16'd0;
+assign psx_memcard2_mounted = 1'b0;
+assign psx_memcard2_available = 1'b0;
+assign psx_memcard2_ack = 1'b0;
+assign psx_memcard2_write = 1'b0;
+assign psx_memcard2_addr = 9'd0;
+assign psx_memcard2_dataIn = 16'd0;
+assign psx_videoout_on = 1'b1;
+assign psx_isPal = 1'b0;
+assign psx_pal60 = 1'b0;
+assign psx_DSAltSwitchMode = 1'b0;
+assign psx_joypad1 = pad1_1x;
+assign psx_joypad2 = 60'd0;
+assign psx_joypad3 = 60'd0;
+assign psx_joypad4 = 60'd0;
+assign psx_multitap = 1'b0;
+assign psx_multitapDigital = 1'b0;
+assign psx_multitapAnalog = 1'b0;
+assign psx_neGconRumble = 1'b0;
+assign psx_MouseEvent = 1'b0;
+assign psx_MouseLeft = 1'b0;
+assign psx_MouseRight = 1'b0;
+assign psx_MouseX = 9'd0;
+assign psx_MouseY = 9'd0;
+assign psx_snacPort1 = 1'b0;
+assign psx_snacPort2 = 1'b0;
+assign psx_irq10Snac = 1'b0;
+assign psx_actionNextSnac = 1'b0;
+assign psx_receiveValidSnac = 1'b0;
+assign psx_ackSnac = 1'b0;
+assign psx_snacMC = 1'b0;
+assign psx_receiveBufferSnac = 8'd0;
+assign psx_increaseSSHeaderCount = 1'b0;
+assign psx_save_state = 1'b0;
+assign psx_load_state = 1'b0;
+assign psx_savestate_number = 2'd0;
+assign psx_rewind_on = 1'b0;
+assign psx_rewind_active = 1'b0;
+assign psx_cheat_clear = 1'b0;
+assign psx_cheats_enabled = 1'b0;
+assign psx_cheat_on = 1'b0;
+assign psx_cheat_in = 128'd0;
+assign psx_Cheats_BusReadData = 32'd0;
+assign psx_Cheats_BusDone = 1'b0;
 
-psx_top_pocket_flat stub (
+
+psx_top_pocket_flat #(.G_SPU_IMPL("none"), .G_CD_IMPL("none"), .NO_MDEC(1)) psx (
     .clk1x( clk1x ),
     .clk2x( clk2x ),
     .clk3x( clk3x ),
-    .clkvid( clk_vid ),
+    .clkvid( clk2x ),                   // gpu_videoout reads its line RAM on clk2x in sync mode
     .reset( psx_reset ),
     .isPaused( psx_isPaused ),
     .pause( psx_pause ),
@@ -1035,90 +992,37 @@ psx_top_pocket_flat stub (
 );
 
 ///////////////////////////////////////////////////////////////////////////////
-// CD sector requests: the stub's cd_hps_req/lba become a target read of slot 1 into window 0x50000000
-wire        cd_req_74;
-wire [31:0] cd_lba_74;
-synch_3                cd_s_req (psx_cd_hps_req, cd_req_74, clk_74a);
-synch_3 #(.WIDTH(32))  cd_s_lba (psx_cd_hps_lba, cd_lba_74, clk_74a);
-assign target_dataslot_read        = cd_req_74;
-assign target_dataslot_id          = 16'd1;
-assign target_dataslot_slotoffset  = {cd_lba_74[20:0], 11'd0};
-assign target_dataslot_bridgeaddr  = 32'h50000000;
-assign target_dataslot_length      = 32'd2048;
-synch_3 cd_s_ack (target_dataslot_done | target_dataslot_ack, cd_ack_1x, clk1x);
-
-assign datatable_addr = cd_lba_74[9:0];
-
+// CD: not in the first-light build (G_CD_IMPL "none")
+assign target_dataslot_read        = 1'b0;
+assign target_dataslot_id          = 16'd0;
+assign target_dataslot_slotoffset  = 32'd0;
+assign target_dataslot_bridgeaddr  = 32'd0;
+assign target_dataslot_length      = 32'd0;
+assign datatable_addr              = 10'd0;
 
 ///////////////////////////////////////////////////////////////////////////////
-// shared controllers (clk_sys) behind the placeholder glue
-reg left_1x, left_2x, left_3x, left_vid;
-always @(posedge clk1x)  left_1x  <= left_1x_i;
-always @(posedge clk2x)  left_2x  <= left_2x_i;
-always @(posedge clk3x)  left_3x  <= left_3x_i;
-always @(posedge clk_vid) left_vid <= left_vid_i;
-wire [3:0] left_s;
-synch_3 s_l1 (left_1x,  left_s[0], clk_sys);
-synch_3 s_l2 (left_2x,  left_s[1], clk_sys);
-synch_3 s_l3 (left_3x,  left_s[2], clk_sys);
-synch_3 s_lv (left_vid, left_s[3], clk_sys);
-
-wire         a_valid, a_ready, a_we, b_valid, b_ready, a_rvalid, b_rvalid;
-wire [24:0]  a_addr, b_addr;
-wire [63:0]  a_wdata, r_data;
-wire [7:0]   a_be;
-wire         pc_valid, pc_ready, pc_we, pc_cfg, pr_valid, pr_done;
-wire [22:0]  pc_addr;
-wire [31:0]  pc_wdata, pr_data;
-wire [3:0]   pc_be;
-wire         sr_start, sr_we, sr_busy, sr_done;
-wire [17:0]  sr_addr;
-wire [7:0]   sr_wdata, sr_rdata;
+// memory: VRAM on the SDRAM, main RAM and the BIOS on the PSRAM, SRAM unused (docs/pocket/POCKET_TOP.md, "First light")
 wire         sd_init_done;
 wire         cal_done, cal_ok;
 wire [6:0]   cal_width, cal_boot, cal_centre, cal_min, cal_max;
 wire [15:0]  cal_moves;
 wire [3:0]   cal_flags;
-
-mem_glue_placeholder glue (
-    .clk_sys ( clk_sys ), .clk3x ( clk3x ), .clk2x ( clk2x ), .clk1x ( clk1x ),
-    .ram_ena ( psx_ram_ena ), .ram_rnw ( psx_ram_rnw ), .ram_Adr ( psx_ram_Adr ),
-    .ram_dataWrite ( psx_ram_dataWrite ), .ram_be ( psx_ram_be ),
-    .ddr3_WE ( psx_ddr3_WE ), .ddr3_RD ( psx_ddr3_RD ), .ddr3_ADDR ( psx_ddr3_ADDR ),
-    .ddr3_DIN ( psx_ddr3_DIN ), .ddr3_BE ( psx_ddr3_BE ),
-    .spuram_ena ( psx_spuram_ena ), .spuram_Adr ( psx_spuram_Adr ),
-    .memcard1_rd ( psx_memcard1_rd ), .memcard1_wr ( psx_memcard1_wr ),
-    .memcard1_lba ( psx_memcard1_lba ), .memcard1_dataOut ( psx_memcard1_dataOut ),
-    .left_s ( left_s ),
-    .g_ddr3_busy ( g_ddr3_busy ), .g_ddr3_dout ( g_ddr3_dout ), .g_ddr3_dout_ready ( g_ddr3_dout_ready ),
-    .g_ram_data_read ( g_ram_data_read ), .g_ram_done ( g_ram_done ),
-    .g_spuram_data_read ( g_spuram_data_read ), .g_spuram_done ( g_spuram_done ),
-    .g_memcard1_ack ( g_memcard1_ack ), .g_memcard1_data_in ( g_memcard1_data_in ),
-    .a_valid ( a_valid ), .a_ready ( a_ready ), .a_we ( a_we ), .a_addr ( a_addr ),
-    .a_wdata ( a_wdata ), .a_be ( a_be ),
-    .b_valid ( b_valid ), .b_ready ( b_ready ), .b_addr ( b_addr ),
-    .a_rvalid ( a_rvalid ), .b_rvalid ( b_rvalid ), .r_data ( r_data ), .sd_init_done ( sd_init_done ),
-    .pc_valid ( pc_valid ), .pc_ready ( pc_ready ), .pc_we ( pc_we ), .pc_cfg ( pc_cfg ),
-    .pc_addr ( pc_addr ), .pc_wdata ( pc_wdata ), .pc_be ( pc_be ),
-    .pr_valid ( pr_valid ), .pr_data ( pr_data ), .pr_done ( pr_done ),
-    .sr_start ( sr_start ), .sr_we ( sr_we ), .sr_addr ( sr_addr ), .sr_wdata ( sr_wdata ),
-    .sr_busy ( sr_busy ), .sr_done ( sr_done ), .sr_rdata ( sr_rdata )
-);
-
-// SDRAM: arbiter, controller, clock pin through a DDIO register
 wire         c_valid, c_ready, c_we, c_tag, c_rvalid, c_rtag;
 wire [24:0]  c_addr;
 wire [63:0]  c_wdata, c_rdata;
 wire [7:0]   c_be;
+wire [15:0]  vram_rd_2x, vram_wr_2x;
 
-sdram_arb arb (
-    .clk(clk_sys), .rst(rst_sys),
-    .a_valid(a_valid), .a_ready(a_ready), .a_we(a_we), .a_addr(a_addr), .a_wdata(a_wdata), .a_be(a_be),
-    .b_valid(b_valid), .b_ready(b_ready), .b_addr(b_addr),
-    .a_rvalid(a_rvalid), .b_rvalid(b_rvalid), .r_data(r_data),
-    .c_valid(c_valid), .c_ready(c_ready), .c_we(c_we), .c_addr(c_addr), .c_wdata(c_wdata), .c_be(c_be), .c_tag(c_tag),
-    .c_rvalid(c_rvalid), .c_rdata(c_rdata), .c_rtag(c_rtag)
+vram_adapter vad (
+    .clk2x(clk2x), .clk_sys(clk_sys), .init_done(sd_init_done),
+    .ddr3_RD(psx_ddr3_RD), .ddr3_WE(psx_ddr3_WE), .ddr3_ADDR(psx_ddr3_ADDR), .ddr3_DIN(psx_ddr3_DIN), .ddr3_BE(psx_ddr3_BE),
+    .ddr3_BURSTCNT(psx_ddr3_BURSTCNT), .ddr3_BUSY(psx_ddr3_BUSY), .ddr3_DOUT(psx_ddr3_DOUT), .ddr3_DOUT_READY(psx_ddr3_DOUT_READY),
+    .req_valid(c_valid), .req_ready(c_ready), .req_we(c_we), .req_addr(c_addr), .req_wdata(c_wdata), .req_be(c_be),
+    .rd_valid(c_rvalid), .rd_data(c_rdata),
+    .dbg_reads(vram_rd_2x), .dbg_writes(vram_wr_2x)
 );
+
+assign c_tag = 1'b0;
 
 sdram_ctl sdc (
     .clk(clk_sys), .clk_cap(clk_cap), .rst(rst_sys), .init_done(sd_init_done),
@@ -1135,23 +1039,68 @@ sdram_ctl sdc (
 assign dram_cke = 1'b1;
 sd_clk_out sdclk (.clk(clk_sd), .pin(dram_clk));
 
-// PSRAM: both chips ganged as one 32-bit memory, shared control
+// BIOS slot (bridge window 0x20000000) into PSRAM; the core is released once the SDRAM is calibrated and the BIOS is in.
+// The loader and the RAM adapter reset on PLL lock only: the host may load the slot while it holds reset_n low.
+reg [7:0] mrst_cnt = 8'hFF;
+reg       rst_mem = 1'b1;
+always @(posedge clk_sys) begin
+    if (!pll_locked_sys) mrst_cnt <= 8'hFF; else if (mrst_cnt != 8'd0) mrst_cnt <= mrst_cnt - 1'b1;
+    rst_mem <= (mrst_cnt != 8'd0);
+end
+wire         ld_valid, ld_ready;
+wire [22:0]  ld_addr;
+wire [31:0]  ld_data;
+wire [17:0]  bios_words;
+wire         bios_err;
+bios_loader bld (
+    .clk_74a(clk_74a), .bridge_wr(bridge_wr), .bridge_addr(bridge_addr), .bridge_wr_data(bridge_wr_data),
+    .clk_sys(clk_sys), .rst(rst_mem),
+    .ld_valid(ld_valid), .ld_ready(ld_ready), .ld_addr(ld_addr), .ld_data(ld_data),
+    .words(bios_words), .err(bios_err)
+);
+reg core_go_sys = 1'b0;
+always @(posedge clk_sys) core_go_sys <= sd_init_done & (bios_words == 18'd131072);
+synch_3 s_go (core_go_sys, core_go_1x, clk1x);
+
+wire         pc_valid, pc_ready, pc_we, pr_valid, pr_done;
+wire [22:0]  pc_addr;
+wire [4:0]   pc_len;
+wire [31:0]  pc_wdata, pr_data;
+wire [3:0]   pc_be;
+wire [15:0]  ram_req_1x, ram_fill_1x, ram_dmaw_1x;
+ram_adapter rad (
+    .clk1x(clk1x), .clk3x(clk3x), .clk_sys(clk_sys), .rst(rst_mem),
+    .ram_ena(psx_ram_ena), .ram_rnw(psx_ram_rnw), .ram_Adr(psx_ram_Adr), .ram_dataWrite(psx_ram_dataWrite), .ram_be(psx_ram_be),
+    .ram_dma(psx_ram_dma), .ram_cache(psx_ram_cache), .ram_cntDMA(psx_ram_cntDMA),
+    .ram_done(psx_ram_done), .ram_dataRead32(psx_ram_dataRead32),
+    .dma_wr(psx_dma_wr), .dma_data(psx_dma_data), .dma_reqprocessed(psx_dma_reqprocessed),
+    .cache_wr(psx_cache_wr), .cache_data(psx_cache_data), .cache_addr(psx_cache_addr),
+    .ram_dmafifo_empty(psx_ram_dmafifo_empty), .ram_dmafifo_adr(psx_ram_dmafifo_adr), .ram_dmafifo_data(psx_ram_dmafifo_data),
+    .ram_dmafifo_read(psx_ram_dmafifo_read),
+    .ld_valid(ld_valid), .ld_ready(ld_ready), .ld_addr(ld_addr), .ld_data(ld_data),
+    .cmd_valid(pc_valid), .cmd_ready(pc_ready), .cmd_we(pc_we), .cmd_addr(pc_addr), .cmd_len(pc_len),
+    .cmd_wdata(pc_wdata), .cmd_be(pc_be), .rd_valid(pr_valid), .rd_data(pr_data), .done(pr_done),
+    .dbg_req(ram_req_1x), .dbg_fill(ram_fill_1x), .dbg_dmaw(ram_dmaw_1x)
+);
+
+// PSRAM: both chips ganged as one 32-bit memory, shared control; asynchronous reads with the memtest's 88.5 ns wait unless
+// the memory-controller settings word (0x80000004) sets one
 wire [21:16] cram_a;
 wire         cram_clk, cram_adv_n, cram_cre, cram_ce0_n, cram_ce1_n, cram_oe_n, cram_we_n;
 wire         cram0_ub, cram0_lb, cram1_ub, cram1_lb;
+wire [4:0]   ps_wait = (cfg_sys[5:1] == 5'd0) ? 5'd12 : cfg_sys[5:1];
 
 psram32 ps (
     .clk(clk_sys), .rst(rst_sys),
-    .cmd_valid(pc_valid), .cmd_ready(pc_ready), .cmd_we(pc_we), .cmd_cfg(pc_cfg), .cmd_addr(pc_addr),
-    .cmd_len(5'd4), .cmd_wdata(pc_wdata), .cmd_be(pc_be),
-    .sync_mode(cfg_sys[0]), .rd_wait(cfg_sys[5:1]), .sync_lc(cfg_sys[8:6]), .sync_phase(cfg_sys[10:9]),
+    .cmd_valid(pc_valid), .cmd_ready(pc_ready), .cmd_we(pc_we), .cmd_cfg(1'b0), .cmd_addr(pc_addr),
+    .cmd_len(pc_len), .cmd_wdata(pc_wdata), .cmd_be(pc_be),
+    .sync_mode(1'b0), .rd_wait(ps_wait), .sync_lc(3'd3), .sync_phase(2'd2),
     .rd_valid(pr_valid), .rd_data(pr_data), .done(pr_done),
     .cram_a(cram_a), .cram0_dq(cram0_dq), .cram1_dq(cram1_dq), .cram_clk(cram_clk),
     .cram_adv_n(cram_adv_n), .cram_cre(cram_cre), .cram_ce0_n(cram_ce0_n), .cram_ce1_n(cram_ce1_n),
     .cram_oe_n(cram_oe_n), .cram_we_n(cram_we_n),
     .cram0_ub_n(cram0_ub), .cram0_lb_n(cram0_lb), .cram1_ub_n(cram1_ub), .cram1_lb_n(cram1_lb)
 );
-
 assign cram0_a = cram_a;      assign cram1_a = cram_a;
 assign cram0_clk = cram_clk;  assign cram1_clk = cram_clk;
 assign cram0_adv_n = cram_adv_n; assign cram1_adv_n = cram_adv_n;
@@ -1163,20 +1112,16 @@ assign cram0_we_n = cram_we_n; assign cram1_we_n = cram_we_n;
 assign cram0_ub_n = cram0_ub; assign cram0_lb_n = cram0_lb;
 assign cram1_ub_n = cram1_ub; assign cram1_lb_n = cram1_lb;
 
-// SRAM: byte store
-sram_ctl sr (
-    .clk(clk_sys), .rst(rst_sys), .start(sr_start), .we(sr_we), .addr(sr_addr), .wdata(sr_wdata),
-    .wait_c(cfg_sys[14:11]), .busy(sr_busy), .done(sr_done), .rdata(sr_rdata),
-    .sram_a(sram_a), .sram_dq(sram_dq), .sram_oe_n(sram_oe_n), .sram_we_n(sram_we_n),
-    .sram_ub_n(sram_ub_n), .sram_lb_n(sram_lb_n)
-);
-
+// SRAM: idle until the memory-card store uses it
+assign sram_a    = 17'd0;
+assign sram_dq   = 16'hZZZZ;
+assign sram_oe_n = 1'b1;
+assign sram_we_n = 1'b1;
+assign sram_ub_n = 1'b1;
+assign sram_lb_n = 1'b1;
 
 ///////////////////////////////////////////////////////////////////////////////
-// bridge reads: command handler, and the stub's memory-card stream for the slot windows
-wire [31:0] rd_pool;
-synch_3 #(.WIDTH(32)) s_rd ({psx_memcard1_dataOut, psx_memcard1_dataOut} ^ {psx_cd_hps_lba[15:0], psx_cd_hps_lba[31:16]}, rd_pool, clk_74a);
-
+// bridge reads: command handler and the SDRAM calibration status
 // SDRAM calibration status, read-only words at 0x80000100 + 4*i (quasi-static, crossed without a handshake):
 //   0: [0] init_done [1] cal_done [2] cal_ok [3] PLL locked [7:4] cal_flags
 //   1: [6:0] cal_width [14:8] cal_boot [22:16] cal_centre    2: [6:0] cal_min [14:8] cal_max
@@ -1190,7 +1135,6 @@ synch_3 #(.WIDTH(160)) s_cal (cal_st_sys, cal_st, clk_74a);
 
 always @(*) begin
     casex (bridge_addr)
-    32'h4xxxxxxx: bridge_rd_data <= rd_pool ^ datatable_q;
     32'h800001xx: bridge_rd_data <= (bridge_addr[7:2] < 6'd5) ? cal_st[{bridge_addr[4:2], 5'd0} +: 32] : 32'd0;
     32'hF8xxxxxx: bridge_rd_data <= cmd_bridge_rd_data;
     default:      bridge_rd_data <= 0;
@@ -1198,28 +1142,49 @@ always @(*) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// video: the status screen (placeholder pixel clock, clk_vid domain). The stub's video outputs, syncs folded in, fill
-// the screen's box, so nothing behind them is pruned.
-reg [23:0] stub_rgb;
-always @(posedge clk_vid)
-    stub_rgb <= {psx_video_r, psx_video_g, psx_video_b} ^ {24{psx_hblank ^ psx_vblank ^ psx_hsync ^ psx_vsync}};
+// video (clk_vid): the GPU's picture, or the debug screen (setting 0x80000008 bit 0)
+wire [23:0] fl_rgb;
+wire        fl_de, fl_hs, fl_vs;
+video_fl vfl (
+    .clk(clk_vid), .r(psx_video_r), .g(psx_video_g), .b(psx_video_b), .hblank(psx_hblank), .vblank(psx_vblank),
+    .rgb(fl_rgb), .de(fl_de), .hs(fl_hs), .vs(fl_vs)
+);
+reg [15:0] frames_vid = 16'd0;
+always @(posedge clk_vid) if (fl_vs) frames_vid <= frames_vid + 1'b1;
+
+// debug counters to clk_74a (they move: a value may be read mid-change, the screen rewrites it continuously)
+wire [15:0] ram_req_74, ram_fill_74, ram_dmaw_74, vram_rd_74, vram_wr_74, frames_74;
+wire        core_run_74;
+synch_3 #(.WIDTH(48)) s_dbg1 ({ram_req_1x, ram_fill_1x, ram_dmaw_1x}, {ram_req_74, ram_fill_74, ram_dmaw_74}, clk_74a);
+synch_3 #(.WIDTH(32)) s_dbg2 ({vram_rd_2x, vram_wr_2x}, {vram_rd_74, vram_wr_74}, clk_74a);
+synch_3 #(.WIDTH(16)) s_dbg3 (frames_vid, frames_74, clk_74a);
+synch_3               s_dbg4 (core_go_1x & ~rst_1x, core_run_74, clk_74a);
 
 wire        tx_we;
 wire [9:0]  tx_wa;
 wire [8:0]  tx_wd;
 status_fmt sfmt (
     .clk(clk_74a), .cal_st(cal_st), .uptime_s(uptime_s), .bios_bytes(bios_bytes), .bios_sum(bios_sum),
-    .trk_bytes(trk_bytes), .trk_sum(trk_sum), .pad_keys(cont1_key[15:0]), .pad_joy(cont1_joy),
+    .pad_keys(cont1_key[15:0]), .pad_joy(cont1_joy), .core_run(core_run_74),
+    .ram_req(ram_req_74), .ram_fill(ram_fill_74), .ram_dmaw(ram_dmaw_74),
+    .vram_rd(vram_rd_74), .vram_wr(vram_wr_74), .frames(frames_74),
     .tx_we(tx_we), .tx_wa(tx_wa), .tx_wd(tx_wd)
 );
 
-wire [23:0] vid_rgb;
-wire        vid_de, vid_hs, vid_vs;
+wire [23:0] st_rgb;
+wire        st_de, st_hs, st_vs;
 status_screen sscr (
     .clk_s(clk_74a), .tx_we(tx_we), .tx_wa(tx_wa), .tx_wd(tx_wd),
-    .clk_v(clk_vid), .reset_n(reset_n), .box_rgb(stub_rgb),
-    .rgb(vid_rgb), .de(vid_de), .hs(vid_hs), .vs(vid_vs)
+    .clk_v(clk_vid), .reset_n(reset_n), .box_rgb(fl_rgb),
+    .rgb(st_rgb), .de(st_de), .hs(st_hs), .vs(st_vs)
 );
+
+wire debug_vid;
+synch_3 s_dbgv (cfg_screen[0], debug_vid, clk_vid);
+wire [23:0] vid_rgb = debug_vid ? st_rgb : fl_rgb;
+wire        vid_de  = debug_vid ? st_de  : fl_de;
+wire        vid_hs  = debug_vid ? st_hs  : fl_hs;
+wire        vid_vs  = debug_vid ? st_vs  : fl_vs;
 
 assign video_rgb_clock    = clk_vid;
 assign video_rgb_clock_90 = clk_vid_90;

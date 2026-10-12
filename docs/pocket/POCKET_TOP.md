@@ -18,21 +18,30 @@ GPU needs two named implementations and a block can later add a third value with
 
 | Block | Generic (default) | Golden entity -> pocket entity | Instance (top line) | Revision |
 |---|---|---|---|---|
-| SPU | `G_SPU_IMPL` ("golden") | `spu` -> `spu_pocket` | `ispu`, 2340 | `psx_pocket_a6_spu` |
-| CD | `G_CD_IMPL` ("golden") | `cd_top` -> `cd_pocket` | `icd_top`, 1761 | `psx_pocket_a6_cd` |
-| CPU | `G_CPU_IMPL` ("golden") | `cpu` -> `cpu_pocket` | `icpu`, 3020 | `psx_pocket_a6_cpu` |
+| SPU | `G_SPU_IMPL` ("golden") | `spu` -> `spu_pocket` / `spu_none` | `ispu`, 2459 | `psx_pocket_a6_spu` |
+| CD | `G_CD_IMPL` ("golden") | `cd_top` -> `cd_pocket` / `cd_none` | `icd_top`, 1761 | `psx_pocket_a6_cd` |
+| CPU | `G_CPU_IMPL` ("golden") | `cpu` -> `cpu_pocket` | `icpu`, 3285 | `psx_pocket_a6_cpu` |
 | DMA | `G_DMA_IMPL` ("golden") | `dma` -> `dma_pocket` | `idma`, 1445 | `psx_pocket_a6_dma` |
-| Bus | `G_BUS_IMPL` ("golden") | `memorymux` -> `memorymux_pocket` | `imemorymux`, 2579 | `psx_pocket_a6_bus` |
+| Bus | `G_BUS_IMPL` ("golden") | `memorymux` -> `memorymux_pocket` | `imemorymux`, 2844 | `psx_pocket_a6_bus` |
 | Joypad | `G_JOYPAD_IMPL` ("golden") | `joypad` -> `joypad_pocket` | `ijoypad`, 1067 | set in the bus revision |
-| Memcard | `G_MEMCARD_IMPL` ("golden") | `memcard` -> `memcard_pocket` | `imemcard1`, 3290; `imemcard2`, 3410 | set in the bus revision |
-| MDEC | `G_MDEC_IMPL` ("golden") | `mdec` -> `mdec_pocket` | `imdec`, 2231 (inside `NO_MDEC` generate) | `psx_pocket_a6_mdec` |
-| GPU | `G_GPU_IMPL` ("pocket") | `gpu_pocket` (default) / `gpu` | `igpu`, 1946 | `psx_pocket_a6_gpu` (golden `gpu`) |
+| Memcard | `G_MEMCARD_IMPL` ("golden") | `memcard` -> `memcard_pocket` | `imemcard1`, 3555; `imemcard2`, 3675 | set in the bus revision |
+| MDEC | `G_MDEC_IMPL` ("golden") | `mdec` -> `mdec_pocket` | `imdec`, 2350 (inside `NO_MDEC` generate) | `psx_pocket_a6_mdec` |
+| GPU | `G_GPU_IMPL` ("pocket") | `gpu_pocket` (default) / `gpu` | `igpu`, 2065 | `psx_pocket_a6_gpu` (golden `gpu`) |
 
 - The CPU, SPU, CD, DMA, memorymux, joypad, memcard, MDEC and GPU are all instantiated directly in
   `psx_top_pocket.vhd`; none is nested elsewhere. `memcard` is a separate instance from `joypad`
-  (two instances, one generic). `gte_serial` (`igte`, 3244) is not switchable.
+  (two instances, one generic). `gte_serial` (`igte`, 3509) is not switchable.
 - The `*_pocket` entity must have the golden's exact port list (the component declaration in the
   top is the golden's ports); port or generic changes belong in the golden-compatible entity, not in the top.
+- `G_SPU_IMPL` and `G_CD_IMPL` also accept `"none"` (`rtl/spu_none.vhd`, `rtl/cd_none.vhd`, instantiated through a
+  component like `*_pocket`; golden port lists, so `gen_ports` outputs do not change; a `"none"` revision adds the files
+  to its source list). It ties off
+  IRQ, sound, memory and savestate outputs and reports idle. `spu_none` keeps behaviours the BIOS polls: every SPU
+  register reads back the last value written, SPUSTAT (0x1AE) reads SPUCNT(5:0) with all other bits 0,
+  `spu_dmaRequest` = SPUCNT bit 5 (DMA4 finishes: writes dropped, reads 0) and `spu_tick` keeps its 768-clk1x
+  period for the CD. `cd_none` reads 0x18 | index at 0x1800 (parameter FIFO empty and not full, response and data
+  FIFOs empty, not busy), 0xE0 at 0x1803 and 0 elsewhere; no command ever completes and no IRQ is raised.
+  Smoke and unit tests: `sim/none_smoke/run.sh`.
 - `NO_MDEC` (wrapper `G_NO_MDEC`) is orthogonal: when true neither MDEC branch is elaborated.
 - `psx_pocket_a6_<blk>.qsf` does `source psx_pocket_a6.qsf`, then overrides
   `PROJECT_OUTPUT_DIRECTORY` and sets its generic. Each block unit adds its `*_pocket` source lines
@@ -135,18 +144,16 @@ command, so in practice `SS_idle` and `Pause_Idle` gate the user pause and the C
 builds with `SDRAM_135`.
 
 `fpga/core/core_top.v` holds `core_bridge_cmd` (host commands, data-slot read and write; savestates
-reported unsupported), `pll_psx`, `sdram_arb` + `sdram_ctl` (with its calibrated read capture) + `sd_clk_out`, `psram32`, `sram_ctl` and
-the core.
-Today the core is `psx_top_stub.v`: module `psx_top_pocket_flat` with the ports of `psx_top_pocket`, every
-output driven from registered pseudo-random state into which every input is XOR-folded, so nothing behind
-it is pruned. `mem_glue_placeholder.v` and the `g_*`/`pool_*` wiring in `core_top.v` stand in for the
-adapters, arbiter clients, bridge crossings and video/audio paths; they keep both sides alive and are not
-protocol-correct.
+reported unsupported), `pll_psx`, `sdram_ctl` (with its calibrated read capture) + `sd_clk_out`, `psram32`, the memory adapters
+and the core. Since first light the core is the real `psx_top_pocket` behind its flat wrapper (see [First light](#first-light));
+`psx_top_stub.v` (module `psx_top_pocket_flat` with the same ports, every output driven from registered pseudo-random state into
+which every input is XOR-folded) stays for `build.sh sim`'s stub bench and the mixed spike.
 
 A Verilog parent cannot connect the `joypad_t` record or the integer `savestate_number`, so
 `fpga/core/psx_top_pocket_flat.vhd` flattens them (`joypadN` = the record, first field in the MSB, then
 Analog1X..Analog2Y). To build the real core, replace the stub line in the qsf with that file plus the rtl
-list. `tools/gen_ports/` regenerates the stub, the flat wrapper and the stub instance from the entity.
+list. `tools/gen_ports/` regenerates the stub, the flat wrapper and the stub instance from the entity. Boolean generics are
+integers 0/1 in the flat wrapper (`NO_MDEC`): Quartus cannot set a VHDL boolean from Verilog.
 
 ### Clocks
 
@@ -162,10 +169,10 @@ wrapper that keeps the port names. The fit reports all eight outputs at these fr
 | C3 | clk1x, also the calibration scan clock | /24 | 33.8688 MHz | 0 |
 | C4 | clk2x | /12 | 67.7376 MHz | 0 |
 | C5 | clk3x | /8 | 101.6064 MHz | 0 |
-| C6, C7 | clk_vid, clk_vid_90 | /128 | 6.3504 MHz | 0, 90° (placeholder pixel clock) |
+| C6, C7 | clk_vid, clk_vid_90 | /120 | 6.77376 MHz | 0, 90° (clk2x / 10: the GPU's 320-wide dot rate) |
 
-The 53.693 MHz pixel clock is not an integer division of the VCO and gets its own PLL later. In the SDC, clk1x/2x/3x form one
-timed group and clk_sys/clk_sd/clk_cap another; the pixel clocks and the APF clocks are asynchronous groups. The handshake
+The GPU's sync video path counts its dot clock in clk2x cycles, so no 53.693 MHz clock is needed. In the SDC, clk1x/2x/3x and the
+pixel clocks form one timed group and clk_sys/clk_sd/clk_cap another; the APF clocks are asynchronous groups. The handshake
 between `sdram_cal` (clk_sys) and the PLL (clk1x) is two-flop synchronised, so it is not timed. The pin to `clk_cap` capture
 path is a false path (MEMTEST.md, "Calibration contract"); the `clk_cap` to `clk_sys` transfer carries the swing of the capture
 phase (`SDT_CAL_SWING`) as uncertainty. `sdram_timing.py --check` compares outputs 0 to 2 of `pll_psx_dps.v` with the timing
@@ -189,10 +196,10 @@ window read 0; the values are crossed to `clk_74a` without a handshake, so read 
 
 The GPU stall counters the plan also wants readable over the bridge are not here; they belong to the core.
 
-### Status screen (while the core is a stub)
+### Debug screen
 
-The shell's video output is a 320 × 240 text screen, not the stub's video. `status_screen.v` is memtest's `video_text.v`
-renderer (same timing on the placeholder 6.3504 MHz pixel clock) with its own labels (`tools/gen_screen.py` →
+*Core Settings → Screen → Debug* (bridge word 0x80000008, bit 0) replaces the picture with a 320 × 240 text screen.
+`status_screen.v` is memtest's `video_text.v` renderer, with 428 clocks per line (59.95 Hz on the 6.77376 MHz pixel clock) and its own labels (`tools/gen_screen.py` →
 `status_text.vh`). `status_fmt.v`, on `clk_74a`, rewrites the values continuously. `build.sh sim` checks them in `tb_status.v`
 and renders `sim/out/status.ppm`. The rows:
 
@@ -200,14 +207,13 @@ and renders `sim/out/status.ppm`. The rows:
 |---|---|
 | SDRAM | `init_done`, `cal_done`, eye OK (green) or FAIL (red), PLL locked, eye width / boot centre / centre now, min / max / moves, `cal_flags` as bits 3..0 (bit 0 no eye, 1 eye touches an end, 2 PLL timeout, 3 re-swept), tracking windows started. The same values as the bridge window above |
 | BIOS | bytes written to the BIOS window and the sum of their 32-bit words. `BIOS IS` says OPENBIOS (the sum of the bundled file, read either endian), OWN (another 524,288-byte file), NONE or SIZE?. A write at offset 0 starts a new count |
-| Track table | the same count and sum for the track-table window |
+| PSX core | RUNNING, or HELD in reset (the SDRAM is not calibrated or the BIOS has not arrived) |
 | Input | `cont1_key[15:0]` and `cont1_joy`: they change when a button or stick moves |
-| Core output | a 64 × 64 box with the stub's video outputs, its syncs XOR-folded in. This keeps the stub's video logic from being pruned |
+| PSX bus | main RAM requests, icache fills and DMA words written (`ram_adapter`); GPU VRAM reads and writes accepted (`vram_adapter`); frames sent to the APF |
+| Core output | a 64 × 64 box with the live picture's pixels |
 
-The uptime counts seconds of `clk_74a` from configuration. The screen goes when the real core's video path (P1c) replaces it.
-
-With the screen the shell fits in 2,349 ALMs (13%) and 14 M10K at seed 2, timing met (worst slack +0.086 ns, hold): about
-470 ALMs above the skeleton measured below, which had the stub's video wired straight to the output.
+The uptime counts seconds of `clk_74a` from configuration. The counters cross to `clk_74a` without a handshake: a moving value can
+be read mid-change and is rewritten on the next pass.
 
 ### Data slots (`dist/Cores/defgenx.PSX/data.json`)
 
@@ -269,3 +275,38 @@ SDRAM model, which therefore delays its read data with a second clock. The bridg
 run yet: `cd_top`'s `positionInIndex` (patched in the sim copy), the `Gun1X` expression in the top
 (sticks tied to −1) and `gpu_videoout_async.vhd:684` (`lineMax - 1 = -1` at 236 ns) fail range checks at
 initialisation.
+
+## First light
+
+The first build with the real core: CPU, GPU, GTE, DMA, timers, pads and the bus, without the SPU, the CD-ROM controller and the
+MDEC (`G_SPU_IMPL`/`G_CD_IMPL` "none", `NO_MDEC` 1). It boots the BIOS and shows the GPU's picture; it plays no sound and reads no
+disc. The core's other inputs are held at their MiSTer defaults in `core_top.v` (sync video on, NTSC, no savestates or cheats).
+
+**Memory.** VRAM is on the SDRAM: `vram_adapter.v` takes the GPU's `ddr3_*` port (clk2x) through a 32-entry dual-clock command
+FIFO (`async_fifo.v`, gray pointers) to `sdram_ctl` (clk_sys), one 4-word burst per 64-bit qword, read bursts of up to 128 split
+into single requests, data back through a 256-entry FIFO with credit so it cannot overflow; `BUSY` is registered from the FIFO
+level. Main RAM and the BIOS are on the PSRAM: `ram_adapter.v` serves the `ram_*` requests (clk1x), the icache fill stream and
+the DMA write FIFO (clk3x) with toggle handshakes into `psram32` (clk_sys), PSRAM word address = `ram_Adr[24:2]` (main RAM at 0,
+the BIOS at word 0x200000). Measured in `tb_ram.v`: a plain read takes 8 clk1x cycles, a 4-word fill 20. The PSRAM read wait is
+12 cycles (88.5 ns, the memtest default) unless the memory-controller word 0x80000004 sets one. The SRAM is unused.
+
+**BIOS and reset.** `bios_loader.v` byte-swaps the big-endian bridge writes of the BIOS slot into PSRAM through a 512-entry FIFO
+(`err` if the bridge outruns the PSRAM). The core is held in reset until the SDRAM is calibrated and all 131,072 BIOS words are
+in. The loader and `ram_adapter` reset on PLL lock only, because the host may load the slot while it holds `reset_n` low.
+
+**Video.** `video_fl.v` samples the GPU's RGB once per clk_vid (clk2x / 10, exact for 320-wide modes; other widths are
+resampled) into one fixed 320 × 240 scaler slot: HS 16 clocks after hblank rises, VS 4 clocks before the HS that starts a
+frame, 240 lines from the end of vblank, a 320-clock DE window from the start of each active line, black outside the GPU's
+active area. 480i shows each field as a frame. The GPU's `clkvid` input is clk2x, because `gpu_videoout` reads its line RAM on
+that clock in sync mode.
+
+**Pad.** Pad 1 is a digital pad: Pocket A, B, X, Y on Circle, Cross, Triangle, Square; L/R and the triggers on L1/R1, L2/R2.
+Ports 2 to 4 are unplugged.
+
+**Tests.** Unit benches: `tb_vram.v`, `tb_ram.v`, `tb_bios_loader.v`, `tb_video_fl.v`, `tb_status.v` (iverilog; commands in
+their headers). The system simulation `sim/system/run.sh [BIOS] [ms]` runs the real core with `vram_adapter`, `ram_adapter`
+and `video_fl` against behavioural PSRAM and SDRAM request ports (the controllers are proven in their own benches), with the BIOS
+preloaded. It writes every frame the APF would get to `sim/system/out/frame_<n>.ppm` and traces the RAM bus to `ram_trace.txt`;
+about 2 s of wall time per emulated millisecond.
+
+**Fit** (5CEBA4F23C8, seed 2): 16,624 ALMs (90%), 146 of 308 M10K, 19 DSP; the PSX clocks meet timing.

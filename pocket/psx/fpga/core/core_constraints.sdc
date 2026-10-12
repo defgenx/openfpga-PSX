@@ -2,8 +2,8 @@
 # user core constraints
 #
 # pll_psx_dps outputs (derive_pll_clocks): [0] clk_sys, [1] clk_sd, [2] clk_cap, [3] clk1x, [4] clk2x, [5] clk3x,
-# [6] clk_vid, [7] clk_vid_90. clk1x/2x/3x (clk1x is the calibration scan clock) are one related group, clk_sys/clk_sd/clk_cap
-# another, the pixel clocks a third.
+# [6] clk_vid, [7] clk_vid_90. clk1x/2x/3x and the pixel clocks (clk1x is the calibration scan clock) are one related group,
+# clk_sys/clk_sd/clk_cap another.
 #
 
 set PLL "ic|pll|pll|altera_pll_i|cyclonev_pll"
@@ -33,16 +33,16 @@ set_false_path -from [get_ports {dram_dq[*]}] -to [get_clocks $CLK_CAP]
 set_false_path -to   [get_ports {cram0_* cram1_* sram_*}]
 set_false_path -from [get_ports {cram0_dq[*] cram1_dq[*] cram0_wait cram1_wait sram_dq[*]}]
 
-# clk1x/2x/3x are integer divisions of one VCO and stay one timed group, as do clk_sys/clk_sd/clk_cap. The groups, the
-# pixel clocks and the APF clocks are crossed through registers; the calibration handshake between clk_sys and its scan
+# clk1x/2x/3x and clk_vid (clk2x / 10) are integer divisions of one VCO and stay one timed group, so video_fl.v samples the
+# GPU's clk2x outputs with one register; clk_sys/clk_sd/clk_cap are another. The groups and the APF clocks are crossed through
+# registers; the calibration handshake between clk_sys and its scan
 # clock clk1x uses two-flop synchronisers (sdram_cal.v).
 set_clock_groups -asynchronous \
  -group { bridge_spiclk } \
  -group { clk_74a } \
  -group { clk_74b } \
- -group [get_clocks "$CLK_1X $CLK_2X $CLK_3X"] \
- -group [get_clocks "$CLK_SYS $CLK_SD $CLK_CAP dram_clk_pin"] \
- -group [get_clocks "$CLK_VID $CLK_V90"]
+ -group [get_clocks "$CLK_1X $CLK_2X $CLK_3X $CLK_VID $CLK_V90"] \
+ -group [get_clocks "$CLK_SYS $CLK_SD $CLK_CAP dram_clk_pin"]
 
 derive_clock_uncertainty
 

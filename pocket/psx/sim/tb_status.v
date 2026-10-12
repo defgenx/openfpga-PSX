@@ -4,7 +4,7 @@
 module tb_status;
     reg clk_s = 0, clk_v = 0;
     always #6.734 clk_s = ~clk_s;              // 74.25 MHz
-    always #78.73 clk_v = ~clk_v;              // 6.3504 MHz
+    always #73.815 clk_v = ~clk_v;             // 6.77376 MHz
     reg reset_n = 0;
 
     // calibration words: init, cal done, ok, PLL locked, flags 0010; width 29, boot 15, centre 16; min 14, max 17; moves 3; windows 42
@@ -14,7 +14,8 @@ module tb_status;
 
     wire tx_we; wire [9:0] tx_wa; wire [8:0] tx_wd;
     status_fmt fmt (.clk(clk_s), .cal_st(cal_st), .uptime_s(32'd1234), .bios_bytes(bios_bytes), .bios_sum(bios_sum),
-        .trk_bytes(32'd0), .trk_sum(32'd0), .pad_keys(16'h0081), .pad_joy(32'h80807F80),
+        .pad_keys(16'h0081), .pad_joy(32'h80807F80), .core_run(1'b1), .ram_req(16'd51234), .ram_fill(16'd77),
+        .ram_dmaw(16'd0), .vram_rd(16'd9), .vram_wr(16'd65535), .frames(16'd60),
         .tx_we(tx_we), .tx_wa(tx_wa), .tx_wd(tx_wd));
 
     wire [23:0] rgb; wire de, hs, vs;
@@ -69,7 +70,12 @@ module tb_status;
         check_field(12, 0, " 524288 ", 0);
         check_field(12, 1, "ABA9788F", 0);
         check_field(13, 0, "OPENBIOS", 1);
-        check_field(14, 0, "      0 ", 0);
+        check_field(14, 0, "RUNNING ", 1);
+        check_field(20, 0, "  51234 ", 0);
+        check_field(20, 1, "     77 ", 0);
+        check_field(20, 2, "      0 ", 0);
+        check_field(21, 1, "  65535 ", 0);
+        check_field(21, 2, "     60 ", 0);
         check_field(17, 0, "   0081 ", 0);
         check_field(18, 0, "80807F80", 0);
         // another BIOS of the right size, then a short one

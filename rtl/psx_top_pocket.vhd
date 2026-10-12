@@ -696,8 +696,8 @@ begin
    -- a mistyped G_*_IMPL would elaborate neither branch and leave the block's outputs undriven
    assert G_GPU_IMPL = "golden" or G_GPU_IMPL = "pocket" report "G_GPU_IMPL must be golden or pocket" severity failure;
    assert G_CPU_IMPL = "golden" or G_CPU_IMPL = "pocket" report "G_CPU_IMPL must be golden or pocket" severity failure;
-   assert G_SPU_IMPL = "golden" or G_SPU_IMPL = "pocket" report "G_SPU_IMPL must be golden or pocket" severity failure;
-   assert G_CD_IMPL = "golden" or G_CD_IMPL = "pocket" report "G_CD_IMPL must be golden or pocket" severity failure;
+   assert G_SPU_IMPL = "golden" or G_SPU_IMPL = "pocket" or G_SPU_IMPL = "none" report "G_SPU_IMPL must be golden, pocket or none" severity failure;
+   assert G_CD_IMPL = "golden" or G_CD_IMPL = "pocket" or G_CD_IMPL = "none" report "G_CD_IMPL must be golden, pocket or none" severity failure;
    assert G_DMA_IMPL = "golden" or G_DMA_IMPL = "pocket" report "G_DMA_IMPL must be golden or pocket" severity failure;
    assert G_BUS_IMPL = "golden" or G_BUS_IMPL = "pocket" report "G_BUS_IMPL must be golden or pocket" severity failure;
    assert G_JOYPAD_IMPL = "golden" or G_JOYPAD_IMPL = "pocket" report "G_JOYPAD_IMPL must be golden or pocket" severity failure;
@@ -1939,6 +1939,125 @@ begin
       );
    end generate;
 
+   -- no disc drive: ports and register behaviour in cd_none.vhd
+   gcd_none : if G_CD_IMPL = "none" generate
+      component cd_none is
+      port
+      (
+         clk1x                : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         INSTANTSEEK          : in  std_logic;
+         FORCECDSPEED         : in  std_logic_vector(2 downto 0);
+         LIMITREADSPEED       : in  std_logic;
+         hasCD                : in  std_logic;
+         LIDopen              : in  std_logic;
+         fastCD               : in  std_logic;
+         testSeek             : in  std_logic;
+         pauseOnCDSlow        : in  std_logic;
+         region               : in  std_logic_vector(1 downto 0);
+         region_out           : out std_logic_vector(1 downto 0);
+         pauseCD              : out std_logic := '0';
+         Pause_idle_cd        : out std_logic := '0';
+         fullyIdle            : out std_logic;
+         cdSlow               : out std_logic := '0';
+         error                : out std_logic := '0';
+         LBAdisplay           : out unsigned(19 downto 0);
+         irqOut               : out std_logic := '0';
+         spu_tick             : in  std_logic;
+         cd_left              : out signed(15 downto 0) := (others => '0');
+         cd_right             : out signed(15 downto 0) := (others => '0');
+         mdec_idle            : in  std_logic;
+         bus_addr             : in  unsigned(3 downto 0);
+         bus_dataWrite        : in  std_logic_vector(7 downto 0);
+         bus_read             : in  std_logic;
+         bus_write            : in  std_logic;
+         bus_dataRead         : out std_logic_vector(7 downto 0) := (others => '0');
+         dma_read             : in  std_logic;
+         dma_readdata         : out std_logic_vector(7 downto 0);
+         cd_hps_req           : out std_logic := '0';
+         cd_hps_lba           : out std_logic_vector(31 downto 0);
+         cd_hps_lba_sim       : out std_logic_vector(31 downto 0) := (others => '0');
+         cd_hps_ack           : in  std_logic;
+         cd_hps_write         : in  std_logic;
+         cd_hps_data          : in  std_logic_vector(15 downto 0);
+         trackinfo_data       : in  std_logic_vector(31 downto 0);
+         trackinfo_addr       : in  std_logic_vector(8 downto 0);
+         trackinfo_write      : in  std_logic;
+         resetFromCD          : out std_logic := '0';
+         SS_reset             : in  std_logic;
+         SS_DataWrite         : in  std_logic_vector(31 downto 0);
+         SS_Adr               : in  unsigned(13 downto 0);
+         SS_wren              : in  std_logic;
+         SS_rden              : in  std_logic;
+         SS_DataRead          : out std_logic_vector(31 downto 0);
+         SS_idle              : out std_logic
+      );
+      end component;
+   begin
+      icd_top : cd_none
+      port map
+      (
+         clk1x                => clk1x,
+         ce                   => ce,
+         reset                => reset_intern,
+
+         INSTANTSEEK          => INSTANTSEEK,
+         FORCECDSPEED         => FORCECDSPEED,
+         LIMITREADSPEED       => LIMITREADSPEED,
+         hasCD                => hasCD,
+         fastCD               => fastCD,
+         testSeek             => testSeek,
+         pauseOnCDSlow        => pauseOnCDSlow,
+         LIDopen              => LIDopen,
+         region               => region,
+         region_out           => region_out,
+
+         pauseCD              => pauseCD,
+         Pause_idle_cd        => Pause_idle_cd,
+         cdSlow               => cdSlow,
+         error                => errorCD,
+         LBAdisplay           => LBAdisplay,
+
+         irqOut               => irq_CDROM,
+
+         spu_tick             => spu_tick,
+         cd_left              => cd_left,
+         cd_right             => cd_right,
+
+         mdec_idle            => SS_Idle_mdec,
+
+         bus_addr             => bus_cd_addr,
+         bus_dataWrite        => bus_cd_dataWrite,
+         bus_read             => bus_cd_read,
+         bus_write            => bus_cd_write,
+         bus_dataRead         => bus_cd_dataRead,
+
+         dma_read             => DMA_CD_readEna,
+         dma_readdata         => DMA_CD_read,
+
+         cd_hps_req           => cd_hps_req,
+         cd_hps_lba           => cd_hps_lba,
+         cd_hps_lba_sim       => cd_hps_lba_sim,
+         cd_hps_ack           => cd_hps_ack,
+         cd_hps_write         => cd_hps_write,
+         cd_hps_data          => cd_hps_data,
+
+         trackinfo_data       => trackinfo_data,
+         trackinfo_addr       => trackinfo_addr,
+         trackinfo_write      => trackinfo_write,
+         resetFromCD          => resetFromCD,
+
+         SS_reset             => SS_reset,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(13 downto 0),
+         SS_wren              => SS_wren(13),
+         SS_rden              => SS_rden(13),
+         SS_DataRead          => SS_DataRead_CD,
+         SS_Idle              => SS_Idle_cd
+      );
+   end generate;
+
    cdslowEna <= cdSlow and cdslowOn;
 
    ggpu_pocket : if G_GPU_IMPL = "pocket" generate
@@ -2560,6 +2679,152 @@ begin
       );
    end generate;
    
+   -- no sound: register echo, DMA sink and spu_tick only, see spu_none.vhd
+   gspu_none : if G_SPU_IMPL = "none" generate
+      component spu_none is
+      port
+      (
+         clk1x                : in  std_logic;
+         clk2x                : in  std_logic;
+         clk2xIndex           : in  std_logic;
+         ce                   : in  std_logic;
+         reset                : in  std_logic;
+         SPUon                : in  std_logic;
+         SPUIRQTrigger        : in  std_logic;
+         useSDRAM             : in  std_logic;
+         REPRODUCIBLESPUIRQ   : in  std_logic;
+         REPRODUCIBLESPUDMA   : in  std_logic;
+         REVERBOFF            : in  std_logic;
+         cpuPaused            : in  std_logic;
+         spu_tick             : out std_logic := '0';
+         cd_left              : in  signed(15 downto 0);
+         cd_right             : in  signed(15 downto 0);
+         irqOut               : out std_logic := '0';
+         sound_timeout        : out std_logic := '0';
+         sound_out_left       : out std_logic_vector(15 downto 0) := (others => '0');
+         sound_out_right      : out std_logic_vector(15 downto 0) := (others => '0');
+         bus_addr             : in  unsigned(9 downto 0);
+         bus_dataWrite        : in  std_logic_vector(15 downto 0);
+         bus_read             : in  std_logic;
+         bus_write            : in  std_logic;
+         bus_dataRead         : out std_logic_vector(15 downto 0);
+         spu_dmaRequest       : out std_logic;
+         dma_read             : in  std_logic;
+         dma_readdata         : out std_logic_vector(15 downto 0);
+         dma_write            : in  std_logic;
+         dma_writedata        : in  std_logic_vector(15 downto 0);
+         sdram_dataWrite      : out std_logic_vector(31 downto 0);
+         sdram_Adr            : out std_logic_vector(18 downto 0);
+         sdram_be             : out std_logic_vector(3 downto 0);
+         sdram_rnw            : out std_logic;
+         sdram_ena            : out std_logic;
+         sdram_dataRead       : in  std_logic_vector(31 downto 0);
+         sdram_done           : in  std_logic;
+         mem_request          : out std_logic := '0';
+         mem_BURSTCNT         : out std_logic_vector(7 downto 0) := (others => '0');
+         mem_ADDR             : out std_logic_vector(19 downto 0) := (others => '0');
+         mem_DIN              : out std_logic_vector(63 downto 0) := (others => '0');
+         mem_BE               : out std_logic_vector(7 downto 0) := (others => '0');
+         mem_WE               : out std_logic := '0';
+         mem_RD               : out std_logic := '0';
+         mem_ack              : in  std_logic;
+         mem_DOUT             : in  std_logic_vector(63 downto 0);
+         mem_DOUT_READY       : in  std_logic;
+         SS_reset             : in  std_logic;
+         loading_savestate    : in  std_logic;
+         SS_DataWrite         : in  std_logic_vector(31 downto 0);
+         SS_Adr               : in  unsigned(8 downto 0);
+         SS_wren              : in  std_logic;
+         SS_rden              : in  std_logic;
+         SS_DataRead          : out std_logic_vector(31 downto 0);
+         SS_idle              : out std_logic;
+         SS_RAM_dataWrite     : in  std_logic_vector(15 downto 0);
+         SS_RAM_Adr           : in  std_logic_vector(18 downto 0);
+         SS_RAM_request       : in  std_logic;
+         SS_RAM_rnw           : in  std_logic;
+         SS_RAM_dataRead      : out std_logic_vector(15 downto 0);
+         SS_RAM_done          : out std_logic
+      );
+      end component;
+   begin
+      ispu : spu_none
+      port map
+      (
+         clk1x                => clk1x,   
+         clk2x                => clk2x,    
+         clk2xIndex           => clk2xIndex,      
+         ce                   => ce,        
+         reset                => reset_intern,     
+      
+         SPUon                => SPUon,
+         SPUIRQTrigger        => SPUIRQTrigger,
+         useSDRAM             => SPUSDRAM,
+         REPRODUCIBLESPUIRQ   => '1',
+         REPRODUCIBLESPUDMA   => REPRODUCIBLESPUDMA,
+         REVERBOFF            => REVERBOFF,
+      
+         cpuPaused            => cpuPaused,
+      
+         spu_tick             => spu_tick,
+         cd_left              => cd_left,
+         cd_right             => cd_right,
+      
+         irqOut               => irq_SPU,
+      
+         sound_timeout        => errorSPUTIME,
+      
+         sound_out_left       => sound_out_left, 
+         sound_out_right      => sound_out_right,
+      
+         bus_addr             => bus_spu_addr,     
+         bus_dataWrite        => bus_spu_dataWrite,
+         bus_read             => bus_spu_read,     
+         bus_write            => bus_spu_write,    
+         bus_dataRead         => bus_spu_dataRead, 
+      
+         spu_dmaRequest       => spu_dmaRequest, 
+         dma_read             => DMA_SPU_readEna,      
+         dma_readdata         => DMA_SPU_read, 
+         dma_write            => DMA_SPU_writeEna, 
+         dma_writedata        => DMA_SPU_write,
+          
+         sdram_dataWrite      => spuram_dataWrite,
+         sdram_dataRead       => spuram_dataRead, 
+         sdram_Adr            => spuram_Adr,      
+         sdram_be             => spuram_be,      
+         sdram_rnw            => spuram_rnw,      
+         sdram_ena            => spuram_ena,           
+         sdram_done           => spuram_done,
+      
+         mem_request          => memSPU_request,  
+         mem_BURSTCNT         => memSPU_BURSTCNT, 
+         mem_ADDR             => memSPU_ADDR,     
+         mem_DIN              => memSPU_DIN,      
+         mem_BE               => memSPU_BE,       
+         mem_WE               => memSPU_WE,       
+         mem_RD               => memSPU_RD,       
+         mem_ack              => memSPU_ack,      
+         mem_DOUT             => ddr3_DOUT,      
+         mem_DOUT_READY       => ddr3_DOUT_READY,
+      
+         SS_reset             => SS_reset,
+         loading_savestate    => loading_savestate,
+         SS_DataWrite         => SS_DataWrite,
+         SS_Adr               => SS_Adr(8 downto 0),  
+         SS_wren              => SS_wren(9),     
+         SS_rden              => SS_rden(9),     
+         SS_DataRead          => SS_DataRead_SOUND,
+         SS_idle              => SS_idle_spu,
+      
+         SS_RAM_dataWrite     => SS_SPURAM_dataWrite,
+         SS_RAM_Adr           => SS_SPURAM_Adr,      
+         SS_RAM_request       => SS_SPURAM_request,  
+         SS_RAM_rnw           => SS_SPURAM_rnw,      
+         SS_RAM_dataRead      => SS_SPURAM_dataRead, 
+         SS_RAM_done          => SS_SPURAM_done     
+      );
+   end generate;
+
    iexp2 : entity work.exp2
    port map
    (

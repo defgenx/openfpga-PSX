@@ -6,10 +6,15 @@ module status_fmt (
     input  wire [31:0]  uptime_s,
     input  wire [31:0]  bios_bytes,
     input  wire [31:0]  bios_sum,      // sum of the 32-bit words written to the BIOS window
-    input  wire [31:0]  trk_bytes,
-    input  wire [31:0]  trk_sum,
     input  wire [15:0]  pad_keys,
     input  wire [31:0]  pad_joy,
+    input  wire         core_run,      // the PSX core is out of reset
+    input  wire [15:0]  ram_req,       // main RAM requests, icache fills, DMA words written
+    input  wire [15:0]  ram_fill,
+    input  wire [15:0]  ram_dmaw,
+    input  wire [15:0]  vram_rd,       // GPU VRAM reads and writes accepted, frames sent to the APF
+    input  wire [15:0]  vram_wr,
+    input  wire [15:0]  frames,
 
     // text RAM write port: {attr[1:0], char[6:0]}; attr 0 white, 1 green, 2 red, 3 yellow
     output reg          tx_we,
@@ -17,7 +22,7 @@ module status_fmt (
     output reg  [8:0]   tx_wd
 );
     localparam [3:0] K_NONE = 4'd0, K_DEC = 4'd1, K_HEX = 4'd2, K_HEX4 = 4'd3, K_BIN4 = 4'd4, K_YN = 4'd5,
-                     K_OK = 4'd6, K_BIOS = 4'd7;
+                     K_OK = 4'd6, K_BIOS = 4'd7, K_RUN = 4'd8;
     localparam [31:0] BIOS_SIZE = 32'd524288;
     // word sums of pocket/psx/dist/Assets/psx/defgenx.PSX/psxbios.bin (OpenBIOS), words read big- and little-endian
     localparam [31:0] OPENBIOS_SUM_BE = 32'hABA9788F, OPENBIOS_SUM_LE = 32'h93B04320;
@@ -45,8 +50,13 @@ module status_fmt (
             7'd36: begin k_f = K_DEC;  v_f = bios_bytes; end
             7'd37: begin k_f = K_HEX;  v_f = bios_sum; end
             7'd39: begin k_f = K_BIOS; v_f = bios_sum; end
-            7'd42: begin k_f = K_DEC;  v_f = trk_bytes; end
-            7'd43: begin k_f = K_HEX;  v_f = trk_sum; end
+            7'd42: begin k_f = K_RUN;  v_f = {31'd0, core_run}; end
+            7'd60: begin k_f = K_DEC;  v_f = {16'd0, ram_req}; end
+            7'd61: begin k_f = K_DEC;  v_f = {16'd0, ram_fill}; end
+            7'd62: begin k_f = K_DEC;  v_f = {16'd0, ram_dmaw}; end
+            7'd63: begin k_f = K_DEC;  v_f = {16'd0, vram_rd}; end
+            7'd64: begin k_f = K_DEC;  v_f = {16'd0, vram_wr}; end
+            7'd65: begin k_f = K_DEC;  v_f = {16'd0, frames}; end
             7'd51: begin k_f = K_HEX4; v_f = {16'd0, pad_keys}; end
             7'd54: begin k_f = K_HEX;  v_f = pad_joy; end
             default: ;
@@ -103,6 +113,7 @@ module status_fmt (
                         if (!val[1]) ch = strc("      - ", cp);
                         else begin ch = val[0] ? strc("     OK ", cp) : strc("   FAIL ", cp); at = val[0] ? 2'd1 : 2'd2; end
                     end
+            K_RUN:  begin ch = val[0] ? strc("RUNNING ", cp) : strc("   HELD ", cp); at = val[0] ? 2'd1 : 2'd3; end
             K_BIOS: begin
                         if (bios_bytes == 32'd0)  begin ch = strc("    NONE", cp); at = 2'd2; end
                         else if (!bios_size)      begin ch = strc("   SIZE?", cp); at = 2'd2; end
