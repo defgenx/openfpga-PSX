@@ -22,6 +22,7 @@ sed 's/to_unsigned(positionInIndex, 20)/to_unsigned(abs(positionInIndex), 20)/' 
 sed -E '400,700s/to_unsigned\((.*), 9\)/to_unsigned(abs(\1), 9)/' "$R/rtl/gpu_videoout_async.vhd" > gpu_videoout_async_sim.vhd
 FILES=$(sed -n '/VHDL_FILE/p' "$R/sizing/psx_pocket_a6.qsf" | sed 's#.*\.\./rtl/##; /^set_global/d' | grep -v 'SyncFifo\|dpram.vhd\|RamMLAB' | sed "s#^#$R/rtl/#; s#$R/rtl/cd_top.vhd#$OUT/cd_top_sim.vhd#; s#$R/rtl/gpu_videoout_async.vhd#$OUT/gpu_videoout_async_sim.vhd#")
 $NVC --work=work:$OUT/work -L $OUT -a --relaxed $MEMS "$R/rtl/spu_none.vhd" "$R/rtl/cd_none.vhd" $FILES \
+	"$R/rtl/divider_pocket.vhd" "$R/rtl/cpu_pocket.vhd" "$R/rtl/dma_pocket.vhd" \
 	"$P/fpga/core/psx_top_pocket_flat.vhd" 2>&1 | { grep -A5 "Error:" || true; }
 $NVC --work=work:$OUT/work -L $OUT -a --relaxed "$P/fpga/core/async_fifo.v" "$P/fpga/core/vram_adapter.v" \
 	"$P/fpga/core/ram_adapter.v" "$P/fpga/core/video_fl.v"

@@ -39,3 +39,6 @@ Entity generic (the Pocket top instantiates through a component and takes the de
 | Generic | Default | Meaning |
 |---|---|---|
 | `NO_COP0_DEBUG` | `false` | `true` is the cut in the table above (-131.7 ALMs standalone); `false` is bit-exact on every COP0 register |
+
+In the system simulation (`pocket/psx/sim/system`, OpenBIOS, 1.5 s) `cpu_pocket` gives the golden's bus counts and frames,
+except one icache fill of address 0 that the golden issues during reset and discards (a reset-time fetch with no retire).

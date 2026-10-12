@@ -279,7 +279,9 @@ initialisation.
 ## First light
 
 The first build with the real core: CPU, GPU, GTE, DMA, timers, pads and the bus, without the SPU, the CD-ROM controller and the
-MDEC (`G_SPU_IMPL`/`G_CD_IMPL` "none", `NO_MDEC` 1). It boots the BIOS and shows the GPU's picture; it plays no sound and reads no
+MDEC (`G_SPU_IMPL`/`G_CD_IMPL` "none", `NO_MDEC` 1). The CPU and the DMA are the rewritten `cpu_pocket` and `dma_pocket`
+(`G_CPU_IMPL`/`G_DMA_IMPL` "pocket"; CPU.md, CORE.md): the system simulation gives the same bus counts and frames as with the
+original blocks, except one icache fill of address 0 that the original issues during reset and discards. It boots the BIOS and shows the GPU's picture; it plays no sound and reads no
 disc. The core's other inputs are held at their MiSTer defaults in `core_top.v` (sync video on, NTSC, no savestates or cheats).
 
 **Memory.** VRAM is on the SDRAM: `vram_adapter.v` takes the GPU's `ddr3_*` port (clk2x) through a 32-entry dual-clock command
@@ -311,7 +313,10 @@ and `video_fl` against behavioural PSRAM and SDRAM request ports (the controller
 preloaded. It writes every frame the APF would get to `sim/system/out/frame_<n>.ppm` and traces the RAM bus to `ram_trace.txt`;
 about 2 s of wall time per emulated millisecond.
 
-**Fit** (5CEBA4F23C8, seed 3): 16,600 ALMs (90%), 146 of 308 M10K, 19 DSP; every clock meets timing (worst slack +0.081 ns, hold). Seed 2 left a −0.076 ns hold miss inside the GPU (`gpu_pocket_div` → `gpu_poly_pocket`): at 90% the first thing to try after a change is another seed.
+**Fit** (5CEBA4F23C8, seed 5): 14,823 ALMs (80%), 82 of 308 M10K; every clock meets timing (worst slack +0.059 ns, hold). With
+the original CPU and DMA it was 16,600 ALMs and 146 M10K. The SDRAM capture transfer `dq_cap3` → `dq_r` depends on where the
+fitter puts `dq_r` (seed 4: −0.122 ns on one bit), and Quartus Lite has no LogicLock regions to pin it: after a change, try
+another seed first.
 
 ## CD loader
 

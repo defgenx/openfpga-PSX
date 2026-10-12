@@ -445,7 +445,7 @@ always @(posedge clk_sys) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// the PSX core, first-light configuration: no SPU, no CD, no MDEC
+// the PSX core, first-light configuration: no SPU, no CD, no MDEC; the rewritten CPU and DMA (docs/pocket/CPU.md, CORE.md)
 
 wire psx_reset;
 wire psx_isPaused;
@@ -779,7 +779,7 @@ assign psx_Cheats_BusReadData = 32'd0;
 assign psx_Cheats_BusDone = 1'b0;
 
 
-psx_top_pocket_flat #(.G_SPU_IMPL("none"), .G_CD_IMPL("none"), .NO_MDEC(1)) psx (
+psx_top_pocket_flat #(.G_SPU_IMPL("none"), .G_CD_IMPL("none"), .NO_MDEC(1), .G_CPU_IMPL("pocket"), .G_DMA_IMPL("pocket")) psx (
     .clk1x( clk1x ),
     .clk2x( clk2x ),
     .clk3x( clk3x ),

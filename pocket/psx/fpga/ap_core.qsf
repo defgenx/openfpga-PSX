@@ -821,11 +821,14 @@ set_global_assignment -name VHDL_FILE ../../../rtl/memorymux.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/memcard.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/spu_none.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/cd_none.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/divider_pocket.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/cpu_pocket.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/dma_pocket.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/psx_top_pocket.vhd
 set_global_assignment -name VHDL_FILE core/psx_top_pocket_flat.vhd
 
 # build with the same effort the other Pocket cores use
 # the fit that meets sdram_cal's centre -> cmax path (seed 1 misses it by 0.19 ns, slow 0 C)
-set_global_assignment -name SEED 3
+set_global_assignment -name SEED 5
 set_global_assignment -name NUM_PARALLEL_PROCESSORS 2
 set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:../../common/apf/build_id_gen.tcl"

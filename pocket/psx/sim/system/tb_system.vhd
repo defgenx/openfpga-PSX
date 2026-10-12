@@ -426,7 +426,7 @@ begin
    c_joypad4 <= "00" & "0000000000" & x"0000" & x"80808080";
 
    core : entity work.psx_top_pocket_flat
-      generic map (NO_MDEC => 1, G_SPU_IMPL => "none", G_CD_IMPL => "none")
+      generic map (NO_MDEC => 1, G_SPU_IMPL => "none", G_CD_IMPL => "none", G_CPU_IMPL => "pocket", G_DMA_IMPL => "pocket")
       port map (
          clk1x => clk1x, clk2x => clk2x, clk3x => clk3x, clkvid => clk2x, reset => reset,
          isPaused => c_isPaused,
