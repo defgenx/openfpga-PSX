@@ -2,9 +2,9 @@
 
 A port of the PlayStation core to the [Analogue Pocket](https://www.analogue.co/pocket) (Cyclone V 5CEBA4F23C8, openFPGA).
 
-**Status: work in progress, does not run on a Pocket yet.** The core is still larger than the chip, and the Pocket top
-level holds a stub core. The plan, the measurements and what blocks a first boot are in
-[docs/pocket/ROADMAP.md](docs/pocket/ROADMAP.md).
+**Status: first light, no games yet.** The PlayStation's CPU, GPU and GTE fit the Pocket's FPGA (90% full) with timing met and,
+in simulation, boot the BIOS and draw its picture; the first test on a Pocket is pending. Sound, the CD drive and video playback are left out until their rewrites make them fit. The plan and the measurements
+are in [docs/pocket/ROADMAP.md](docs/pocket/ROADMAP.md); the build itself in [docs/pocket/POCKET_TOP.md](docs/pocket/POCKET_TOP.md#first-light).
 
 ## Install
 

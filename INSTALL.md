@@ -1,8 +1,8 @@
 # Installing the PlayStation core on the Analogue Pocket
 
-> **Work in progress.** Today's build is the Pocket shell around a placeholder core: it installs and loads,
-> but it does not run the PlayStation BIOS or games yet. The status is in
-> [docs/pocket/ROADMAP.md](docs/pocket/ROADMAP.md).
+> **First light — no games yet.** This build has the PlayStation's CPU, GPU and GTE. In simulation it boots the BIOS and shows
+> its picture (with the bundled OpenBIOS, a rotating square); on a Pocket it is not tested yet. It has no sound, reads no disc and plays no video yet; those parts
+> come back in later releases. The status is in [docs/pocket/ROADMAP.md](docs/pocket/ROADMAP.md).
 
 ## 1. Copy the core to the microSD card
 
@@ -71,13 +71,18 @@ the card is kept, and it asks before replacing one. By hand: copy your dump over
 
 ## 3. Start it
 
-On the Pocket, go to *openFPGA → PlayStation*. Until the PlayStation core is in the build, it shows a status screen:
-the SDRAM calibration, whether the BIOS arrived (`BIOS IS OPENBIOS` or `OWN`) and the pad input. A photo of it is
-useful feedback. The BIOS slot is required: without `psxbios.bin` the Pocket
-reports a missing file instead of starting the core.
+On the Pocket, go to *openFPGA → PlayStation*. The BIOS slot is required: without `psxbios.bin` the Pocket reports a missing
+file instead of starting the core. With OpenBIOS the screen shows a square that fades in and rotates; with your own BIOS, the
+PlayStation boot screens (no disc, so it stops at the BIOS menu if it gets that far).
+
+*Core Settings → Screen → Debug* switches to a diagnostic screen: SDRAM calibration, whether the BIOS arrived (`BIOS IS
+OPENBIOS` or `OWN`), whether the core is running, and counters of the CPU's memory requests and the GPU's VRAM traffic. A photo of
+it is the most useful report when the picture stays black.
 
 ## Troubleshooting
 
+* **Black screen:** switch to *Screen → Debug*. `PSX CORE HELD` means the SDRAM did not calibrate or the BIOS did not
+  arrive; `RUNNING` with RAM requests counting but no VRAM traffic means the CPU runs and the GPU is never used.
 * **The core is not in the list:** `Cores/defgenx.PSX/` or `Platforms/psx.json` is missing. Run the installer again.
 * **The Pocket reports a missing file:** the BIOS is not at `Assets/psx/defgenx.PSX/psxbios.bin`, or it is not exactly 524,288 bytes.
   Run the installer again: it puts OpenBIOS there.
