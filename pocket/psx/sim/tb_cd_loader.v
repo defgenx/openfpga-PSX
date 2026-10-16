@@ -1,7 +1,8 @@
 `timescale 1ns/1ps
 // cd_loader against an APF host model and a replica of cd_top's sector fetch states (cd_top.vhd:2575-2690).
-// Host: a read lands as big-endian 32-bit bridge writes at the bridge address with random gaps, after a random latency up to the
-// 6.67 ms deadline, then done; modes: normal, error code, short, trailing writes. Run: iverilog -g2005 -o out/cd_loader.vvp
+// Host: a read (slot 1: the image; slot 2: the track table file) lands as big-endian 32-bit bridge writes at the bridge address with
+// random gaps, after a random latency up to the 6.67 ms deadline, then done; modes: normal, error code, short, trailing writes.
+// The table is fetched on dataslot_allcomplete (size from the data table), dataslot_update of slots 2 and 1; the host never writes it unasked. Run: iverilog -g2005 -o out/cd_loader.vvp
 // sim/tb_cd_loader.v fpga/core/cd_loader.v && vvp out/cd_loader.vvp
 module tb_cd_loader;
     reg clk_a = 0, clk_s = 0, rst = 1;
@@ -11,6 +12,13 @@ module tb_cd_loader;
     // bridge and target interface
     reg         bridge_wr = 0;
     reg  [31:0] bridge_addr = 0, bridge_wr_data = 0;
+    reg         upd = 0, allc = 0, core_run = 1;
+    reg  [15:0] upd_id = 0;
+    reg  [31:0] upd_size = 0;
+    wire [9:0]  dt_addr;
+    reg  [31:0] dt_q = 0;
+    reg  [31:0] dt [0:1023];
+    always @(posedge clk_a) dt_q <= dt[dt_addr];
     wire        tgt_read;
     wire [15:0] tgt_id;
     wire [31:0] tgt_off, tgt_baddr, tgt_len;
@@ -31,6 +39,8 @@ module tb_cd_loader;
         .bridge_wr(bridge_wr), .bridge_addr(bridge_addr), .bridge_wr_data(bridge_wr_data),
         .tgt_read(tgt_read), .tgt_id(tgt_id), .tgt_off(tgt_off), .tgt_baddr(tgt_baddr), .tgt_len(tgt_len),
         .tgt_done(tgt_done), .tgt_err(tgt_err),
+        .dataslot_update(upd), .dataslot_update_id(upd_id), .dataslot_update_size(upd_size), .dataslot_allcomplete(allc),
+        .datatable_addr(dt_addr), .datatable_q(dt_q), .core_run(core_run),
         .cd_hps_req(cd_hps_req), .cd_hps_lba(cd_hps_lba), .cd_hps_ack(cd_hps_ack), .cd_hps_write(cd_hps_write),
         .cd_hps_data(cd_hps_data), .trackinfo_data(trackinfo_data), .trackinfo_addr(trackinfo_addr),
         .trackinfo_write(trackinfo_write), .trk_done(trk_done), .err(err)
@@ -52,6 +62,14 @@ module tb_cd_loader;
     reg [31:0] last_baddr, last_len;
     reg        prev_read = 0;
     integer    i, lat, gap, nw;
+    reg [31:0] tw [0:511];                     // the track table file, little-endian words
+    function [7:0] file_byte(input [15:0] id, input [31:0] p);
+        reg [31:0] v;
+        begin
+            if (id == 16'd2) begin v = tw[p >> 2]; file_byte = v >> (8 * (p & 3)); end
+            else file_byte = img_byte(p);
+        end
+    endfunction
     reg [31:0] w;
     reg        busy_h = 0;
     always @(posedge clk_a) begin
@@ -66,7 +84,7 @@ module tb_cd_loader;
             repeat (lat) @(posedge clk_a);
             nw = (mode == 1) ? 0 : (mode == 2) ? (last_len / 4 - 1) : (mode == 3) ? (last_len / 4 - 2) : (last_len / 4);
             for (i = 0; i < nw; i = i + 1) begin
-                w = {img_byte(last_off + 4*i), img_byte(last_off + 4*i + 1), img_byte(last_off + 4*i + 2), img_byte(last_off + 4*i + 3)};
+                w = {file_byte(last_id, last_off + 4*i), file_byte(last_id, last_off + 4*i + 1), file_byte(last_id, last_off + 4*i + 2), file_byte(last_id, last_off + 4*i + 3)};
                 bridge_wr <= 1; bridge_addr <= last_baddr + 4*i; bridge_wr_data <= w;
                 @(posedge clk_a);
                 bridge_wr <= 0;
@@ -77,7 +95,7 @@ module tb_cd_loader;
             @(posedge clk_a);
             if (mode == 3) begin                   // the last two words trail done
                 for (i = nw; i < nw + 2; i = i + 1) begin
-                    w = {img_byte(last_off + 4*i), img_byte(last_off + 4*i + 1), img_byte(last_off + 4*i + 2), img_byte(last_off + 4*i + 3)};
+                    w = {file_byte(last_id, last_off + 4*i), file_byte(last_id, last_off + 4*i + 1), file_byte(last_id, last_off + 4*i + 2), file_byte(last_id, last_off + 4*i + 3)};
                     bridge_wr <= 1; bridge_addr <= last_baddr + 4*i; bridge_wr_data <= w;
                     @(posedge clk_a); bridge_wr <= 0; @(posedge clk_a); @(posedge clk_a);
                 end
@@ -157,30 +175,41 @@ module tb_cd_loader;
 
     integer rises = 0, rises0;
     always @(posedge trk_done) rises = rises + 1;
-    reg [31:0] tw [0:511];
-    task load_trk(input integer n, input integer gapmax);
-        integer k, g;
+    integer tfile_n;                                  // words of the file in slot 2
+    integer tw_writes = 0;
+    always @(posedge clk_s) if (trackinfo_write && !core_run) tw_writes = tw_writes + 1;   // the table must never reach a core in reset
+
+    // the host (re)loads slot 2 with an n-word file: mode 0 dataslot_update of slot 2, 1 dataslot_update of slot 1 (same file),
+    // 2 the start-up allcomplete with the size in the data table; expect_rise 0: no table may arrive
+    task load_trk(input integer n, input integer how, input integer expect_rise);
+        integer k;
         reg [31:0] v;
         begin
             tn = 0; rises0 = rises;
-            for (k = 0; k < n; k = k + 1) tw[k] = $urandom(seed);
-            for (k = 0; k < n; k = k + 1) begin
-                v = tw[k];                                   // little-endian file word: first byte is v[7:0]
-                @(posedge clk_a);
-                bridge_wr <= 1; bridge_addr <= 32'h30000000 + 4*k; bridge_wr_data <= {v[7:0], v[15:8], v[23:16], v[31:24]};
-                @(posedge clk_a); bridge_wr <= 0;
-                g = $urandom(seed) % (gapmax + 1);
-                repeat (g) @(posedge clk_a);
+            if (how != 1) begin
+                for (k = 0; k < n; k = k + 1) tw[k] = $urandom(seed);
+                tfile_n = n;
             end
-            wait (rises != rises0);
+            dt[4] = 32'd2; dt[5] = 4 * n;
+            @(posedge clk_a);
+            if (how == 2) begin allc <= 1; @(posedge clk_a); allc <= 0; end
+            else begin upd <= 1; upd_id <= (how == 0) ? 16'd2 : 16'd1; upd_size <= 4 * n; @(posedge clk_a); upd <= 0; end
+            fork : wd
+                begin wait (rises != rises0); disable wd; end
+                begin #(expect_rise ? 40_000_000 : 3_000_000); disable wd; end
+            join
             repeat (10) @(posedge clk_s);
             terr = 0;
-            if (tn != n) begin $display("  track table: %0d words delivered, want %0d", tn, n); terr = terr + 1; end
-            for (k = 0; k < n && k < tn; k = k + 1)
-                if (tx_addr[k] !== k || tx_data[k] !== tw[k]) begin
-                    if (terr < 4) $display("  track word %0d: addr %0d data %h want %h", k, tx_addr[k], tx_data[k], tw[k]);
-                    terr = terr + 1;
-                end
+            if (expect_rise && rises == rises0) begin $display("  no table after the update (how %0d, %0d words)", how, n); terr = terr + 1; end
+            if (!expect_rise && rises != rises0) begin $display("  table delivered, none expected"); terr = terr + 1; end
+            if (expect_rise && rises != rises0) begin
+                if (tn != tfile_n && !(tfile_n > 512 && tn == 512)) begin $display("  track table: %0d words delivered, want %0d", tn, tfile_n); terr = terr + 1; end
+                for (k = 0; k < tn; k = k + 1)
+                    if (tx_addr[k] !== k || tx_data[k] !== tw[k]) begin
+                        if (terr < 4) $display("  track word %0d: addr %0d data %h want %h", k, tx_addr[k], tx_data[k], tw[k]);
+                        terr = terr + 1;
+                    end
+            end
             if (terr) fails = fails + 1;
         end
     endtask
@@ -192,10 +221,40 @@ module tb_cd_loader;
         rst = 0;
         repeat (10) @(posedge clk_s);
 
-        $display("track table");
-        load_trk(40, 3);
-        load_trk(512, 0);              // full 2,048 bytes: complete on word 511
-        load_trk(8, 0);                // reload while the core is idle
+        $display("track table: start-up allcomplete, size from the data table");
+        for (r = 0; r < 1024; r = r + 1) dt[r] = 0;
+        for (r = 0; r < 512; r = r + 1) tw[r] = 0;
+        load_trk(40, 2, 1);
+        if (n_reads != 1 || last_id !== 16'd2 || last_off !== 0 || last_baddr !== 32'h30000000 || last_len !== 32'd160) begin
+            $display("  table command: reads %0d id %0d off %0d baddr %h len %0d", n_reads, last_id, last_off, last_baddr, last_len); fails = fails + 1;
+        end
+        $display("track table: dataslot_update of slot 2");
+        max_lat = 20000;
+        load_trk(512, 0, 1);           // the full 2,048 bytes
+        load_trk(8, 0, 1);
+        load_trk(1030, 0, 1);          // larger than the window: the first 2,048 bytes
+        if (last_len !== 32'd2048) begin $display("  oversize table read length %0d", last_len); fails = fails + 1; end
+        $display("track table: a new image (slot 1 update) reloads the table, replayed only with the core out of reset");
+        core_run = 0;
+        load_trk(8, 1, 0);
+        if (tw_writes != 0) begin $display("  table written to a core in reset"); fails = fails + 1; end
+        repeat (200) @(posedge clk_s);
+        rises0 = rises; tn = 0;
+        core_run = 1;
+        repeat (400) @(posedge clk_s);
+        if (rises == rises0 || tn != 8 || tw_writes != 0) begin $display("  deferred table: rises %0d words %0d", rises - rises0, tn); fails = fails + 1; end
+        $display("track table: size 0 means no file");
+        r = n_reads;
+        load_trk(0, 0, 0);
+        if (n_reads != r) begin $display("  read issued for an empty slot"); fails = fails + 1; end
+        if (err) begin $display("  err set by an empty slot"); fails = fails + 1; end
+        $display("track table: update of slot 2 while a sector read is in flight");
+        max_lat = 200000;
+        fork
+            fetch(150, 0);
+            begin repeat (50) @(posedge clk_s); load_trk(16, 0, 1); end
+        join
+        max_lat = 1000;
 
         $display("sectors, latency to the 6.67 ms deadline");
         max_lat = 495000;
@@ -225,6 +284,10 @@ module tb_cd_loader;
         if (n_reads != r) begin $display("  APF read issued for the pregap"); fails = fails + 1; end
         if (err) begin $display("  err set by pregap"); fails = fails + 1; end
 
+        $display("track table: read error code, short read: no table, err");
+        mode = 1; load_trk(8, 0, 0);
+        if (!err) begin $display("  err not set by a failed table read"); fails = fails + 1; end
+        mode = 0;
         $display("error code: zeros and err");
         mode = 1; fetch(1000, 1);
         if (!err) begin $display("  err not set"); fails = fails + 1; end

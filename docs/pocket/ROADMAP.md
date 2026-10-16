@@ -406,7 +406,7 @@ Record each gate's measured numbers here when its phase ends. Each work unit edi
 | Unit B4 | **done**: `dma_pocket` bit-exact (`sim/dma_diff`, 0 mismatches). [CORE.md](CORE.md) | 824.8 in context (gate 900; golden 1,318.9) | — | — | fit only | 2026-10-12 |
 | Unit B5 | pending | — | — | — | — | — |
 | Unit B6 | **exact; area gate not met**: `gpu_pocket` (`sim/gpu_diff` 0 mismatches). [GPU.md](GPU.md) | 4,449 in context (gate 4,000; golden 4,620.3) | — | — | fit only | 2026-10-12 |
-| Unit P1b | pending | — | — | — | — | — |
+| Unit P1b | **done**: `cd_loader` wired in `core_top` (both CD slots by target read), `cue2pocket.py`; `sim/cd_e2e` reads a disc made by `cue2pocket` through `cd_loader` and `cd_pocket` byte-exact. Pocket build with the CD: 94%, timing met at seed 1. [POCKET_TOP.md](POCKET_TOP.md#cd-loader) | 254.5 (loader); build 17,404 | 19 | 135 | met, worst +0.033 ns (hold) | 2026-10-16 |
 | Unit P1c | pending | — | — | — | — | — |
 | Unit B7 | pending (stretch) | — | — | — | — | — |
 | Unit B8 | pending | — | — | — | — | — |

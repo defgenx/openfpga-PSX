@@ -1,7 +1,7 @@
 # Installing the PlayStation core on the Analogue Pocket
 
-> **First light — no games yet.** This build has the PlayStation's CPU, GPU and GTE. In simulation it boots the BIOS and shows
-> its picture (with the bundled OpenBIOS, a rotating square); on a Pocket it is not tested yet. It has no sound, reads no disc and plays no video yet; those parts
+> **First light.** This build has the PlayStation's CPU, GPU, GTE and CD-ROM controller. In simulation it boots the BIOS and shows
+> its picture (with the bundled OpenBIOS, a rotating square) and reads sectors of a disc image; on a Pocket it is not tested yet. It has no sound and plays no video yet; those parts
 > come back in later releases. The status is in [docs/pocket/ROADMAP.md](docs/pocket/ROADMAP.md).
 
 ## 1. Copy the core to the microSD card
@@ -73,11 +73,24 @@ the card is kept, and it asks before replacing one. By hand: copy your dump over
 
 On the Pocket, go to *openFPGA → PlayStation*. The BIOS slot is required: without `psxbios.bin` the Pocket reports a missing
 file instead of starting the core. With OpenBIOS the screen shows a square that fades in and rotates; with your own BIOS, the
-PlayStation boot screens (no disc, so it stops at the BIOS menu if it gets that far).
+PlayStation boot screens (no disc loaded, so it stops at the BIOS menu if it gets that far).
 
 *Core Settings → Screen → Debug* switches to a diagnostic screen: SDRAM calibration, whether the BIOS arrived (`BIOS IS
 OPENBIOS` or `OWN`), whether the core is running, and counters of the CPU's memory requests and the GPU's VRAM traffic. A photo of
 it is the most useful report when the picture stays black.
+
+## 4. Load a disc (optional)
+
+The Pocket reads a disc as two files made from your CUE/BIN dump on your computer:
+
+```
+python3 pocket/psx/tools/cue2pocket.py game.cue        # writes game.bin and game.trk next to the CUE
+```
+
+It takes MODE1/2352, MODE2/2352 and AUDIO tracks (one BIN or several; `--sbi game.sbi` adds the libcrypt key). Copy `game.bin` and
+`game.trk` to `Assets/psx/defgenx.PSX/` (or any folder), then in the core's menu load **CD image** (`game.bin`) and **Track
+table** (`game.trk`), in either order: loading either one makes the core read the table again, take the disc as inserted and restart the
+console on it. The core starts without a disc.
 
 ## Troubleshooting
 

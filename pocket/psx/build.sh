@@ -6,7 +6,7 @@
 #                                        unless ALLOW_TIMING_FAIL=1
 #   pocket/psx/build.sh timing           print the worst slack per clock and model of a finished compile
 #   pocket/psx/build.sh check            validate the dist JSON (no bitstream needed) and that the generated port files are current
-#   pocket/psx/build.sh sim              stub and bridge testbenches (Icarus Verilog) and the mixed-language spike (nvc)
+#   pocket/psx/build.sh sim              stub and bridge testbenches (Icarus Verilog), the mixed-language spike and the CD end-to-end bench (nvc)
 # Layout and clocks: docs/pocket/POCKET_TOP.md, "Shell skeleton".
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -108,6 +108,7 @@ simulate() {
 	iverilog -g2012 -o sim/out/status.vvp -I fpga/core sim/tb_status.v fpga/core/status_fmt.v fpga/core/status_screen.v
 	vvp_pass sim/out/status.vvp
 	sim/mixed/run.sh
+	sim/cd_e2e/run.sh
 }
 
 case "${1:-all}" in

@@ -221,7 +221,10 @@ be read mid-change and is rewritten on the next pass.
 |---|---|---|---|---|
 | 0 | BIOS `psxbios.bin` | core-specific, required | exactly 524,288 | 0x20000000 |
 | 1 | CD image (`.bin`) | user-reloadable, deferload | — | none: read by target command into 0x50000000 |
-| 2 | Track table (`.trk`) | user-reloadable, deferload | ≤ 2,048 | 0x30000000 |
+| 2 | Track table (`.trk`) | user-reloadable, deferload | ≤ 2,048 | none: read by target command into 0x30000000 (the `address` field is not used) |
+
+A deferload slot is never written by the host: the APF only reports its id and size (data table at start-up, `dataslot_update` on a user load), and
+the core reads it with target commands. So `cd_loader` fetches both CD slots itself.
 
 Memory card 1 (`memcard1.sav`, nonvolatile, exactly 131,072, 0x40000000) is left out until P1c's memcard store exists: the
 host saves a nonvolatile slot by reading it back, and the skeleton's window at 0x40000000 returns placeholder data, so declaring
@@ -265,7 +268,7 @@ core (through `psx_top_pocket_flat`) beside Verilog leaves with no `inout` ports
 memory model sit behind one Verilog bench module that keeps the `inout` buses inside (`sim/mixed/`). nvc
 cannot analyse memtest's `sdram_model.v` (arrays of `real`), so `sim/mixed/sdram_simple.v` replaces it.
 
-`build.sh sim` runs the stub and bridge testbenches and the mixed bench: the stub drives the glue, the
+`build.sh sim` runs the stub, bridge, status, mixed and CD end-to-end benches; the mixed bench: the stub drives the glue, the
 arbiter and `sdram_ctl` for 1,500 µs, the boot sweep runs against `sim/mixed/sdram_simple.v` and a stand-in for the PLL's phase
 shift, `init_done` rises with `cal_ok` set (eye 31 steps wide, centre 15: the model's data window is wider than the sweep, so
 the eye touches both ends and `cal_flags` is 2, its bit 1 set) and one request is accepted. It proves the wiring, not the controller or the
@@ -278,11 +281,10 @@ initialisation.
 
 ## First light
 
-The first build with the real core: CPU, GPU, GTE, DMA, timers, pads and the bus, without the SPU, the CD-ROM controller and the
-MDEC (`G_SPU_IMPL`/`G_CD_IMPL` "none", `NO_MDEC` 1). The CPU and the DMA are the rewritten `cpu_pocket` and `dma_pocket`
+The first build with the real core: CPU, GPU, GTE, DMA, timers, pads, the bus and the CD-ROM controller, without the SPU and the
+MDEC (`G_SPU_IMPL` "none", `NO_MDEC` 1; `G_CD_IMPL` "pocket", the rewritten `cd_pocket`, CD.md). The CPU and the DMA are the rewritten `cpu_pocket` and `dma_pocket`
 (`G_CPU_IMPL`/`G_DMA_IMPL` "pocket"; CPU.md, CORE.md): the system simulation gives the same bus counts and frames as with the
-original blocks, except one icache fill of address 0 that the original issues during reset and discards. It boots the BIOS and shows the GPU's picture; it plays no sound and reads no
-disc. The core's other inputs are held at their MiSTer defaults in `core_top.v` (sync video on, NTSC, no savestates or cheats).
+original blocks, except one icache fill of address 0 that the original issues during reset and discards. It boots the BIOS and shows the GPU's picture and reads a disc image loaded in the CD slots ([CD loader](#cd-loader)); it plays no sound. The core's other inputs are held at their MiSTer defaults in `core_top.v` (sync video on, NTSC, no savestates or cheats).
 
 **Memory.** VRAM is on the SDRAM: `vram_adapter.v` takes the GPU's `ddr3_*` port (clk2x) through a 32-entry dual-clock command
 FIFO (`async_fifo.v`, gray pointers) to `sdram_ctl` (clk_sys), one 4-word burst per 64-bit qword, read bursts of up to 128 split
@@ -304,24 +306,29 @@ GPU's first active line is not shown; 240 lines counted on HS; on each window li
 pixels, or, on a blank line, from where they started on the last active line, black outside the GPU's active area. 480i shows
 each field as a frame. The GPU's `clkvid` input is clk2x, because `gpu_videoout` reads its line RAM on that clock in sync mode.
 
+**CD.** `cd_loader` (clk_74a and clk1x) sits between the bridge and `cd_pocket`: sector requests go out as `target_dataslot_read` of slot 1,
+the track table (slot 2) is fetched by `target_dataslot_read` when the host reports it and replayed into `trackinfo_*`. `hasCD` = `trk_done`, `LIDopen` 0: the core starts and runs the BIOS with no
+disc. A table whose header word 3 has bit 18 set (the `cue2pocket.py` default) resets the core once it is replayed. Wiring: [CD loader](#cd-loader).
+
 **Pad.** Pad 1 is a digital pad: Pocket A, B, X, Y on Circle, Cross, Triangle, Square; L/R and the triggers on L1/R1, L2/R2.
 Ports 2 to 4 are unplugged.
 
 **Tests.** Unit benches: `tb_vram.v`, `tb_ram.v`, `tb_bios_loader.v`, `tb_video_fl.v`, `tb_status.v` (iverilog; commands in
-their headers). The system simulation `sim/system/run.sh [BIOS] [ms]` runs the real core with `vram_adapter`, `ram_adapter`
-and `video_fl` against behavioural PSRAM and SDRAM request ports (the controllers are proven in their own benches), with the BIOS
+their headers); `sim/cd_e2e/run.sh` for the CD path ([CD loader](#cd-loader)). The system simulation `sim/system/run.sh [BIOS] [ms]` runs the real core with `vram_adapter`, `ram_adapter`
+and `video_fl` (and `cd_pocket` with no disc, as the hardware build) against behavioural PSRAM and SDRAM request ports (the controllers are proven in their own benches), with the BIOS
 preloaded. It writes every frame the APF would get to `sim/system/out/frame_<n>.ppm` and traces the RAM bus to `ram_trace.txt`;
 about 2 s of wall time per emulated millisecond.
 
-**Fit** (5CEBA4F23C8, seed 5): 14,823 ALMs (80%), 82 of 308 M10K; every clock meets timing (worst slack +0.059 ns, hold). With
-the original CPU and DMA it was 16,600 ALMs and 146 M10K. The SDRAM capture transfer `dq_cap3` → `dq_r` depends on where the
-fitter puts `dq_r` (seed 4: −0.122 ns on one bit), and Quartus Lite has no LogicLock regions to pin it: after a change, try
-another seed first.
+**Fit** (5CEBA4F23C8, seed 1): 17,404 ALMs (94%), 135 of 308 M10K, 19 DSP; every clock meets timing (worst slack +0.033 ns,
+hold). `cd_pocket` is 2,077.2 of it and `cd_loader` 254.5; the core (`psx_top_pocket`) is 14,694.4. Without the CD (seed 5) it was
+14,823 ALMs (80%) and 82 M10K; with the original CPU and DMA 16,600 and 146. The SDRAM capture transfer `dq_cap3` → `dq_r` depends
+on where the fitter puts `dq_r` (with the CD: seed 5 −0.102 ns, seed 2 −0.213, seed 3 −0.028, seed 1 met), and Quartus Lite has
+no LogicLock regions to pin it: after a change, try another seed first.
 
 ## CD loader
 
 `pocket/psx/fpga/core/cd_loader.v` serves `cd_top`'s sector requests from the CD image slot (id 1) with `target_dataslot_read`, and
-writes the track table slot (id 2, bridge window 0x30000000) into `trackinfo_*`. `pocket/psx/tools/cue2pocket.py` makes both files
+reads the track table slot (id 2, into bridge window 0x30000000) and replays it into `trackinfo_*`. `pocket/psx/tools/cue2pocket.py` makes both files
 from a CUE/BIN. Test: `iverilog -g2005 -o sim/out/cd_loader.vvp sim/tb_cd_loader.v fpga/core/cd_loader.v && vvp sim/out/cd_loader.vvp`
 (from `pocket/psx`); `cue2pocket.py --selftest`.
 
@@ -339,10 +346,12 @@ for LBA < 150.
 
 ### `cd_loader` ports and behaviour
 
-Parameters `SLOT_BIN` (1) and `SEC_WIN` (0x50000000). Ports: `rst`, `clk_74a`, `clk_sys` (= `clk1x`); `bridge_wr/addr/wr_data`
+Parameters `SLOT_BIN` (1), `SEC_WIN` (0x50000000), `SLOT_TRK` (2), `TRK_ENT` (2, the slot's index in `data.json`) and `TRK_WIN` (0x30000000).
+Ports: `rst`, `clk_74a`, `clk_sys` (= `clk1x`); `bridge_wr/addr/wr_data`
 (`clk_74a`, big-endian: the first file byte is `[31:24]`, as `bios_loader`); `tgt_read/id/off/baddr/len` out and `tgt_done/err` in
-(`core_bridge_cmd`, `clk_74a`; `tgt_ack` is not used); the `cd_hps_*` and `trackinfo_*` of `cd_top` (`clk_sys`); `trk_done` and
-`err` out (`clk_sys`).
+(`core_bridge_cmd`, `clk_74a`; `tgt_ack` is not used); `dataslot_update/_id/_size`, `dataslot_allcomplete` and the data table port
+`datatable_addr/q` (`clk_74a`); `core_run` (`clk_sys`, the core is out of reset); the `cd_hps_*` and `trackinfo_*` of `cd_top` (`clk_sys`);
+`trk_done` and `err` out (`clk_sys`).
 
 - **Sector.** A request is a toggle `clk_sys` -> `clk_74a`. `lba` < 150 (and an invalid `lba` >= 2^20) read nothing and answer zeros.
   Otherwise file sector = `lba - 150`, byte offset = that × 2,352 (four shifted adds), one `target_dataslot_read` of 2,352 bytes to
@@ -353,18 +362,39 @@ Parameters `SLOT_BIN` (1) and `SEC_WIN` (0x50000000). Ports: `rst`, `clk_74a`, `
 - **Failure.** `tgt_err` nonzero, fewer than 588 words received, or no `done` within 2^27 `clk_74a` cycles (1.8 s): the sector is delivered
   as zeros, so the core never hangs, and `err` goes high (sticky until `rst`). A missing file shows as this (the APF is assumed to
   return an error code for a slot without a file; unverified).
-- **Track table.** The slot's bridge writes (window 0x30000000, 2,048 bytes) fill a 512-word RAM, byte-swapped to the little-endian words of
-  the file. The table is complete after word 511 or 2^19 `clk_74a` idle cycles (7 ms) after the last write; then the words 0..n-1 (n = highest
-  word written + 1) are replayed in order to `trackinfo_*` on `clk_sys`, one pulse per 4 cycles, and `trk_done` rises (it falls when a
-  new table starts replaying). The core marks a new disc from the writes (`newCDCounter`, 3139-3141) and drops its cached sector.
-- **Integration (not done in `core_top.v`).** Wire `bridge_*` and the `target_dataslot_*` of `core_bridge_cmd` (`id`, `slotoffset`,
-  `bridgeaddr`, `length` are driven by the loader), `cd_top.cd_hps_*` and `trackinfo_*`. The reset gate's `track_done` is `trk_done`; `hasCD`
-  and `resetFromCD`'s source are `cd_top`'s (`resetFromCD` = bit 18 of header word 3 and not `LIDopen`). The loader does not know whether
-  slot 1 holds a file: the user must load the `.trk` with the `.bin`, and `hasCD` follows `trk_done` (the lead's choice). Loading a new
-  `.trk` while the previous replay still runs is not supported (a replay takes 8 µs per 100 words; a reload takes ms).
+- **Track table.** One `target_dataslot_read` of slot 2 (offset 0, length = the size, capped at 2,048) to 0x30000000; the bridge writes fill a
+  512-word RAM, byte-swapped to the little-endian words of the file. The read shares the `tgt_*` port with the sector reads: a table read waits for a
+  sector read in flight, a sector request that arrives meanwhile is latched and served first. Triggers (all `clk_74a`):
+  the first `dataslot_allcomplete` (size = data table word 2k+1 of entry k = `TRK_ENT`, word 2k must hold the id; the table layout, entry per
+  data.json slot as id then size, is from the APF description and not measured); `dataslot_update` of slot 2 (size from the event); `dataslot_update` of
+  slot 1 (a new image: the table is read again, so the core restarts on the new disc whichever of the two files was loaded last). Size 0 reads
+  nothing (no table, `trk_done` stays low, no error). An error code, a short read or a timeout (as for sectors) leaves no table, sets `err` and
+  keeps the previous table in the core. A read waits while the previous table is still waiting for its replay.
+  A fetched table is handed to `clk_sys` by a toggle and replayed only after `core_run` has been high for 31 cycles (`cd_pocket` drops writes in reset):
+  words 0..n-1 in order to `trackinfo_*`, one pulse per 4 cycles; `trk_done` falls when the replay starts and rises at its end. The core marks a new
+  disc from the writes (`newCDCounter`, 3139-3141) and drops its cached sector. The table is replayed once, not on every core reset: `cd_pocket` keeps it.
+- **Integration (`core_top.v`, `cdl`).** `bridge_wr/addr/wr_data` go to the loader beside `bios_loader` (address decode: BIOS
+  `0x2xxxxxxx` by `bios_loader` and the status counters, track table `0x30000000..0x300007FF`, sector window `0x50000xxx`, settings
+  `0x8000000x`; the windows do not overlap and no bridge read is decoded for them). `tgt_*` are `core_bridge_cmd`'s `target_dataslot_read/id/slotoffset/
+  bridgeaddr/length/done/err` (`ack` unused; `target_dataslot_write` stays 0). `cd_hps_*` and `trackinfo_*` connect `cd_pocket` and the loader
+  on `clk1x` (the loader's `clk_sys`), so no crossing is added beyond the loader's own toggles. The loader resets with `rst_mem` (PLL lock):
+  the host may load the slots while it holds `reset_n` low. `dataslot_update*`, `dataslot_allcomplete` and `datatable_addr/q` (port A of the data
+  table, no longer tied to 0) connect to `core_bridge_cmd`; `core_run` = `~psx_reset`. `hasCD` = `trk_done`; `LIDopen` 0. The core's reset
+  (`psx_reset`) gains a 32-cycle pulse once `trk_done` follows a table whose word 3 has bit 18 set (decoded from the `trackinfo_*` write, since
+  `resetFromCD` stays high). The core does not wait for a disc to leave reset. The order of loading the two files does not matter: either
+  event fetches the table, which starts the new disc (`cd_pocket` raises a drive error and opens and closes the lid, about 0.4 s of drive time).
+  The loader does not know whether slot 1 holds a file: the image read of a missing file fails and its sectors read as zeros.
+- **Bench** `sim/cd_e2e/run.sh` (nvc, about 50 s, part of `build.sh sim`): `gen_disc.py` makes a synthetic disc (100 MODE2 data sectors with distinct data, then an audio track with its 150-sector pregap) and runs
+  it through `cue2pocket.py`; `tb_cd_e2e.vhd` holds `cd_pocket` + `cd_loader` (as `core_top.v` wires them), the core reset after a table, and a model of the host: it answers each
+  `target_dataslot_read` of slot 1 and slot 2 with big-endian bridge writes (it never writes unasked), sends `dataslot_allcomplete` and
+  `dataslot_update` and holds the data table. Cases: no table (size 0, then a read error) leaves `trk_done` low; the start-up fetch; a second `.trk` by
+  `dataslot_update` changes the disc (GetTN 1..2 becomes 1..1). It drives registers 0x1F801800-3: GetTN and
+  GetTD against the CUE, after Init, ReadN at LBA 150 (file sector 0) and after a Setloc seek, 2,048-byte and whole-sector modes, comparing every byte with the
+  `.bin` (disc LBA = file sector + 150). The bench resets `cd_pocket` after the table, as `core_top.v` does, and sets `INSTANTSEEK` to 1 (the
+  hardware has 0); it prints PASS.
 
-Size: not synthesised. By count, about 190 registers on `clk_74a` and 100 on `clk_sys`, five adders of 19-32 bits: 200-250 ALMs and
-6 M10K (588 × 32 and 512 × 32 bits, two of each rounded up).
+Size of the loader: by count, about 190 registers on `clk_74a` and 100 on `clk_sys`, five adders of 19-32 bits: 200-250 ALMs and
+6 M10K (588 × 32 and 512 × 32 bits, two of each rounded up). Fitted: 254.5 ALMs (seed 1, see [First light](#first-light)).
 
 ### `.trk` format (derived from `cd_top.vhd:3139-3180`, `3199-3204`, `1030`, `2583`, `2698-2710`)
 
@@ -404,4 +434,5 @@ in a libcrypt pair sets that pair's bit. A pregap in the file other than 150 sec
 - APF: that `target_dataslot_read` accepts an offset that is not a multiple of 512, delivers the 2,352 bytes before `done`, fails with a
   nonzero code for an unloaded slot, and the `done` / `err` timing are the assumptions of [Bridge throughput bench](MEMTEST.md#bridge-throughput-bench-slot_benchv),
   not measured. The loader tolerates writes trailing `done` by 16 cycles.
-- The track table slot is 2,048 bytes at most in `data.json`; the loader's fixed window is 0x30000000 + 2,048.
+- The track table slot is 2,048 bytes at most in `data.json`; the loader's fixed window is 0x30000000 + 2,048. The data table layout
+  (id, size per slot, `TRK_ENT` = 2) and that the host fills it, and sends `dataslot_allcomplete`, before the first `dataslot_update`, are assumed, not measured.

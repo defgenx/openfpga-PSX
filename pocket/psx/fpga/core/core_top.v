@@ -445,7 +445,7 @@ always @(posedge clk_sys) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// the PSX core, first-light configuration: no SPU, no CD, no MDEC; the rewritten CPU and DMA (docs/pocket/CPU.md, CORE.md)
+// the PSX core, first-light configuration: no SPU, the CD-ROM controller, no MDEC; the rewritten CPU and DMA (docs/pocket/CPU.md, CORE.md)
 
 wire psx_reset;
 wire psx_isPaused;
@@ -658,10 +658,12 @@ wire [15:0] pk = pad_1x[15:0];
 wire [59:0] pad1_1x = {1'b1, 1'b1, 10'd0, pk[6], pk[4], pk[5], pk[7], pk[14], pk[15], pk[3], pk[2], pk[0], pk[1],
                        pk[9], pk[11], pk[13], pk[8], pk[10], pk[12], 32'd0};
 wire core_go_1x;
+wire cd_trk_done;                       // clk1x: the track table is in the CD controller
+wire cd_rst;                            // clk1x: reset the core after a new disc's table
 
 // first light: the core's inputs (docs/pocket/POCKET_TOP.md, "First light"). Main RAM, VRAM and the pad come from the
 // adapters below; everything without a Pocket source yet is held at its MiSTer default.
-assign psx_reset = rst_1x | ~core_go_1x;
+assign psx_reset = rst_1x | ~core_go_1x | cd_rst;
 assign psx_pause = 1'b0;
 assign psx_hps_busy = 1'b0;
 assign psx_loadExe = 1'b0;
@@ -714,15 +716,9 @@ assign psx_WIDESCREEN = 2'd0;
 assign psx_oldGPU = 1'b0;
 assign psx_biosregion = 2'd0;
 assign psx_region = 2'd0;
-assign psx_hasCD = 1'b0;
+assign psx_hasCD = cd_trk_done;
 assign psx_fastCD = 1'b0;
-assign psx_LIDopen = 1'b1;
-assign psx_trackinfo_data = 32'd0;
-assign psx_trackinfo_addr = 9'd0;
-assign psx_trackinfo_write = 1'b0;
-assign psx_cd_hps_ack = 1'b0;
-assign psx_cd_hps_write = 1'b0;
-assign psx_cd_hps_data = 16'd0;
+assign psx_LIDopen = 1'b0;
 assign psx_spuram_dataRead = 32'd0;
 assign psx_spuram_done = 1'b0;
 assign psx_memcard1_load = 1'b0;
@@ -779,7 +775,7 @@ assign psx_Cheats_BusReadData = 32'd0;
 assign psx_Cheats_BusDone = 1'b0;
 
 
-psx_top_pocket_flat #(.G_SPU_IMPL("none"), .G_CD_IMPL("none"), .NO_MDEC(1), .G_CPU_IMPL("pocket"), .G_DMA_IMPL("pocket")) psx (
+psx_top_pocket_flat #(.G_SPU_IMPL("none"), .G_CD_IMPL("pocket"), .NO_MDEC(1), .G_CPU_IMPL("pocket"), .G_DMA_IMPL("pocket")) psx (
     .clk1x( clk1x ),
     .clk2x( clk2x ),
     .clk3x( clk3x ),
@@ -992,13 +988,7 @@ psx_top_pocket_flat #(.G_SPU_IMPL("none"), .G_CD_IMPL("none"), .NO_MDEC(1), .G_C
 );
 
 ///////////////////////////////////////////////////////////////////////////////
-// CD: not in the first-light build (G_CD_IMPL "none")
-assign target_dataslot_read        = 1'b0;
-assign target_dataslot_id          = 16'd0;
-assign target_dataslot_slotoffset  = 32'd0;
-assign target_dataslot_bridgeaddr  = 32'd0;
-assign target_dataslot_length      = 32'd0;
-assign datatable_addr              = 10'd0;
+// CD: see cd_loader below, after the memory reset it shares with bios_loader (its data table port is datatable_addr/q)
 
 ///////////////////////////////////////////////////////////////////////////////
 // memory: VRAM on the SDRAM, main RAM and the BIOS on the PSRAM, SRAM unused (docs/pocket/POCKET_TOP.md, "First light")
@@ -1058,6 +1048,36 @@ bios_loader bld (
     .ld_valid(ld_valid), .ld_ready(ld_ready), .ld_addr(ld_addr), .ld_data(ld_data),
     .words(bios_words), .err(bios_err)
 );
+// CD: cd_loader serves cd_pocket's sector requests from slot 1 by target read and replays the track table (slot 2) into it.
+// Docs: docs/pocket/POCKET_TOP.md, "CD loader". It resets on PLL lock only: the host may load the slots while it holds reset_n low.
+wire        cd_err;
+cd_loader cdl (
+    .rst(rst_mem), .clk_74a(clk_74a), .clk_sys(clk1x),
+    .bridge_wr(bridge_wr), .bridge_addr(bridge_addr), .bridge_wr_data(bridge_wr_data),
+    .tgt_read(target_dataslot_read), .tgt_id(target_dataslot_id), .tgt_off(target_dataslot_slotoffset),
+    .tgt_baddr(target_dataslot_bridgeaddr), .tgt_len(target_dataslot_length),
+    .tgt_done(target_dataslot_done), .tgt_err(target_dataslot_err),
+    .dataslot_update(dataslot_update), .dataslot_update_id(dataslot_update_id), .dataslot_update_size(dataslot_update_size),
+    .dataslot_allcomplete(dataslot_allcomplete), .datatable_addr(datatable_addr), .datatable_q(datatable_q),
+    .core_run(~psx_reset),
+    .cd_hps_req(psx_cd_hps_req), .cd_hps_lba(psx_cd_hps_lba), .cd_hps_ack(psx_cd_hps_ack),
+    .cd_hps_write(psx_cd_hps_write), .cd_hps_data(psx_cd_hps_data),
+    .trackinfo_data(psx_trackinfo_data), .trackinfo_addr(psx_trackinfo_addr), .trackinfo_write(psx_trackinfo_write),
+    .trk_done(cd_trk_done), .err(cd_err)
+);
+
+// A table whose header word 3 has bit 18 set resets the core once it is replayed (the loader replays only with the core out
+// of reset). cd_pocket's resetFromCD stays high, so the write itself is decoded.
+reg       cd_rst_pend = 1'b0;
+reg [4:0] cd_rst_cnt  = 5'd0;
+always @(posedge clk1x) begin
+    if (rst_1x) begin cd_rst_pend <= 1'b0; cd_rst_cnt <= 5'd0; end
+    else if (psx_trackinfo_write && psx_trackinfo_addr == 9'd3 && psx_trackinfo_data[18]) cd_rst_pend <= 1'b1;
+    else if (cd_rst_pend && cd_trk_done) begin cd_rst_pend <= 1'b0; cd_rst_cnt <= 5'd31; end
+    else if (cd_rst_cnt != 5'd0) cd_rst_cnt <= cd_rst_cnt - 5'd1;
+end
+assign cd_rst = (cd_rst_cnt != 5'd0);
+
 reg core_go_sys = 1'b0;
 always @(posedge clk_sys) core_go_sys <= sd_init_done & (bios_words == 18'd131072);
 synch_3 s_go (core_go_sys, core_go_1x, clk1x);
