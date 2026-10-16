@@ -21,7 +21,11 @@ entity psx_top_pocket_flat is
       G_BUS_IMPL            : string    := "golden";
       G_JOYPAD_IMPL         : string    := "golden";
       G_MEMCARD_IMPL        : string    := "golden";
-      G_MDEC_IMPL           : string    := "golden"
+      G_MDEC_IMPL           : string    := "golden";
+      G_CD_NO_LIBCRYPT      : integer   := 0;          -- area levers, 0/1 (psx_top_pocket.vhd)
+      G_CD_FIXED_TIMING     : integer   := 0;
+      G_CD_NO_PEAK          : integer   := 0;
+      G_CPU_NO_COP0_DEBUG   : integer   := 0
    );
    port
    (
@@ -286,7 +290,9 @@ begin
    core : entity work.psx_top_pocket
       generic map (is_simu => is_simu, NO_MDEC => (NO_MDEC /= 0), G_GPU_IMPL => G_GPU_IMPL, G_CPU_IMPL => G_CPU_IMPL, G_SPU_IMPL => G_SPU_IMPL,
                    G_CD_IMPL => G_CD_IMPL, G_DMA_IMPL => G_DMA_IMPL, G_BUS_IMPL => G_BUS_IMPL, G_JOYPAD_IMPL => G_JOYPAD_IMPL,
-                   G_MEMCARD_IMPL => G_MEMCARD_IMPL, G_MDEC_IMPL => G_MDEC_IMPL)
+                   G_MEMCARD_IMPL => G_MEMCARD_IMPL, G_MDEC_IMPL => G_MDEC_IMPL,
+                   G_CD_NO_LIBCRYPT => (G_CD_NO_LIBCRYPT /= 0), G_CD_FIXED_TIMING => (G_CD_FIXED_TIMING /= 0), G_CD_NO_PEAK => (G_CD_NO_PEAK /= 0),
+                   G_CPU_NO_COP0_DEBUG => (G_CPU_NO_COP0_DEBUG /= 0))
       port map (
          clk1x => clk1x,
          clk2x => clk2x,

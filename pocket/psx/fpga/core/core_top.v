@@ -445,7 +445,9 @@ always @(posedge clk_sys) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// the PSX core, first-light configuration: no SPU, the CD-ROM controller, no MDEC; the rewritten CPU and DMA (docs/pocket/CPU.md, CORE.md)
+// the PSX core: the CD-ROM controller "pocket", no MDEC; the rewritten CPU and DMA (docs/pocket/CPU.md, CORE.md)
+// PSX_SPU selects the SPU: "none" (fits, no sound) or "pocket" (spu_pocket, reverb off; does not fit the 5CEBA4 yet, POCKET_TOP.md)
+localparam PSX_SPU = "none";
 
 wire psx_reset;
 wire psx_isPaused;
@@ -707,7 +709,7 @@ assign psx_rotate180 = 1'b0;
 assign psx_fixedVBlank = 1'b0;
 assign psx_vCrop = 2'd0;
 assign psx_hCrop = 1'b0;
-assign psx_SPUon = 1'b0;
+assign psx_SPUon = 1'b1;
 assign psx_SPUIRQTrigger = 1'b0;
 assign psx_SPUSDRAM = 1'b1;
 assign psx_REVERBOFF = 1'b1;
@@ -719,8 +721,6 @@ assign psx_region = 2'd0;
 assign psx_hasCD = cd_trk_done;
 assign psx_fastCD = 1'b0;
 assign psx_LIDopen = 1'b0;
-assign psx_spuram_dataRead = 32'd0;
-assign psx_spuram_done = 1'b0;
 assign psx_memcard1_load = 1'b0;
 assign psx_memcard2_load = 1'b0;
 assign psx_memcard_save = 1'b0;
@@ -775,7 +775,7 @@ assign psx_Cheats_BusReadData = 32'd0;
 assign psx_Cheats_BusDone = 1'b0;
 
 
-psx_top_pocket_flat #(.G_SPU_IMPL("none"), .G_CD_IMPL("pocket"), .NO_MDEC(1), .G_CPU_IMPL("pocket"), .G_DMA_IMPL("pocket")) psx (
+psx_top_pocket_flat #(.G_SPU_IMPL(PSX_SPU), .G_CD_IMPL("pocket"), .NO_MDEC(1), .G_CPU_IMPL("pocket"), .G_DMA_IMPL("pocket")) psx (
     .clk1x( clk1x ),
     .clk2x( clk2x ),
     .clk3x( clk3x ),
@@ -1002,17 +1002,40 @@ wire [24:0]  c_addr;
 wire [63:0]  c_wdata, c_rdata;
 wire [7:0]   c_be;
 wire [15:0]  vram_rd_2x, vram_wr_2x;
+// SDRAM request port clients: A the GPU's VRAM (vram_adapter), B the SPU's RAM (spu_adapter, wins on a tie)
+wire         a_valid, a_ready, a_we, a_rvalid;
+wire [24:0]  a_addr;
+wire [63:0]  a_wdata;
+wire [7:0]   a_be;
+wire         b_valid, b_ready, b_we, b_rvalid;
+wire [24:0]  b_addr;
+wire [63:0]  b_wdata;
+wire [7:0]   b_be;
 
 vram_adapter vad (
     .clk2x(clk2x), .clk_sys(clk_sys), .init_done(sd_init_done),
     .ddr3_RD(psx_ddr3_RD), .ddr3_WE(psx_ddr3_WE), .ddr3_ADDR(psx_ddr3_ADDR), .ddr3_DIN(psx_ddr3_DIN), .ddr3_BE(psx_ddr3_BE),
     .ddr3_BURSTCNT(psx_ddr3_BURSTCNT), .ddr3_BUSY(psx_ddr3_BUSY), .ddr3_DOUT(psx_ddr3_DOUT), .ddr3_DOUT_READY(psx_ddr3_DOUT_READY),
-    .req_valid(c_valid), .req_ready(c_ready), .req_we(c_we), .req_addr(c_addr), .req_wdata(c_wdata), .req_be(c_be),
-    .rd_valid(c_rvalid), .rd_data(c_rdata),
+    .req_valid(a_valid), .req_ready(a_ready), .req_we(a_we), .req_addr(a_addr), .req_wdata(a_wdata), .req_be(a_be),
+    .rd_valid(a_rvalid), .rd_data(c_rdata),
     .dbg_reads(vram_rd_2x), .dbg_writes(vram_wr_2x)
 );
 
-assign c_tag = 1'b0;
+// SPU RAM: 512 KB at SDRAM word address 0x800000 (byte 16 MB), clear of every VRAM address (docs/pocket/POCKET_TOP.md, "SPU RAM")
+spu_adapter sad (
+    .clk1x(clk1x), .clk_sys(clk_sys),
+    .ena(psx_spuram_ena), .rnw(psx_spuram_rnw), .adr(psx_spuram_Adr), .dataWrite(psx_spuram_dataWrite),
+    .dataRead(psx_spuram_dataRead), .done(psx_spuram_done),
+    .req_valid(b_valid), .req_ready(b_ready), .req_we(b_we), .req_addr(b_addr), .req_wdata(b_wdata), .req_be(b_be),
+    .rd_valid(b_rvalid), .rd_data(c_rdata)
+);
+
+psx_sdram_arb sarb (
+    .a_valid(a_valid), .a_ready(a_ready), .a_we(a_we), .a_addr(a_addr), .a_wdata(a_wdata), .a_be(a_be),
+    .b_valid(b_valid), .b_ready(b_ready), .b_we(b_we), .b_addr(b_addr), .b_wdata(b_wdata), .b_be(b_be),
+    .c_valid(c_valid), .c_ready(c_ready), .c_we(c_we), .c_addr(c_addr), .c_wdata(c_wdata), .c_be(c_be), .c_tag(c_tag),
+    .c_rvalid(c_rvalid), .c_rtag(c_rtag), .a_rvalid(a_rvalid), .b_rvalid(b_rvalid)
+);
 
 sdram_ctl sdc (
     .clk(clk_sys), .clk_cap(clk_cap), .rst(rst_sys), .init_done(sd_init_done),
@@ -1215,44 +1238,11 @@ assign video_vs           = vid_vs;
 assign video_hs           = vid_hs;
 
 //
-// audio i2s: the stub's samples are crossed to clk_74a and shifted out; mclk and lrck as in the silence generator
+// audio: the SPU's samples (clk1x, 44.1 kHz) resampled to 48 kHz and shifted out as I2S (psx_audio.v)
 //
-wire [31:0] snd_74;
-synch_3 #(.WIDTH(32)) s_snd ({psx_sound_out_left, psx_sound_out_right}, snd_74, clk_74a);
-
-assign audio_mclk = audgen_mclk;
-assign audio_dac = audgen_dac;
-assign audio_lrck = audgen_lrck;
-
-// generate MCLK = 12.288mhz with fractional accumulator
-    reg         [21:0]  audgen_accum;
-    reg                 audgen_mclk;
-    parameter   [20:0]  CYCLE_48KHZ = 21'd122880 * 2;
-always @(posedge clk_74a) begin
-    audgen_accum <= audgen_accum + CYCLE_48KHZ;
-    if(audgen_accum >= 21'd742500) begin
-        audgen_mclk <= ~audgen_mclk;
-        audgen_accum <= audgen_accum - 21'd742500 + CYCLE_48KHZ;
-    end
-end
-
-// generate SCLK = 3.072mhz by dividing MCLK by 4
-    reg [1:0]   aud_mclk_divider;
-    wire        audgen_sclk = aud_mclk_divider[1] /* synthesis keep*/;
-always @(posedge audgen_mclk) begin
-    aud_mclk_divider <= aud_mclk_divider + 1'b1;
-end
-
-// shift out audio data as I2S, 32 bits per channel
-    reg     [4:0]   audgen_lrck_cnt;
-    reg             audgen_lrck;
-    reg             audgen_dac;
-always @(negedge audgen_sclk) begin
-    audgen_dac <= snd_74[~audgen_lrck_cnt];
-    audgen_lrck_cnt <= audgen_lrck_cnt + 1'b1;
-    if(audgen_lrck_cnt == 31) begin
-        audgen_lrck <= ~audgen_lrck;
-    end
-end
+psx_audio aud (
+    .clk1x(clk1x), .clk_74a(clk_74a), .snd_l(psx_sound_out_left), .snd_r(psx_sound_out_right),
+    .audio_mclk(audio_mclk), .audio_dac(audio_dac), .audio_lrck(audio_lrck)
+);
 
 endmodule

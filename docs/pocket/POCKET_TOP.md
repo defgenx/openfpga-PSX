@@ -282,9 +282,11 @@ initialisation.
 ## First light
 
 The first build with the real core: CPU, GPU, GTE, DMA, timers, pads, the bus and the CD-ROM controller, without the SPU and the
-MDEC (`G_SPU_IMPL` "none", `NO_MDEC` 1; `G_CD_IMPL` "pocket", the rewritten `cd_pocket`, CD.md). The CPU and the DMA are the rewritten `cpu_pocket` and `dma_pocket`
+MDEC (`NO_MDEC` 1; `G_CD_IMPL` "pocket", the rewritten `cd_pocket`, CD.md). `core_top.v`'s `PSX_SPU` selects the SPU: "none"
+(`spu_none`, the default) or "pocket" (`spu_pocket`, SPU.md, reverb off), which is wired to its RAM and the audio output but does
+not fit the 5CEBA4 yet: 20,055 ALMs needed (109%), 19,541 (106%) with every [area lever](#area-levers) on. The CPU and the DMA are the rewritten `cpu_pocket` and `dma_pocket`
 (`G_CPU_IMPL`/`G_DMA_IMPL` "pocket"; CPU.md, CORE.md): the system simulation gives the same bus counts and frames as with the
-original blocks, except one icache fill of address 0 that the original issues during reset and discards. It boots the BIOS and shows the GPU's picture and reads a disc image loaded in the CD slots ([CD loader](#cd-loader)); it plays no sound. The core's other inputs are held at their MiSTer defaults in `core_top.v` (sync video on, NTSC, no savestates or cheats).
+original blocks, except one icache fill of address 0 that the original issues during reset and discards. It boots the BIOS and shows the GPU's picture and reads a disc image loaded in the CD slots ([CD loader](#cd-loader)); with `PSX_SPU` "pocket" it plays the SPU's sound through the I2S ([SPU RAM](#spu-ram), [Audio](#audio)); the default build is silent. The core's other inputs are held at their MiSTer defaults in `core_top.v` (sync video on, NTSC, no savestates or cheats).
 
 **Memory.** VRAM is on the SDRAM: `vram_adapter.v` takes the GPU's `ddr3_*` port (clk2x) through a 32-entry dual-clock command
 FIFO (`async_fifo.v`, gray pointers) to `sdram_ctl` (clk_sys), one 4-word burst per 64-bit qword, read bursts of up to 128 split
@@ -313,14 +315,64 @@ disc. A table whose header word 3 has bit 18 set (the `cue2pocket.py` default) r
 **Pad.** Pad 1 is a digital pad: Pocket A, B, X, Y on Circle, Cross, Triangle, Square; L/R and the triggers on L1/R1, L2/R2.
 Ports 2 to 4 are unplugged.
 
-**Tests.** Unit benches: `tb_vram.v`, `tb_ram.v`, `tb_bios_loader.v`, `tb_video_fl.v`, `tb_status.v` (iverilog; commands in
+### SPU RAM
+
+`spu_pocket`'s RAM port (`spuram_*` of `psx_top_pocket`: `sdram_ena` a one-clock pulse with `Adr`, `rnw`, `dataWrite(15:0)` valid and held until
+`sdram_done`, a one-clock pulse at least one clock later carrying `dataRead(15:0)`; one request outstanding, `be` always 0011) is served from the SDRAM.
+`spu_adapter.v` (clk1x to clk_sys by toggles, data held) makes each access one 4-word burst: a read takes the halfword out of the returned qword, a
+write masks the other three words with the byte enables. Reverb is off (`NO_REVERB`, the default): capture and reverb accesses stay inside `spu_pocket`.
+`psx_sdram_arb.v` puts it next to `vram_adapter` on the single `sdram_ctl` request port, the SPU first on a tie (one request outstanding, so the GPU is
+delayed by one request at most); the 1-bit request tag routes read returns. The calibration still owns the port in its windows.
+
+| Region | SDRAM word address (16-bit words) | Byte address |
+|---|---|---|
+| VRAM (GPU `ddr3_ADDR[24:0]`: 1 MB at 0; the frame buffers at 0x400000 + frame index × 0x100000) | 0x000000 – 0x07FFFF and 0x200000 – 0x3FFFFF | 0 – 0xFFFFF and 0x400000 – 0x7FFFFF |
+| SPU RAM, 512 KB | 0x800000 – 0x83FFFF | 0x1000000 – 0x107FFFF |
+
+Both sit below the 32 MB mark; bit 23 of the word address (byte 16 MB) is clear for every VRAM address and set for SPU RAM.
+
+**Worst-case latency** (`sdram_ctl` at 135.4752 MHz, CL 3, BL 4, tRCD 3, tRP 3, tRAS 6, tRFC 9; clk_sys = 4 × clk1x, so the budget of 23 clk1x is 92
+clk_sys cycles). A request waits for the request on the port to reach its CAS (a row miss: tRAS wait, PRECHARGE, ACTIVATE, tRCD: about 16 cycles), for a
+refresh if one is due (all banks precharged, tRP, tRFC: about 23), then runs its own row miss (6 after a refresh, 16 otherwise) and the read returns
+12 cycles after its CAS (`LAT` 9 + 3 beats). With the toggle crossings (about 3 cycles in, 9 out) the sum is about 72 cycles, 18 clk1x. A GPU burst of 128
+beats is 128 separate requests, so it never blocks the SPU for more than one of them. Not included: a calibration tracking window (the port is closed for
+about 1,150 cycles, 8.5 µs, once per 16 frames; 8,700 cycles with a re-sweep) delays the SPU by that time once; the SPU then catches up inside the
+sample period. The new arbiter adds one 2:1 mux between `vram_adapter` and `sdram_ctl` (`req_*`, `rd_valid` gating by the tag).
+
+`sim/tb_spu_mem.v` runs `vram_adapter` (random writes and read bursts of up to 128 beats, back to back), `spu_adapter` (random 16-bit reads and writes)
+and the arbiter against a behavioural controller with these worst-case holds (4 to 16 cycles per request, 23-cycle refresh stalls every 934, read data 12
+cycles late); it checks every byte on both sides against shadow memories and asserts the SPU latency from `ena` to `done`: 18 clk1x at most, 10.9 on average
+over 6,000 accesses (budget 23). An arbiter that favoured the GPU starves the SPU in it. The system simulation (OpenBIOS, 250 ms) shows the SPU's voice reads, about 265 per ms and no writes, through the adapter and arbiter; the BIOS plays no sound there (`sound_out` stays 0) and the frames and RAM request counts equal the run without the SPU. A core reset while an SPU request is in flight can leave one stale
+`done` for the next request (the sequencer resets the SPU first, `SS_reset`, and nothing issues requests in its 192-clock clear).
+
+### Audio
+
+`psx_audio.v` takes `sound_out_left/right` (clk1x; the SPU rewrites them once per sample, at 44.1 kHz) and makes the Pocket's I2S (12.288 MHz MCLK, 3.072 MHz
+SCLK, 48 kHz frames, 32-bit slots with the 16-bit sample left-justified, left first). The samples are captured every 768 clk1x cycles into registers and
+announced by one toggle to clk_74a (2-FF synchroniser; the registers are stable for 768 cycles around it). There the last two samples are kept with the age of
+the newer one in clk_74a cycles, and each output frame is the linear interpolation `s0 + (s1 - s0) × age / 1684` (one 17 × 18 multiplier, L and R in
+turn), so the output is the input delayed by one sample and needs no rate matching. At the left slot's start (lrck seen through 2 FFs) the two pairs are
+latched and the result held for the frame, so the I2S shifter, which runs on the derived SCLK, reads values that change only right after a slot boundary.
+`audio.json` needs nothing beyond the magic. `sim/tb_audio.v` feeds 997 Hz and 3001 Hz sines at 20,000 peak through it and deserialises the I2S: 48 kHz
+frame rate, frequency within 0.5%, peak within 3%, and no output step above the sine's slope (a dropped or repeated input sample would exceed it).
+
+### Area levers
+
+`psx_top_pocket` generics (flat wrapper: integers 0/1), all default false, so the netlist is unchanged until a revision sets them:
+`G_CD_NO_LIBCRYPT`, `G_CD_FIXED_TIMING`, `G_CD_NO_PEAK` (`cd_pocket`'s `NO_LIBCRYPT`, `FIXED_CD_TIMING`, `NO_CD_PEAK`; `NO_XA` is not passed on) and
+`G_CPU_NO_COP0_DEBUG` (`cpu_pocket`'s `NO_COP0_DEBUG`). The joypad has no such generic. `core_top.v` does not set them.
+Measured together in the `PSX_SPU` "pocket" build (seed 1, failed fits, the fitter's ALMs needed): 20,055 without them, 19,541
+with all four, so they save 514 there. Set apart, they have not been measured.
+
+**Tests.** Unit benches: `tb_vram.v`, `tb_ram.v`, `tb_bios_loader.v`, `tb_video_fl.v`, `tb_status.v`, `tb_spu_mem.v`, `tb_audio.v` (iverilog; commands in
 their headers); `sim/cd_e2e/run.sh` for the CD path ([CD loader](#cd-loader)). The system simulation `sim/system/run.sh [BIOS] [ms]` runs the real core with `vram_adapter`, `ram_adapter`
-and `video_fl` (and `cd_pocket` with no disc, as the hardware build) against behavioural PSRAM and SDRAM request ports (the controllers are proven in their own benches), with the BIOS
+and `video_fl` (and `cd_pocket` with no disc and `spu_pocket` with its RAM through `spu_adapter` and `psx_sdram_arb`, the hardware build with `PSX_SPU` "pocket") against behavioural PSRAM and SDRAM request ports (the controllers are proven in their own benches), with the BIOS
 preloaded. It writes every frame the APF would get to `sim/system/out/frame_<n>.ppm` and traces the RAM bus to `ram_trace.txt`;
 about 2 s of wall time per emulated millisecond.
 
-**Fit** (5CEBA4F23C8, seed 1): 17,404 ALMs (94%), 135 of 308 M10K, 19 DSP; every clock meets timing (worst slack +0.033 ns,
-hold). `cd_pocket` is 2,077.2 of it and `cd_loader` 254.5; the core (`psx_top_pocket`) is 14,694.4. Without the CD (seed 5) it was
+**Fit** (5CEBA4F23C8, seed 1, `PSX_SPU` "none"): 17,428 ALMs (94%), 135 of 308 M10K, 21 DSP; every clock meets timing (worst
+slack +0.003 ns, hold). Before the SPU RAM arbiter and the audio path: 17,404, worst +0.033 ns; `cd_pocket` 2,077.2 and `cd_loader`
+254.5 of it, the core (`psx_top_pocket`) 14,694.4. Without the CD (seed 5) it was
 14,823 ALMs (80%) and 82 M10K; with the original CPU and DMA 16,600 and 146. The SDRAM capture transfer `dq_cap3` → `dq_r` depends
 on where the fitter puts `dq_r` (with the CD: seed 5 −0.102 ns, seed 2 −0.213, seed 3 −0.028, seed 1 met), and Quartus Lite has
 no LogicLock regions to pin it: after a change, try another seed first.

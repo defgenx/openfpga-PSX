@@ -21,7 +21,12 @@ entity psx_top_pocket is
       G_BUS_IMPL            : string    := "golden";
       G_JOYPAD_IMPL         : string    := "golden";
       G_MEMCARD_IMPL        : string    := "golden";
-      G_MDEC_IMPL           : string    := "golden"
+      G_MDEC_IMPL           : string    := "golden";
+      -- Area levers of the *_pocket blocks (defaults off: the block's own defaults), see docs/pocket/POCKET_TOP.md
+      G_CD_NO_LIBCRYPT      : boolean   := false;
+      G_CD_FIXED_TIMING     : boolean   := false;
+      G_CD_NO_PEAK          : boolean   := false;
+      G_CPU_NO_COP0_DEBUG   : boolean   := false
    );
    port 
    (
@@ -1823,6 +1828,13 @@ begin
 
    gcd_pocket : if G_CD_IMPL = "pocket" generate
       component cd_pocket is
+      generic
+      (
+         NO_XA            : boolean := false;
+         FIXED_CD_TIMING  : boolean := false;
+         NO_LIBCRYPT      : boolean := false;
+         NO_CD_PEAK       : boolean := false
+      );
       port
       (
          clk1x                : in  std_logic;
@@ -1877,6 +1889,7 @@ begin
       end component;
    begin
       icd_top : cd_pocket
+      generic map (FIXED_CD_TIMING => G_CD_FIXED_TIMING, NO_LIBCRYPT => G_CD_NO_LIBCRYPT, NO_CD_PEAK => G_CD_NO_PEAK)
       port map
       (
          clk1x                => clk1x,
@@ -3363,6 +3376,10 @@ begin
 
    gcpu_pocket : if G_CPU_IMPL = "pocket" generate
       component cpu_pocket is
+      generic
+      (
+         NO_COP0_DEBUG : boolean := false
+      );
       port
       (
          clk1x                 : in  std_logic;
@@ -3428,6 +3445,7 @@ begin
       end component;
    begin
       icpu : cpu_pocket
+      generic map (NO_COP0_DEBUG => G_CPU_NO_COP0_DEBUG)
       port map
       (
          clk1x             => clk1x,

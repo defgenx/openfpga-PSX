@@ -100,7 +100,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 -- sdram_ctl's request port: req_ready with occasional refresh stalls, every request one 64-bit burst, reads returned in
--- order after a fixed latency. VRAM only: word addresses 0 .. 0x7FFFF (1 MB).
+-- order after a fixed latency. VRAM: word addresses 0 .. 0x7FFFF (1 MB); SPU RAM: bit 23 set, 0x800000 + 0 .. 0x3FFFF (512 KB).
 entity sdram_beh is
    generic (LAT : natural := 14);
    port (
@@ -114,12 +114,15 @@ entity sdram_beh is
       req_be    : in  std_logic_vector(7 downto 0);
       req_tag   : in  std_logic;
       rd_valid  : out std_logic;
-      rd_data   : out std_logic_vector(63 downto 0)
+      rd_data   : out std_logic_vector(63 downto 0);
+      rd_tag    : out std_logic
    );
 end entity;
 
 architecture beh of sdram_beh is
    type mem_t is array (0 to 16#20000# - 1) of std_logic_vector(63 downto 0);
+   type smem_t is array (0 to 16#10000# - 1) of std_logic_vector(63 downto 0);
+   signal pipe_t : std_logic_vector(LAT - 1 downto 0) := (others => '0');
    signal pipe_v : std_logic_vector(LAT - 1 downto 0) := (others => '0');
    type pd_t is array (0 to LAT - 1) of std_logic_vector(63 downto 0);
    signal pipe_d : pd_t;
@@ -132,8 +135,10 @@ begin
    init_done <= '1' when boot > 200 else '0';
    rd_valid  <= pipe_v(LAT - 1);
    rd_data   <= pipe_d(LAT - 1);
+   rd_tag    <= pipe_t(LAT - 1);
    process (clk)
       variable mem : mem_t;
+      variable smem : smem_t;
       variable k   : integer;
       variable q   : std_logic_vector(63 downto 0);
    begin
@@ -141,10 +146,20 @@ begin
          if boot <= 200 then boot <= boot + 1; end if;
          cnt <= (cnt + 1) mod 934;
          pipe_v <= pipe_v(LAT - 2 downto 0) & '0';
+         pipe_t <= pipe_t(LAT - 2 downto 0) & '0';
          pipe_d(1 to LAT - 1) <= pipe_d(0 to LAT - 2);
          if req_valid = '1' and ready = '1' then
             k := to_integer(unsigned(req_addr(24 downto 2)));
-            if req_we = '1' then
+            if req_addr(23) = '1' then                                  -- SPU RAM
+               k := to_integer(unsigned(req_addr(17 downto 2)));
+               if req_we = '1' then
+                  for b in 0 to 7 loop
+                     if req_be(b) = '1' then smem(k)(8 * b + 7 downto 8 * b) := req_wdata(8 * b + 7 downto 8 * b); end if;
+                  end loop;
+               else
+                  pipe_v(0) <= '1'; pipe_t(0) <= req_tag; pipe_d(0) <= smem(k);
+               end if;
+            elsif req_we = '1' then
                if k < mem'length then
                   for b in 0 to 7 loop
                      if req_be(b) = '1' then mem(k)(8 * b + 7 downto 8 * b) := req_wdata(8 * b + 7 downto 8 * b); end if;

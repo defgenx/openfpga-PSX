@@ -23,10 +23,11 @@ sed -E '400,700s/to_unsigned\((.*), 9\)/to_unsigned(abs(\1), 9)/' "$R/rtl/gpu_vi
 FILES=$(sed -n '/VHDL_FILE/p' "$R/sizing/psx_pocket_a6.qsf" | sed 's#.*\.\./rtl/##; /^set_global/d' | grep -v 'SyncFifo\|dpram.vhd\|RamMLAB' | sed "s#^#$R/rtl/#; s#$R/rtl/cd_top.vhd#$OUT/cd_top_sim.vhd#; s#$R/rtl/gpu_videoout_async.vhd#$OUT/gpu_videoout_async_sim.vhd#")
 $NVC --work=work:$OUT/work -L $OUT -a --relaxed $MEMS "$R/rtl/spu_none.vhd" "$R/rtl/cd_none.vhd" $FILES \
 	"$R/rtl/cd_pocket_fifo.vhd" "$R/rtl/cd_pocket_xa.vhd" "$R/rtl/cd_pocket.vhd" \
+	"$R/rtl/spu_pocket_gauss.vhd" "$R/rtl/spu_pocket_sdp.vhd" "$R/rtl/spu_pocket_fifo.vhd" "$R/rtl/spu_pocket_ram.vhd" "$R/rtl/spu_pocket.vhd" \
 	"$R/rtl/divider_pocket.vhd" "$R/rtl/cpu_pocket.vhd" "$R/rtl/dma_pocket.vhd" \
 	"$P/fpga/core/psx_top_pocket_flat.vhd" 2>&1 | { grep -A5 "Error:" || true; }
 $NVC --work=work:$OUT/work -L $OUT -a --relaxed "$P/fpga/core/async_fifo.v" "$P/fpga/core/vram_adapter.v" \
-	"$P/fpga/core/ram_adapter.v" "$P/fpga/core/video_fl.v"
+	"$P/fpga/core/ram_adapter.v" "$P/fpga/core/video_fl.v" "$P/fpga/core/spu_adapter.v" "$P/fpga/core/psx_sdram_arb.v"
 $NVC --work=work:$OUT/work -L $OUT -a "$HERE/models.vhd" "$HERE/tb_system.vhd"
 $NVC --work=work:$OUT/work -L $OUT -e tb_system -gBIOS_FILE="$BIOS" -gRUN_MS="$MS"
 $NVC --work=work:$OUT/work -L $OUT -r --ieee-warnings=off tb_system 2>&1 | tee "$OUT/run.log" | grep -E "ms:|frame|released|FINISH|Error|Fatal|preloaded" || true

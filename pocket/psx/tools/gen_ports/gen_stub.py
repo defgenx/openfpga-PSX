@@ -32,7 +32,11 @@ module psx_top_pocket_flat #(
     parameter       G_BUS_IMPL     = "golden",
     parameter       G_JOYPAD_IMPL  = "golden",
     parameter       G_MEMCARD_IMPL = "golden",
-    parameter       G_MDEC_IMPL    = "golden"
+    parameter       G_MDEC_IMPL    = "golden",
+    parameter       G_CD_NO_LIBCRYPT    = 0,
+    parameter       G_CD_FIXED_TIMING   = 0,
+    parameter       G_CD_NO_PEAK        = 0,
+    parameter       G_CPU_NO_COP0_DEBUG = 0
 ) (""")
 decl=[]
 for n,d,w in P:

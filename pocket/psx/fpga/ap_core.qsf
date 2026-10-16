@@ -743,13 +743,16 @@ set_global_assignment -name VERILOG_FILE ../../common/mem/sdram_cal.v
 set_global_assignment -name VERILOG_FILE ../../common/mem/psram32.v
 set_global_assignment -name VERILOG_FILE core/status_fmt.v
 set_global_assignment -name VERILOG_FILE core/status_screen.v
-# first light: the new shell modules, then the PSX core (rtl/*.vhd, the "none" SPU, the CD-ROM controller "pocket") behind its flat wrapper
+# first light: the new shell modules, then the PSX core (rtl/*.vhd, the SPU and CD-ROM controller "pocket") behind its flat wrapper
 set_global_assignment -name VERILOG_FILE core/video_fl.v
 set_global_assignment -name VERILOG_FILE core/async_fifo.v
 set_global_assignment -name VERILOG_FILE core/vram_adapter.v
 set_global_assignment -name VERILOG_FILE core/ram_adapter.v
 set_global_assignment -name VERILOG_FILE core/bios_loader.v
 set_global_assignment -name VERILOG_FILE core/cd_loader.v
+set_global_assignment -name VERILOG_FILE core/spu_adapter.v
+set_global_assignment -name VERILOG_FILE core/psx_sdram_arb.v
+set_global_assignment -name VERILOG_FILE core/psx_audio.v
 set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
 set_global_assignment -name VHDL_FILE ../../../rtl/SyncFifo.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/SyncFifoFallThrough.vhd
@@ -814,6 +817,11 @@ set_global_assignment -name VHDL_FILE ../../../rtl/cd_top.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/cd_pocket_fifo.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/cd_pocket_xa.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/cd_pocket.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/spu_pocket_gauss.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/spu_pocket_sdp.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/spu_pocket_fifo.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/spu_pocket_ram.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/spu_pocket.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/memctrl.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/sio.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/spu_ram.vhd

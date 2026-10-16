@@ -6,7 +6,7 @@
 #                                        unless ALLOW_TIMING_FAIL=1
 #   pocket/psx/build.sh timing           print the worst slack per clock and model of a finished compile
 #   pocket/psx/build.sh check            validate the dist JSON (no bitstream needed) and that the generated port files are current
-#   pocket/psx/build.sh sim              stub and bridge testbenches (Icarus Verilog), the mixed-language spike and the CD end-to-end bench (nvc)
+#   pocket/psx/build.sh sim              stub, bridge, status, SPU RAM and audio testbenches (Icarus Verilog), the mixed-language spike and the CD end-to-end bench (nvc)
 # Layout and clocks: docs/pocket/POCKET_TOP.md, "Shell skeleton".
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -107,6 +107,11 @@ simulate() {
 	git diff --quiet -- fpga/core/status_text.vh || { echo "fpga/core/status_text.vh is stale: commit the output of tools/gen_screen.py" >&2; exit 1; }
 	iverilog -g2012 -o sim/out/status.vvp -I fpga/core sim/tb_status.v fpga/core/status_fmt.v fpga/core/status_screen.v
 	vvp_pass sim/out/status.vvp
+	# SPU RAM adapter + arbiter against a GPU-like client, and the resampler / I2S
+	iverilog -g2012 -o sim/out/spu_mem.vvp sim/tb_spu_mem.v fpga/core/spu_adapter.v fpga/core/psx_sdram_arb.v fpga/core/vram_adapter.v fpga/core/async_fifo.v
+	vvp_pass sim/out/spu_mem.vvp
+	iverilog -g2012 -o sim/out/audio.vvp sim/tb_audio.v fpga/core/psx_audio.v
+	vvp_pass sim/out/audio.vvp
 	sim/mixed/run.sh
 	sim/cd_e2e/run.sh
 }
