@@ -1605,6 +1605,12 @@ begin
             when 17 => load_disc(1, false); serve(3, wl, 9); one_cmd(16#01#, 0, 2, 9);
             when 18 => set_msf(0, 2, 10); one_cmd(16#02#, 3, 1, 9); one_cmd(16#15#, 0, 2, 9); one_cmd(16#08#, 0, 2, 9);
             when 19 => one_cmd(16#07#, 0, 2, 9); one_cmd(16#09#, 0, 2, 9); one_cmd(16#1A#, 0, 2, 9); serve(2, wl, 9);
+            when 22 =>
+               -- Pause during a double-speed read: the hold target is one rotation less two sectors
+               pa(0) := 16#80#; one_cmd(16#0E#, 1, 2, 9);
+               set_msf(0, 2, 10); one_cmd(16#02#, 3, 1, 9); one_cmd(16#06#, 0, 1, 9);
+               for i in 1 to 4 loop wait_event(60000000, lbaT, evgot); end loop;
+               one_cmd(16#09#, 0, 2, 9);
             when 21 =>
                -- seek times over the distance classes (the seek time table compresses to nothing otherwise)
                for d in 0 to 8 loop

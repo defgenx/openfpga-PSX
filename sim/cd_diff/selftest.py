@@ -48,7 +48,7 @@ R_RAND = [("random", 1, 1500), ("random", 2, 1500)]
 MUTANTS = [
     # the delay constants hide behind the time compression: only the real-time suite sees them
     ("cmd_delay",      "top", "cmd_delay  <= 25000 - 2;", "cmd_delay  <= 25001 - 2;", [("realtime", 0, 1)]),
-    ("pause_wait",     "top", "pause_target_v := pause_rotation_ticks - (2 * driveREADSPEED);", "pause_target_v := pause_rotation_ticks - (3 * driveREADSPEED);", [("realtime", 8, 1)]),
+    ("pause_wait",     "top", "pause_target_v := pause_rotation_ticks - (2 * driveREADSPEED);", "pause_target_v := pause_rotation_ticks - (3 * driveREADSPEED);", [("realtime", 22, 1)]),
     ("getid_char",     "top", "natural(character'pos('S'))", "natural(character'pos('T'))", [("directed", 0, 2)] + R_RAND),
     ("getlocp_byte",   "top", "FifoResponse_Din <= subdata(1);", "FifoResponse_Din <= subdata(2);", R_RAND),
     ("libcrypt_pair",  "top", "= 14105 or (lastReadSector + 2) = 14110", "= 14105 or (lastReadSector + 2) = 14111", [("directed", 4, 1)]),

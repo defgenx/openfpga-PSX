@@ -122,9 +122,9 @@ Everything below is invisible at the compared ports, or is one of the generics.
 
 ### Result (2026-10-16)
 
-Bit-exact: 0 mismatches over every suite of `make diff` (random, directed 0-4, real-time 0-21, reset) and the generic-tie runs.
-Self-test: base and the 15 output faults pass; 29 of 30 mutants fail a run. `pause_wait` (the Pause target during a read) survives:
-real-time scenario 8, which owns it, ends with drive errors and no sector processed, so its Pause is not issued while reading.
+Bit-exact: 0 mismatches over every suite of `make diff` (random, directed 0-4, real-time 0-22, reset) and the generic-tie runs.
+Self-test: base and the 15 output faults pass; all 30 mutants fail a run. Real-time scenario 8 (single-speed ReadN, then Pause)
+ends in a seek error before any sector, so the Pause-during-read target is covered by scenario 22 (the same at double speed).
 The `make gate` run (16 × 65,000 commands) has not been run.
 **Area gate not met.** Fitter, ALMs needed, default generics:
 
