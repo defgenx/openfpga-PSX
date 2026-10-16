@@ -5,3 +5,4 @@ QUARTUS_VERSION = "21.1"
 # Revisions
 
 PROJECT_REVISION = "cd_golden"
+PROJECT_REVISION = "cd_pocket"

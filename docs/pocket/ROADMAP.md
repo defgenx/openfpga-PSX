@@ -395,17 +395,17 @@ Record each gate's measured numbers here when its phase ends. Each work unit edi
 | Unit M2b | pending (conditional on M1) | — | — | — | — | — |
 | Unit G1 | pending | — | — | — | — | — |
 | Unit B1 | pending | — | — | — | — | — |
-| Unit B2 | pending | — | — | — | — | — |
+| Unit B2 | **bit-exact; area gate not met**: `cd_pocket` 2,207.2 in context (gate 1,600; golden 2,521.3), 2,173.3 standalone. [CD.md](CD.md#result-2026-10-16) | 2,207.2 | 6 | 71 | fit only | 2026-10-16 |
 | Unit X1 | pending | — | — | — | — | — |
 | Unit P1d | pending | — | — | — | — | — |
 | Unit C1 | pending (checkpoint after B1, B2) | — | — | — | — | — |
 | Unit M3 | pending hardware | — | — | — | — | — |
 | Unit M4 | pending (conditional on M3) | — | — | — | — | — |
 | Unit M5 | pending | — | — | — | — | — |
-| Unit B3 | pending | — | — | — | — | — |
-| Unit B4 | pending | — | — | — | — | — |
+| Unit B3 | **done**: `cpu_pocket` bit-exact (`sim/cpu_diff`, 0 mismatches; selftest 88/88). [CPU.md](CPU.md) | 1,625.8 in context (gate 1,900; golden 2,389.6) | — | — | fit only | 2026-10-12 |
+| Unit B4 | **done**: `dma_pocket` bit-exact (`sim/dma_diff`, 0 mismatches). [CORE.md](CORE.md) | 824.8 in context (gate 900; golden 1,318.9) | — | — | fit only | 2026-10-12 |
 | Unit B5 | pending | — | — | — | — | — |
-| Unit B6 | pending | — | — | — | — | — |
+| Unit B6 | **exact; area gate not met**: `gpu_pocket` (`sim/gpu_diff` 0 mismatches). [GPU.md](GPU.md) | 4,449 in context (gate 4,000; golden 4,620.3) | — | — | fit only | 2026-10-12 |
 | Unit P1b | pending | — | — | — | — | — |
 | Unit P1c | pending | — | — | — | — | — |
 | Unit B7 | pending (stretch) | — | — | — | — | — |

@@ -1,0 +1,28 @@
+# Standalone fit of rtl/cd_pocket.vhd (docs/pocket/CD.md): same wrapper rules and device as cd_golden.qsf.
+# The wrapper lives in sim/cd_diff/size/. Amputation measurements: set_parameter -name NO_XA true (and the
+# other generics of cd_pocket_size_wrap) in a copy of this file.
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CEBA4F23C8
+set_global_assignment -name TOP_LEVEL_ENTITY cd_pocket_size_wrap
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 1
+set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files_cd_pocket
+set_global_assignment -name VHDL_FILE ../rtl/SyncFifo.vhd
+set_global_assignment -name VHDL_FILE ../rtl/SyncFifoFallThrough.vhd
+set_global_assignment -name VHDL_FILE ../rtl/SyncFifoFallThroughMLAB.vhd
+set_global_assignment -name VHDL_FILE ../rtl/SyncRam.vhd
+set_global_assignment -name VHDL_FILE ../rtl/SyncRamDual.vhd
+set_global_assignment -name VHDL_FILE ../rtl/SyncRamDualNotPow2.vhd
+set_global_assignment -name VHDL_FILE ../rtl/SyncRamDualByteEnable.vhd
+set_global_assignment -name VHDL_FILE ../rtl/dpram.vhd
+set_global_assignment -name VHDL_FILE ../rtl/RamMLAB.vhd
+set_global_assignment -name VHDL_FILE ../rtl/cd_xa_zigzag.vhd
+set_global_assignment -name VHDL_FILE ../rtl/cd_pocket_fifo.vhd
+set_global_assignment -name VHDL_FILE ../rtl/cd_pocket_xa.vhd
+set_global_assignment -name VHDL_FILE ../rtl/cd_pocket.vhd
+set_global_assignment -name VHDL_FILE ../sim/cd_diff/size/cd_pocket_size_wrap.vhd
+set_global_assignment -name SDC_FILE cd.sdc
+set_instance_assignment -name VIRTUAL_PIN ON -to i_*
+set_instance_assignment -name VIRTUAL_PIN ON -to o_*
+
+set_global_assignment -name LAST_QUARTUS_VERSION "21.1.1 Lite Edition"
