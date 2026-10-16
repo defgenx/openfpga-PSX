@@ -394,11 +394,11 @@ Record each gate's measured numbers here when its phase ends. Each work unit edi
 | Unit H0 | **done**: `sim/common/` scaffold; GTE gate and GPU diff green on it; SPU, CD, CPU, DMA, memorymux, joypad goldens run in nvc | — | — | — | — | 2026-10-09 |
 | Unit M2b | pending (conditional on M1) | — | — | — | — | — |
 | Unit G1 | pending | — | — | — | — | — |
-| Unit B1 | pending | — | — | — | — | — |
+| Unit B1 | **bit-exact; area gate not met**: `spu_pocket` (NO_REVERB, L1 cache) 1,680.4 in context (gate 1,350; golden 3,243.3), 1,556.2 standalone; reverb on 2,555.0. `sim/spu_diff` gate 0 mismatches, self-test 45/45 mutants; L1 cuts SPU SDRAM reads 47% at 4× pitch, 77% at 1×. Not in the Pocket build yet. [SPU.md](SPU.md) | 1,680.4 | 13 | 93 | standalone met (seed 3) | 2026-10-16 |
 | Unit B2 | **bit-exact; area gate not met**: `cd_pocket` 2,207.2 in context (gate 1,600; golden 2,521.3), 2,173.3 standalone. [CD.md](CD.md#result-2026-10-16) | 2,207.2 | 6 | 71 | fit only | 2026-10-16 |
 | Unit X1 | pending | — | — | — | — | — |
 | Unit P1d | pending | — | — | — | — | — |
-| Unit C1 | pending (checkpoint after B1, B2) | — | — | — | — | — |
+| Unit C1 | **stop rule fires**: SPU + CD save 1,877.0 (1,562.9 + 314.1) of the 2,300 required. Projection below | — | — | — | — | 2026-10-16 |
 | Unit M3 | pending hardware | — | — | — | — | — |
 | Unit M4 | pending (conditional on M3) | — | — | — | — | — |
 | Unit M5 | pending | — | — | — | — | — |
@@ -417,16 +417,17 @@ Record each gate's measured numbers here when its phase ends. Each work unit edi
 Phase 2 failed its gate and was re-planned. Unit 4.0 measured the baselines and stopped before the rewrites;
 the re-plan above replaces its gates.
 
-### Can the core run on a Pocket today? No
+### Can the core run on a Pocket today? Not as a complete PSX
 
-Nothing of the PSX has run on a Pocket. Four things stand in the way, and the re-plan addresses each:
+A build exists that can be loaded on a Pocket (`pocket/psx/build.sh`, 17,404 ALMs, 94%, timing met): the rewritten CPU, DMA, GPU
+and CD, the GTE, the BIOS and a disc image. It has no sound (`spu_none`) and no MDEC (no FMV), and it has not run on hardware.
 
-| Blocker | State | What the re-plan does |
+| Blocker | State (2026-10-16) | What is left |
 |---|---|---|
-| It does not fit | `psx_top_pocket` is 19,191.0 ALMs and 295 M10K in context (5CSEBA6, re-fit 2026-10-09) against a core budget of ~14,280 (16,632 − ~2,350 shell). With every planned lever and amputation the old plan projected ~14,640 against 13,550 | Rewrite targets for every block toward ~14,100 (planning case ~15,000 plus stretch levers and set A), gated in context, with stop rules and checkpoint C1; the shell is measured by P1a and P1d |
-| No Pocket top level | `psx_top_pocket` still has MiSTer's interfaces (DDR3 VRAM port, main-RAM bus, `cd_hps_*`, SNAC). A shell skeleton exists (`pocket/psx/`: APF top, PLL, data slots, the shared controllers with the calibrated capture around a stub core, 1,452.5 ALMs) but no adapters, loaders or video modes | Units P1b–P1d complete the shell ([POCKET_TOP.md](POCKET_TOP.md)) |
-| Memory plan not proven | VRAM on the 16-bit SDRAM peaks at 91.2% at 135.5 MHz today (gate 80%); the model puts L1 + L2 + L3 at 72.9%, but the levers are not built. The calibrated capture makes 135.5 MHz meet timing in memtest, unproven on hardware | Levers L1 (B1), L2 (G1), L3 (M2b) and Gate M; capture gate on hardware (M3), fallback 116.12 MHz (M4); Gate R for main RAM (M5) |
-| Nothing on hardware | the memory test core (Phase 3) is built and pending hardware | M0 (early read), M3 (memtest on hardware), P3 (bring-up) |
+| Sound and FMV do not fit | Measured in context: CPU 1,625.8, DMA 824.8, GPU 4,449, CD 2,207.2, SPU 1,680.4 (all bit-exact), GTE 2,528.8, MDEC 600.3; the shell is 2,710 with the CD loader. Every block with its rewrite: core ~15,730 + shell ~2,710 = **~18,440 with the SPU and the MDEC (99.8% of the device)**, ~17,840 without the MDEC (96.5%), against the 16,632 gate. C1 and the projection stop rule both fire | **Re-plan (the human's decision)**: whether the 90% gate can move given the 94% build meets timing; set B (`NO_XA` 431, `NO_MDEC` 600); the remaining levers (B5 bus and peripherals to their 850 / 420 targets; GPU to 4,000, ~450; CD to 1,600, ~600, no exact path known) |
+| Shell incomplete | CD loader, BIOS loader, VRAM and RAM adapters, video, pad 1 are built. Not built: the SPU RAM port (3-client SDRAM arbiter), audio out, the memcard store, the reset gate's CD order | P1c, P1d |
+| Memory plan not proven | VRAM peaks at 91.2% of the SDRAM at 135.5 MHz without the levers; L1 is now built in `spu_pocket` (not in the build), L2 and L3 are not | G1, M2b, Gate M; M3 on hardware |
+| Nothing on hardware | the memtest core and the first-light builds are pending hardware | M0, M3, P3 |
 
 The first PSX build that can be loaded on a Pocket is the Phase 5 gate (Unit P3). Details:
 [GPU.md](GPU.md#measurements), [MEMTEST.md](MEMTEST.md), [SPU.md](SPU.md), [CPU.md](CPU.md), [CD.md](CD.md).
