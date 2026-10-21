@@ -787,6 +787,7 @@ set_global_assignment -name VHDL_FILE ../../../rtl/gpu_videoout.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/gpu.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/pGPU_pocket.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/gpu_pocket_div.vhd
+set_global_assignment -name VHDL_FILE ../../../rtl/gpu_pixelpipeline_pocket.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/gpu_poly_pocket.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/gpu_line_pocket.vhd
 set_global_assignment -name VHDL_FILE ../../../rtl/gpu_rect_pocket.vhd

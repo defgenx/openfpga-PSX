@@ -24,17 +24,17 @@ entity gpu_rect_pocket is
       fifoOut_idle         : in  std_logic;
       pipeline_busy        : in  std_logic;
       pipeline_stall       : in  std_logic;
-      pipeline_new         : out std_logic := '0';
-      pipeline_texture     : out std_logic := '0';
-      pipeline_transparent : out std_logic := '0';
-      pipeline_rawTexture  : out std_logic := '0';
-      pipeline_x           : out unsigned(9 downto 0) := (others => '0');
-      pipeline_y           : out unsigned(8 downto 0) := (others => '0');
-      pipeline_cr          : out unsigned(7 downto 0) := (others => '0');
-      pipeline_cg          : out unsigned(7 downto 0) := (others => '0');
-      pipeline_cb          : out unsigned(7 downto 0) := (others => '0');
-      pipeline_u           : out unsigned(7 downto 0) := (others => '0');
-      pipeline_v           : out unsigned(7 downto 0) := (others => '0');
+      pipeline_new         : out std_logic;
+      pipeline_texture     : out std_logic;
+      pipeline_transparent : out std_logic;
+      pipeline_rawTexture  : out std_logic;
+      pipeline_x           : out unsigned(9 downto 0);
+      pipeline_y           : out unsigned(8 downto 0);
+      pipeline_cr          : out unsigned(7 downto 0);
+      pipeline_cg          : out unsigned(7 downto 0);
+      pipeline_cb          : out unsigned(7 downto 0);
+      pipeline_u           : out unsigned(7 downto 0);
+      pipeline_v           : out unsigned(7 downto 0);
 
       proc_idle            : in  std_logic;
       fifo_Valid           : in  std_logic;
@@ -97,6 +97,7 @@ architecture arch of gpu_rect_pocket is
    signal rowLen              : unsigned(9 downto 0) := (others => '0');
 
    signal firstPixel          : std_logic;
+   signal emit                : std_logic;
 
 begin
 
@@ -106,6 +107,20 @@ begin
    requestVRAMXPos   <= xPos                      when (state = REQUESTLINE and requestVRAMIdle = '1' and pipeline_stall = '0') else (others => '0');
    requestVRAMYPos   <= unsigned(yPos(8 downto 0)) when (state = REQUESTLINE and requestVRAMIdle = '1' and pipeline_stall = '0') else (others => '0');
    requestVRAMSize   <= '0' & rowLen              when (state = REQUESTLINE and requestVRAMIdle = '1' and pipeline_stall = '0') else (others => '0');
+
+   -- the pixel of this cycle, all zero when none: the pixel pipeline latches it
+   emit <= '1' when (state = PROCPIXELS and pipeline_stall = '0' and (firstPixel = '0' or pipeline_busy = '0')) else '0';
+   pipeline_new         <= emit;
+   pipeline_texture     <= emit and rec_texture;
+   pipeline_transparent <= emit and rec_transparency;
+   pipeline_rawTexture  <= emit and rec_rawTexture;
+   pipeline_x           <= xPos when emit = '1' else (others => '0');
+   pipeline_y           <= unsigned(yPos(8 downto 0)) when emit = '1' else (others => '0');
+   pipeline_cr          <= unsigned(rec_color( 7 downto  0)) when emit = '1' else (others => '0');
+   pipeline_cg          <= unsigned(rec_color(15 downto  8)) when emit = '1' else (others => '0');
+   pipeline_cb          <= unsigned(rec_color(23 downto 16)) when emit = '1' else (others => '0');
+   pipeline_u           <= uWork when emit = '1' else (others => '0');
+   pipeline_v           <= vWork when emit = '1' else (others => '0');
 
    vramLineEna  <= '1' when (state = PROCPIXELS) else '0';
    vramLineAddr <= xPos when (state = PROCPIXELS) else (others => '0');
@@ -137,18 +152,6 @@ begin
          elsif (ce = '1') then
 
             done                 <= '0';
-
-            pipeline_new         <= '0';
-            pipeline_texture     <= '0';
-            pipeline_transparent <= '0';
-            pipeline_rawTexture  <= '0';
-            pipeline_x           <= (others => '0');
-            pipeline_y           <= (others => '0');
-            pipeline_cr          <= (others => '0');
-            pipeline_cg          <= (others => '0');
-            pipeline_cb          <= (others => '0');
-            pipeline_u           <= (others => '0');
-            pipeline_v           <= (others => '0');
 
             textPalNew           <= '0';
             textPalX             <= (others => '0');
@@ -277,18 +280,6 @@ begin
                when PROCPIXELS =>
                   if (pipeline_stall = '0' and (firstPixel = '0' or pipeline_busy = '0')) then
                      firstPixel <= '0';
-
-                     pipeline_new         <= '1';
-                     pipeline_texture     <= rec_texture;
-                     pipeline_transparent <= rec_transparency;
-                     pipeline_rawTexture  <= rec_rawTexture;
-                     pipeline_x           <= xPos;
-                     pipeline_y           <= unsigned(yPos(8 downto 0));
-                     pipeline_cr          <= unsigned(rec_color( 7 downto  0));
-                     pipeline_cg          <= unsigned(rec_color(15 downto  8));
-                     pipeline_cb          <= unsigned(rec_color(23 downto 16));
-                     pipeline_u           <= uWork;
-                     pipeline_v           <= vWork;
 
                      if (xPos /= xLim) then
                         xPos  <= xPos + 1;

@@ -2,6 +2,8 @@ library IEEE;
 use IEEE.std_logic_1164.all;  
 use IEEE.numeric_std.all; 
 
+library mem;
+
 use work.pGPU.all;
 use work.pGPU_pocket.all;
 
@@ -48,23 +50,18 @@ entity gpu_poly_pocket is
       fifoOut_idle         : in  std_logic;
       pipeline_busy        : in  std_logic;
       pipeline_stall       : in  std_logic;
-      pipeline_new         : out std_logic := '0';
-      pipeline_texture     : out std_logic := '0';
-      pipeline_transparent : out std_logic := '0';
-      pipeline_rawTexture  : out std_logic := '0';
-      pipeline_dithering   : out std_logic := '0';
-      pipeline_x           : out unsigned(9 downto 0) := (others => '0');
-      pipeline_y           : out unsigned(8 downto 0) := (others => '0');
-      pipeline_cr          : out unsigned(7 downto 0) := (others => '0');
-      pipeline_cg          : out unsigned(7 downto 0) := (others => '0');
-      pipeline_cb          : out unsigned(7 downto 0) := (others => '0');
-      pipeline_u           : out unsigned(7 downto 0) := (others => '0');
-      pipeline_v           : out unsigned(7 downto 0) := (others => '0'); 
-      pipeline_filter      : out std_logic := '0';   
-      pipeline_u11         : out unsigned(7 downto 0) := (others => '0');
-      pipeline_v11         : out unsigned(7 downto 0) := (others => '0');      
-      pipeline_uAcc        : out unsigned(7 downto 0) := (others => '0');
-      pipeline_vAcc        : out unsigned(7 downto 0) := (others => '0');
+      pipeline_new         : out std_logic;
+      pipeline_texture     : out std_logic;
+      pipeline_transparent : out std_logic;
+      pipeline_rawTexture  : out std_logic;
+      pipeline_dithering   : out std_logic;
+      pipeline_x           : out unsigned(9 downto 0);
+      pipeline_y           : out unsigned(8 downto 0);
+      pipeline_cr          : out unsigned(7 downto 0);
+      pipeline_cg          : out unsigned(7 downto 0);
+      pipeline_cb          : out unsigned(7 downto 0);
+      pipeline_u           : out unsigned(7 downto 0);
+      pipeline_v           : out unsigned(7 downto 0);
       
       proc_idle            : in  std_logic;
       fifo_Valid           : in  std_logic;
@@ -127,8 +124,13 @@ architecture arch of gpu_poly_pocket is
       u         : unsigned(7 downto 0);
       v         : unsigned(7 downto 0);
    end record;
-   type tRecVertexArray is array(0 to 3) of tVertex;
-   signal rec_vertices        : tRecVertexArray := (others => (0, 0, (others => '0') , (others => '0') , (others => '0') , (others => '0') , (others => '0')));
+
+   -- the four received vertices live in memories with one read port per sorted position
+   signal we_xy               : std_logic;
+   signal we_col              : std_logic;
+   signal we_uv               : std_logic;
+   signal wd_xy               : std_logic_vector(23 downto 0);
+   signal wa_col              : unsigned(1 downto 0);
 
    signal rec_index           : integer range 0 to 3;
    
@@ -139,7 +141,7 @@ architecture arch of gpu_poly_pocket is
    signal nextQuad            : std_logic := '0';
    
    type tworkVertexArray is array(0 to 2) of tVertex;
-   signal vt                  : tworkVertexArray;
+   signal vt                  : tworkVertexArray := (others => (0, 0, (others => '0') , (others => '0') , (others => '0') , (others => '0') , (others => '0')));
    type tIdx is array(0 to 2) of integer range 0 to 3;
    signal vtIdx               : tIdx := (0, 1, 2);
    signal coreVertex          : integer range 0 to 2;
@@ -224,7 +226,8 @@ architecture arch of gpu_poly_pocket is
    signal xStop               : signed(11 downto 0) := (others => '0'); 
    signal xSize               : unsigned(10 downto 0) := (others => '0'); 
 
-   signal firstPixel          : std_logic;   
+   signal firstPixel          : std_logic;
+   signal emit                : std_logic;
    
    -- simulation-only probes, pruned by synthesis
    signal spanv               : std_logic := '0';
@@ -240,6 +243,17 @@ architecture arch of gpu_poly_pocket is
       return n + 1;
    end function;
    
+   -- vertex coordinate plus drawing offset: 11 bits wrap with a negative offset, 12 bits otherwise
+   function vpos(off : signed(10 downto 0); w : std_logic_vector(10 downto 0)) return signed is
+      variable t : signed(11 downto 0);
+   begin
+      if (off < 0) then
+         t := resize(off, 12) + signed('0' & w);
+         return resize(t(10 downto 0), 12);
+      end if;
+      return resize(signed(w), 12) + resize(off, 12);
+   end function;
+
    function chan(v : tVertex; ch : integer) return unsigned is
    begin
       case ch is
@@ -270,16 +284,76 @@ begin
    xStart    <= xShort when rightFacing = 0 else xLong;
    xEnd      <= xLong  when rightFacing = 0 else xShort;
    
-   -- vt(k) is the k-th vertex of the triangle in sorted order: a view of rec_vertices
+   -- vt(k) is the k-th vertex of the triangle in sorted order; a flat colour is the colour of vertex 0
+   -- (the golden copies it into all four)
    gvt : for k in 0 to 2 generate
-      vt(k) <= rec_vertices(vtIdx(k));
+      signal ca    : unsigned(1 downto 0);
+      signal q_xy  : std_logic_vector(23 downto 0);
+      signal q_col : std_logic_vector(23 downto 0);
+      signal q_uv  : std_logic_vector(15 downto 0);
+   begin
+      ca <= to_unsigned(vtIdx(k), 2) when rec_shading = '1' else "00";
+
+      ixy : entity mem.RamMLAB
+      generic map ( width => 24, widthad => 2 )
+      port map
+      (
+         inclock => clk2x, wren => we_xy, data => wd_xy, wraddress => std_logic_vector(to_unsigned(rec_index, 2)),
+         rdaddress => std_logic_vector(to_unsigned(vtIdx(k), 2)), q => q_xy
+      );
+      icol : entity mem.RamMLAB
+      generic map ( width => 24, widthad => 2 )
+      port map
+      (
+         inclock => clk2x, wren => we_col, data => fifo_data(23 downto 0), wraddress => std_logic_vector(wa_col),
+         rdaddress => std_logic_vector(ca), q => q_col
+      );
+      iuv : entity mem.RamMLAB
+      generic map ( width => 16, widthad => 2 )
+      port map
+      (
+         inclock => clk2x, wren => we_uv, data => fifo_data(15 downto 0), wraddress => std_logic_vector(to_unsigned(rec_index, 2)),
+         rdaddress => std_logic_vector(to_unsigned(vtIdx(k), 2)), q => q_uv
+      );
+
+      vt(k).x <= to_integer(signed(q_xy(23 downto 12)));
+      vt(k).y <= to_integer(signed(q_xy(11 downto 0)));
+      vt(k).r <= unsigned(q_col( 7 downto  0));
+      vt(k).g <= unsigned(q_col(15 downto  8));
+      vt(k).b <= unsigned(q_col(23 downto 16));
+      vt(k).u <= unsigned(q_uv( 7 downto 0));
+      vt(k).v <= unsigned(q_uv(15 downto 8));
    end generate;
-   
+
+   -- writes of the receive states (the process below holds the state they decode)
+   we_col <= ce and (not reset) and (fifo_Valid) when (state = REQUESTCOLOR) else
+             ce and (not reset) and proc_idle and fifo_Valid when (state = IDLE and fifo_data(31 downto 29) = "001") else '0';
+   wa_col <= to_unsigned(rec_index, 2) when state = REQUESTCOLOR else "00";
+   we_xy  <= ce and (not reset) and fifo_Valid when (state = REQUESTPOS) else '0';
+   we_uv  <= ce and (not reset) and fifo_Valid when (state = REQUESTTEXTURE) else '0';
+   wd_xy  <= std_logic_vector(vpos(drawingOffsetX, fifo_data(10 downto 0))) & std_logic_vector(vpos(drawingOffsetY, fifo_data(26 downto 16)));
+
    dX10 <= to_signed(vt(1).x - vt(0).x, 13);
    dX21 <= to_signed(vt(2).x - vt(1).x, 13);
    dY10 <= to_signed(vt(1).y - vt(0).y, 13);
    dY21 <= to_signed(vt(2).y - vt(1).y, 13);
    
+   -- the pixel of this cycle, all zero when none: the pixel pipeline latches it
+   emit <= '1' when (state = PROCPIXELS and pipeline_stall = '0' and (firstPixel = '0' or pipeline_busy = '0') and
+                     xPos >= to_integer(drawingAreaLeft) and xPos <= to_integer(drawingAreaRight)) else '0';
+   pipeline_new         <= emit;
+   pipeline_texture     <= emit and rec_texture;
+   pipeline_transparent <= emit and rec_transparency;
+   pipeline_rawTexture  <= emit and rec_rawTexture;
+   pipeline_dithering   <= emit and rec_dithering;
+   pipeline_x           <= unsigned(xPos(9 downto 0)) when emit = '1' else (others => '0');
+   pipeline_y           <= unsigned(yPos(8 downto 0)) when emit = '1' else (others => '0');
+   pipeline_cr          <= pixv(0) when emit = '1' else (others => '0');
+   pipeline_cg          <= pixv(1) when emit = '1' else (others => '0');
+   pipeline_cb          <= pixv(2) when emit = '1' else (others => '0');
+   pipeline_u           <= pixv(3) when emit = '1' else (others => '0');
+   pipeline_v           <= pixv(4) when emit = '1' else (others => '0');
+
    -- an unused channel (flat colour, untextured) is the core vertex value, not an interpolator
    use_ch <= (rec_shading, rec_shading, rec_shading, rec_texture, rec_texture);
    gpix : for i in 0 to 4 generate
@@ -322,8 +396,6 @@ begin
    issue_dbg        <= '1' when state = ISSUE else '0';
    
    process (clk2x)
-      variable xrec12   : signed(11 downto 0);
-      variable yrec12   : signed(11 downto 0);
       variable cull     : std_logic;    
       variable dx1      : signed(44 downto 0);
       variable dx2      : signed(44 downto 0);
@@ -380,24 +452,6 @@ begin
             textPalX             <= (others => '0');
             textPalY             <= (others => '0');
             
-            pipeline_new         <= '0';
-            pipeline_texture     <= '0';
-            pipeline_transparent <= '0';
-            pipeline_rawTexture  <= '0';
-            pipeline_dithering   <= '0';
-            pipeline_x           <= (others => '0');
-            pipeline_y           <= (others => '0');
-            pipeline_cr          <= (others => '0');
-            pipeline_cg          <= (others => '0');
-            pipeline_cb          <= (others => '0');
-            pipeline_u           <= (others => '0');
-            pipeline_v           <= (others => '0');  
-            pipeline_filter      <= '0';       
-            pipeline_u11         <= (others => '0');
-            pipeline_v11         <= (others => '0');            
-            pipeline_uAcc        <= (others => '0');
-            pipeline_vAcc        <= (others => '0');
-            
             divE_req             <= DIV_REQ_IDLE;
             gStart               <= '0';
             slot0_upd            <= '0';
@@ -420,37 +474,15 @@ begin
                      rec_transparency  <= fifo_data(25);
                      rec_rawTexture    <= fifo_data(24);
                      rec_dithering     <= fifo_data(28) or (fifo_data(26) and (not fifo_data(24)));
-                     for i in 0 to 3 loop
-                        rec_vertices(i).r <= unsigned(fifo_data( 7 downto  0));
-                        rec_vertices(i).g <= unsigned(fifo_data(15 downto  8));
-                        rec_vertices(i).b <= unsigned(fifo_data(23 downto 16));
-                     end loop;
                   end if;
                               
                when REQUESTCOLOR =>
                   if (fifo_Valid = '1') then
                      state             <= REQUESTPOS;
-                     rec_vertices(rec_index).r <= unsigned(fifo_data( 7 downto  0));
-                     rec_vertices(rec_index).g <= unsigned(fifo_data(15 downto  8));
-                     rec_vertices(rec_index).b <= unsigned(fifo_data(23 downto 16));
                   end if;   
                   
                when REQUESTPOS =>
                   if (fifo_Valid = '1') then
-                     if (drawingOffsetX < 0) then
-                        xrec12                    := resize(drawingOffsetX, 12) + signed('0' & fifo_data(10 downto  0));
-                        rec_vertices(rec_index).x <= to_integer(xrec12(10 downto 0));
-                     else
-                        rec_vertices(rec_index).x <= to_integer(resize(signed(fifo_data(10 downto  0)),12) + resize(drawingOffsetX, 12));
-                     end if;
-                     
-                     if (drawingOffsetY < 0) then
-                        yrec12                    := resize(drawingOffsetY, 12) + signed('0' & fifo_data(26 downto 16));    
-                        rec_vertices(rec_index).y <= to_integer(yrec12(10 downto 0));
-                     else
-                        rec_vertices(rec_index).y <= to_integer(resize(signed(fifo_data(26 downto 16)),12) + resize(drawingOffsetY, 12));
-                     end if;
-                     
                      if (rec_texture = '1') then
                         state    <= REQUESTTEXTURE;  
                      elsif ((rec_quad = '1' and rec_index = 3) or (rec_quad = '0' and rec_index = 2)) then
@@ -468,8 +500,6 @@ begin
                   
                when REQUESTTEXTURE =>
                   if (fifo_Valid = '1') then
-                     rec_vertices(rec_index).u <= unsigned(fifo_data( 7 downto  0));
-                     rec_vertices(rec_index).v <= unsigned(fifo_data(15 downto  8));
                      if (rec_index = 0) then
                         rec_textPalX  <= unsigned(fifo_data(21 downto 16)) & "0000";
                         rec_textPalY  <= unsigned(fifo_data(30 downto 22));
@@ -962,28 +992,6 @@ begin
                         state  <= PREPARELINE;
                      end if; 
                      
-                     if (xPos >= to_integer(drawingAreaLeft) and xPos <= to_integer(drawingAreaRight)) then
-                        pipeline_new         <= '1';
-                        pipeline_texture     <= rec_texture;
-                        pipeline_transparent <= rec_transparency;
-                        pipeline_rawTexture  <= rec_rawTexture;
-                        pipeline_dithering   <= rec_dithering;
-                        pipeline_x           <= unsigned(xPos(9 downto 0));
-                        pipeline_y           <= unsigned(yPos(8 downto 0));
-                        pipeline_cr          <= pixv(0);
-                        pipeline_cg          <= pixv(1);
-                        pipeline_cb          <= pixv(2);
-                        pipeline_u           <= pixv(3);
-                        pipeline_v           <= pixv(4);
-                        pipeline_u11         <= pixv(3);
-                        pipeline_v11         <= pixv(4);
-                        pipeline_uAcc        <= workv(3)(11 downto 4);
-                        pipeline_vAcc        <= workv(4)(11 downto 4);
-                        if (rec_texture = '0') then
-                           pipeline_uAcc     <= x"80";
-                           pipeline_vAcc     <= x"80";
-                        end if;
-                     end if;
                   end if;
                       
             end case;

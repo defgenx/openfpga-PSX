@@ -575,6 +575,45 @@ def suite_smoke(g):
     g.rs()
 
 
+def suite_cache(g, count):
+    """Texture cache and CLUT cache: lines filled by a textured rectangle stay cached when VRAM changes under them until a
+    GP0 01 (or a transfer command) clears the cache. Bursts of GP0 01 of every length between two textured draws (the
+    epoch of a cached line must never come round again), with a flat rectangle over the texture in between."""
+    r = g.r
+    g.setup()
+    g.area(0, 0, 1023, 511)
+    bursts = [0, 0, 1, 2, 3, 6, 7, 8, 9, 14, 15, 16, 17, 30, 31, 32, 33, 62, 63, 64, 65, 126, 127, 128, 129,
+              254, 255, 256, 257, 510, 511, 512, 513, 1022, 1023, 1024, 1025]
+    for it in range(count):
+        d = r.choice((0, 1, 2, 2))
+        tx, ty = 5 + r.randrange(11), r.randrange(2)
+        w_hw, h = r.choice((8, 16, 32)), r.choice((8, 16, 32))
+        clut_xy = (16 * r.randrange(0, 20), 480 + r.randrange(32)) if d < 2 else None
+        clut = g.texset(d, tx, ty, w_hw, h, clut_xy)
+        scale = (4, 2, 1)[d]
+        lim = max(1, w_hw * scale - 16)
+        g.e1(tx=tx, ty=ty, semi=r.randrange(4), depth=d, dither=r.randrange(2))
+        for _ in range(r.randrange(1, 4)):
+            u, v = r.randrange(lim), r.randrange(max(1, h - 16))
+            op = 0x7C | (r.random() < 0.3) | (r.random() < 0.3) << 1
+            x, y = r.randrange(0, 200), r.randrange(0, 200)
+            g.rect(op, x, y, 0, 0, u, v, clut, d)
+            # VRAM changes under the cached lines without a clear
+            g.e1(tx=tx, ty=ty, depth=d)
+            g.rect(0x60, tx * 64, ty * 256, w_hw, h)
+            if clut_xy and r.random() < 0.5:
+                g.rect(0x60, clut_xy[0], clut_xy[1], 16 if d == 0 else 256, 1)
+            n = r.choice(bursts)
+            g.t("cacheclear")
+            for _ in range(n):
+                g.out.append("Q 01000000")
+            g.idle()
+            g.e1(tx=tx, ty=ty, semi=r.randrange(4), depth=d, dither=r.randrange(2))
+            g.rect(op, x, y + 40, 0, 0, u, v, clut, d)
+            g.rect(op ^ 1, x + 20, y, 0, 0, u, v, clut, d)
+    g.rs()
+
+
 def suite_xfer(g, count):
     """Transfer commands (fill, upload, copy, download) with random sizes, overlaps and wraps, and GP1 01 (clear FIFO)
     in the middle of an upload or a download."""
@@ -691,7 +730,7 @@ def suite_video(g, seed):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--suite", required=True, choices=["directed", "edge", "random", "uniform", "game", "smoke", "video", "xfer"])
+    ap.add_argument("--suite", required=True, choices=["directed", "edge", "random", "uniform", "game", "smoke", "video", "xfer", "cache"])
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--count", type=int, default=2000)
     ap.add_argument("--tail", type=int, default=0, help="idle clk1x cycles appended to the game suite (video scan-out)")
@@ -707,6 +746,8 @@ def main():
         suite_video(g, a.seed)
     elif name == "xfer":
         suite_xfer(g, a.count // 4)
+    elif name == "cache":
+        suite_cache(g, a.count // 8)
     elif name == "uniform":
         suite_uniform(g, a.count)
     elif name == "game":

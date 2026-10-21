@@ -1076,11 +1076,6 @@ begin
       pipeline_cb          => poly_pipeline_cb,
       pipeline_u           => poly_pipeline_u,
       pipeline_v           => poly_pipeline_v,
-      pipeline_filter      => open,
-      pipeline_u11         => open,
-      pipeline_v11         => open,
-      pipeline_uAcc        => open,
-      pipeline_vAcc        => open,
 
       proc_idle            => proc_idle,
       fifo_Valid           => fifoIn_Valid,
@@ -1108,7 +1103,7 @@ begin
    pipeline_texture     <= '0'                       or rect_pipeline_texture     or poly_pipeline_texture    ;
    pipeline_transparent <= line_pipeline_transparent or rect_pipeline_transparent or poly_pipeline_transparent;
    pipeline_rawTexture  <= '0'                       or rect_pipeline_rawTexture  or poly_pipeline_rawTexture ;
-   pipeline_dithering   <= (line_pipeline_new        or '0'                       or poly_pipeline_dithering  ) and drawMode(9) and (not ditherOff);
+   pipeline_dithering   <= line_pipeline_new         or '0'                       or poly_pipeline_dithering  ;
    pipeline_x           <= line_pipeline_x           or rect_pipeline_x           or poly_pipeline_x          ;
    pipeline_y           <= line_pipeline_y           or rect_pipeline_y           or poly_pipeline_y          ;
    pipeline_cr          <= line_pipeline_cr          or rect_pipeline_cr          or poly_pipeline_cr         ;
@@ -1122,22 +1117,17 @@ begin
    pipeline_textPalX    <= rect_textPalX   or poly_textPalX  ;
    pipeline_textPalY    <= rect_textPalY   or poly_textPalY  ;
 
-   -- texture filter off: the pipeline's filter inputs are constants
-   igpu_pixelpipeline : entity work.gpu_pixelpipeline
+   igpu_pixelpipeline : entity work.gpu_pixelpipeline_pocket
    port map
    (
       clk2x                => clk2x,
-      clk2xIndex           => clk2xIndex,
       ce                   => ce,
       reset                => softreset,
 
       noTexture            => noTexture,
-      render24             => '0',
-      drawSlow             => '0',
+      ditherOn             => drawMode(9) and (not ditherOff),
 
-      oldGPU               => '0',
-
-      drawMode_in          => drawMode,
+      drawMode_in          => drawMode(8 downto 0),
       DrawPixelsMask_in    => GPUSTAT_DrawPixelsMask,
       SetMask_in           => GPUSTAT_SetMask,
 
@@ -1159,11 +1149,6 @@ begin
       pipeline_cb          => pipeline_cb,
       pipeline_u           => pipeline_u,
       pipeline_v           => pipeline_v,
-      pipeline_filter      => '0',
-      pipeline_u11         => (others => '0'),
-      pipeline_v11         => (others => '0'),
-      pipeline_uAcc        => (others => '0'),
-      pipeline_vAcc        => (others => '0'),
 
       requestVRAMEnable    => pipeline_reqVRAMEnable,
       requestVRAMXPos      => pipeline_reqVRAMXPos,
@@ -1175,15 +1160,13 @@ begin
       vram_DOUT_READY      => vram_DOUT_READY,
 
       vramLineData         => vramLineData,
-      vramLineData2        => (others => '0'),
 
       textPalInNew         => pipeline_textPalNew,
-      textPalInX           => pipeline_textPalX,
+      textPalInX           => pipeline_textPalX(9 downto 4),
       textPalInY           => pipeline_textPalY,
 
       pixelStall           => pixelStall,
       pixelColor           => pipeline_pixelColor,
-      pixelColor2          => open,
       pixelAddr            => pipeline_pixelAddr,
       pixelWrite           => pipeline_pixelWrite
    );

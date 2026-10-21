@@ -38,13 +38,13 @@ entity gpu_line_pocket is
       fifoOut_idle         : in  std_logic;
       pipeline_busy        : in  std_logic;
       pipeline_stall       : in  std_logic;
-      pipeline_new         : out std_logic := '0';
-      pipeline_transparent : out std_logic := '0';
-      pipeline_x           : out unsigned(9 downto 0) := (others => '0');
-      pipeline_y           : out unsigned(8 downto 0) := (others => '0');
-      pipeline_cr          : out unsigned(7 downto 0) := (others => '0');
-      pipeline_cg          : out unsigned(7 downto 0) := (others => '0');
-      pipeline_cb          : out unsigned(7 downto 0) := (others => '0');
+      pipeline_new         : out std_logic;
+      pipeline_transparent : out std_logic;
+      pipeline_x           : out unsigned(9 downto 0);
+      pipeline_y           : out unsigned(8 downto 0);
+      pipeline_cr          : out unsigned(7 downto 0);
+      pipeline_cg          : out unsigned(7 downto 0);
+      pipeline_cb          : out unsigned(7 downto 0);
 
       proc_idle            : in  std_logic;
       fifo_Valid           : in  std_logic;
@@ -153,6 +153,9 @@ architecture arch of gpu_line_pocket is
    signal yPerLine            : unsigned(10 downto 0) := (others => '0');
 
    signal firstPixel          : std_logic;
+   signal emit                : std_logic;
+   signal drawx               : signed(10 downto 0);
+   signal drawy               : signed(10 downto 0);
 
    -- 20-bit LFSR timeout: 2^20-1 steps from x"00001" reach x"00001" again, so saturation is a flag
    signal timeout             : unsigned(19 downto 0) := x"00001";
@@ -191,6 +194,24 @@ begin
    requestVRAMXPos   <= unsigned(workx(41 downto 32)) when (procstate = PROCREADLINE and requestVRAMIdle = '1' and pipeline_stall = '0') else (others => '0');
    requestVRAMYPos   <= unsigned(worky(40 downto 32)) when (procstate = PROCREADLINE and requestVRAMIdle = '1' and pipeline_stall = '0') else (others => '0');
    requestVRAMSize   <= yPerLine                      when (procstate = PROCREADLINE and requestVRAMIdle = '1' and pipeline_stall = '0') else (others => '0');
+
+   -- the pixel of this cycle, all zero when none: the pixel pipeline latches it
+   drawx <= signed(workx(42 downto 32));
+   drawy <= signed(worky(42 downto 32));
+   emit  <= '1' when (procstate = PROCPIXELS and pipeline_stall = '0' and (firstPixel = '0' or pipeline_busy = '0') and
+                      (interlacedDrawing = '0' or activeLineLSB /= drawy(0)) and
+                      drawx >= to_integer(drawingAreaLeft) and drawx <= to_integer(drawingAreaRight) and
+                      drawy >= to_integer(drawingAreaTop) and drawy <= to_integer(drawingAreaBottom)) else '0';
+   pipeline_new         <= emit;
+   pipeline_transparent <= emit and proc_transparency;
+   pipeline_x           <= unsigned(drawx(9 downto 0)) when emit = '1' else (others => '0');
+   pipeline_y           <= unsigned(drawy(8 downto 0)) when emit = '1' else (others => '0');
+   pipeline_cr          <= (others => '0') when emit = '0' else
+                           unsigned(proc_color1( 7 downto  0)) when proc_shading = '0' else unsigned(workr(19 downto 12));
+   pipeline_cg          <= (others => '0') when emit = '0' else
+                           unsigned(proc_color1(15 downto  8)) when proc_shading = '0' else unsigned(workg(19 downto 12));
+   pipeline_cb          <= (others => '0') when emit = '0' else
+                           unsigned(proc_color1(23 downto 16)) when proc_shading = '0' else unsigned(workb(19 downto 12));
 
    vramLineEna  <= '1' when (procstate = PROCPIXELS) else '0';
    vramLineAddr <= unsigned(workx(41 downto 32)) when (procstate = PROCPIXELS) else (others => '0');
@@ -359,8 +380,6 @@ begin
    process (clk2x)
       variable dx    : signed(11 downto 0);
       variable dy    : signed(11 downto 0);
-      variable drawx : signed(10 downto 0);
-      variable drawy : signed(10 downto 0);
       variable nexty : signed(44 downto 0);
       variable edgeDvd : signed(44 downto 0);
       variable edgeLast   : boolean;
@@ -382,14 +401,6 @@ begin
             procstate <= PROCIDLE;
 
          elsif (ce = '1') then
-
-            pipeline_new         <= '0';
-            pipeline_transparent <= '0';
-            pipeline_x           <= (others => '0');
-            pipeline_y           <= (others => '0');
-            pipeline_cr          <= (others => '0');
-            pipeline_cg          <= (others => '0');
-            pipeline_cb          <= (others => '0');
 
             divE_req             <= DIV_REQ_IDLE;
             divG_req             <= DIV_REQ_IDLE;
@@ -555,27 +566,6 @@ begin
                         procstate <= PROCIDLE;
                      elsif ((proc_transparency = '1' or DrawPixelsMask = '1') and nexty(40 downto 32) /= worky(40 downto 32)) then
                         procstate <= PROCREADLINE;
-                     end if;
-
-                     drawx := workx(42 downto 32);
-                     drawy := worky(42 downto 32);
-
-                     if (interlacedDrawing = '0' or (activeLineLSB /= drawy(0))) then
-                        if (drawx >= to_integer(drawingAreaLeft) and drawx <= to_integer(drawingAreaRight) and drawy >= to_integer(drawingAreaTop) and drawy <= to_integer(drawingAreaBottom)) then
-                           pipeline_new         <= '1';
-                           pipeline_transparent <= proc_transparency;
-                           pipeline_x           <= unsigned(drawx(9 downto 0));
-                           pipeline_y           <= unsigned(drawy(8 downto 0));
-                           if (proc_shading = '0') then
-                              pipeline_cr       <= unsigned(proc_color1( 7 downto  0));
-                              pipeline_cg       <= unsigned(proc_color1(15 downto  8));
-                              pipeline_cb       <= unsigned(proc_color1(23 downto 16));
-                           else
-                              pipeline_cr       <= unsigned(workr(19 downto 12));
-                              pipeline_cg       <= unsigned(workg(19 downto 12));
-                              pipeline_cb       <= unsigned(workb(19 downto 12));
-                           end if;
-                        end if;
                      end if;
 
                      workx <= workx + stepDx;
