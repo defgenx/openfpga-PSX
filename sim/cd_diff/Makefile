@@ -77,7 +77,7 @@ $(RUNROOT)/$(1)/$(2)_s$(3)/status: $(BUILD)/$(1)/stamp FORCE
 	    -g G_SUITE=$(2) -g G_SCEN=$(3) -g G_SEED=$(3) -g G_COUNT=$(CNT_$(2)) $(NVCGEN) tb_diff -r > run.log 2>&1; echo $$$$? > status; } ; \
 	echo "done $(1) $(2) $(3): `grep '^RESULT' run.log | tail -1` (`expr \`date +%s\` - $$$$t0` s)"
 endef
-CNT_random   ?= $(COUNT)
+CNT_random   ?= $(if $(filter gate,$(MAKECMDGOALS)),$(GATE_COUNT),$(COUNT))
 CNT_directed ?= 2
 CNT_realtime ?= 1
 CNT_reset    ?= 40
